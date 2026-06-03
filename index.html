@@ -785,6 +785,48 @@ function regionPredictionBand(region, role) {
   return { pct: Math.max(8, Math.min(45, Math.round(cov * 100))), basis: 'measured', n: cpas.length };
 }
 
+// Role-level CPA for a single platform, aggregated across every region with
+// historic data on that platform-role. Same shrinkage as regionBlendedCPA --
+// pulled toward the role benchmark for thin samples -- so a platform with
+// little history doesn't anchor predictions at an unrealistic rate.
+function rolePlatformCPA(plat, role) {
+  let spend = 0, apps = 0;
+  DATA.regions_ordered.forEach(r => {
+    const s = getStats(plat, r, role);
+    if (s && s.completes > 0) { spend += (s.spend || 0); apps += (s.completes || 0); }
+  });
+  const bench = DATA.cpa_benchmarks && DATA.cpa_benchmarks[role] ? DATA.cpa_benchmarks[role] : 40;
+  if (apps <= 0) return { cpa: bench, rawCpa: null, apps: 0, source: 'benchmark' };
+  const raw = spend / apps;
+  const cpa = (apps * raw + CPA_PRIOR_K * bench) / (apps + CPA_PRIOR_K);
+  return { cpa, rawCpa: raw, apps, source: Math.abs(cpa - raw) > 0.5 ? 'shrunk' : 'measured' };
+}
+
+// Month-to-month volatility of a platform's role-wide cost-per-application.
+// Same method as regionPredictionBand but aggregated across regions for the
+// single platform, so we can present a +/- range for the channel summary.
+function rolePlatformBand(plat, role) {
+  const months = {};
+  DATA.regions_ordered.forEach(r => {
+    const m = getMonthly(plat, r, role);
+    Object.keys(m).forEach(k => {
+      const cell = m[k];
+      if (!cell) return;
+      if (!months[k]) months[k] = { spend: 0, apps: 0 };
+      months[k].spend += cell.spend || 0;
+      months[k].apps += cell.completes || 0;
+    });
+  });
+  const cpas = Object.values(months)
+    .filter(x => x.apps >= 3 && x.spend > 0)
+    .map(x => x.spend / x.apps);
+  if (cpas.length < 3) return { pct: 35, basis: 'thin', n: cpas.length };
+  const mean = cpas.reduce((a, b) => a + b, 0) / cpas.length;
+  const variance = cpas.reduce((a, b) => a + (b - mean) ** 2, 0) / cpas.length;
+  const cov = mean > 0 ? Math.sqrt(variance) / mean : 0;
+  return { pct: Math.max(8, Math.min(45, Math.round(cov * 100))), basis: 'measured', n: cpas.length };
+}
+
 // Build the APPLICATION plan for one role.
 //   - Hold-backs (Indeed Premium + Combined Activity) come off the top -> deployable budget.
 //   - A coverage reserve (default 10%) is split EQUALLY across every live
@@ -957,6 +999,26 @@ function buildFundingPlan(role, p) {
     else if (tot < minV - 1) platBreaches[plat] = { kind: 'under', limit: minV, total: tot };
   });
 
+  // Per-channel summary (Spend, share, CPA, predicted apps, range) for the
+  // PDF's channel breakdown and any tracker the client wants to drop it into.
+  const channelSummary = PLATFORMS.map(plat => {
+    const spend = platformTotals[plat] || 0;
+    const cpaInfo = rolePlatformCPA(plat, role);
+    const bandInfo = rolePlatformBand(plat, role);
+    const predApps = cpaInfo.cpa > 0 ? spend / cpaInfo.cpa : 0;
+    return {
+      platform: plat,
+      spend,
+      share: deployable > 0 ? spend / deployable : 0,
+      cpa: cpaInfo.cpa,
+      cpaSource: cpaInfo.source,
+      predApps,
+      predLow: predApps * (1 - bandInfo.pct / 100),
+      predHigh: predApps * (1 + bandInfo.pct / 100),
+      bandPct: bandInfo.pct,
+    };
+  });
+
   const predictedApps = locs.reduce((s, l) => s + l.predApps, 0);
   const predictedHires = locs.reduce((s, l) => s + l.predHires, 0);
   let bw = 0, bd = 0;
@@ -974,7 +1036,7 @@ function buildFundingPlan(role, p) {
     role, daysInMonth, coverageRate,
     premiumHoldback, acHoldback, deployable,
     coverageReserve, demandPool,
-    locations: locs, totalVac, totalCount: M, platformTotals,
+    locations: locs, totalVac, totalCount: M, platformTotals, channelSummary,
     platBreaches, platClamped: clamped, platMin, platMax,
     appTarget, predictedApps, predLow, predHigh, aggBandPct, predictedHires,
     onTarget: appTarget > 0 && predictedApps >= appTarget,
@@ -1891,7 +1953,7 @@ function exportPDF(state) {
         daysInMonth: days,
       });
     });
-    const TOTAL_PAGES = 3; // SMR, Patrol, Glossary
+    const TOTAL_PAGES = 4; // SMR, Patrol, Channel breakdown, Glossary
 
     // ---- one page per role -----------------------------------------------
     ROLES.forEach((role, roleIdx) => {
@@ -2105,6 +2167,84 @@ function exportPDF(state) {
 
       footer(roleIdx + 1, TOTAL_PAGES);
     });
+
+    // ---- By channel page -------------------------------------------------
+    // Per-role channel summary the client can copy straight into their tracker.
+    // Each role gets a small table: Platform, Spend, Share, Predicted apps, CPA, Range.
+    pdf.addPage();
+    header('By channel', null);
+    let cy = 30;
+    ROLES.forEach((role, idx) => {
+      const plan = plans[role];
+      // Role heading
+      setColor(NAVY); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11);
+      pdf.text(role + ': ' + ROLE_FULL[role], margin, cy);
+      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5); setColor(MID);
+      pdf.text('Spend across the four conversion platforms, with predicted applications and cost-per-application using each platform\u2019s historic rate for this role.',
+        margin, cy + 4.5);
+      cy += 9;
+
+      // Column positions (close to the location-table widths so the eye lines up)
+      const cc = {
+        plat:   margin + 2,
+        spend:  margin + 55,
+        share:  margin + 90,
+        apps:   margin + 125,
+        cpa:    margin + 165,
+        range:  margin + 205,
+      };
+      // Header row
+      setFill(NAVY); pdf.rect(margin, cy, pageW - margin * 2, 7, 'F');
+      pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8.5);
+      pdf.text('Platform',            cc.plat,  cy + 4.7);
+      pdf.text('Spend',               cc.spend, cy + 4.7);
+      pdf.text('Share',               cc.share, cy + 4.7);
+      pdf.text('Predicted apps',      cc.apps,  cy + 4.7);
+      pdf.text('Cost per application', cc.cpa,  cy + 4.7);
+      pdf.text('Likely range',        cc.range, cy + 4.7);
+      cy += 7;
+
+      // Rows
+      pdf.setFont('helvetica', 'normal'); setColor(INK);
+      let totalApps = 0;
+      (plan.channelSummary || []).forEach((ch, i) => {
+        if (i % 2 === 1) {
+          setFill(LIGHT); pdf.rect(margin, cy, pageW - margin * 2, 7, 'F');
+        }
+        setColor(INK); pdf.setFontSize(9);
+        pdf.text(PLATFORM_LABELS[ch.platform], cc.plat, cy + 4.7);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(fmtGBP(ch.spend), cc.spend, cy + 4.7);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(Math.round(ch.share * 100) + '%', cc.share, cy + 4.7);
+        pdf.text(fmtInt(ch.predApps), cc.apps, cy + 4.7);
+        pdf.text(fmtGBP(ch.cpa), cc.cpa, cy + 4.7);
+        pdf.text(fmtInt(ch.predLow) + '\u2013' + fmtInt(ch.predHigh), cc.range, cy + 4.7);
+        totalApps += ch.predApps;
+        cy += 7;
+      });
+      // Total row
+      setFill(NAVY); pdf.rect(margin, cy, pageW - margin * 2, 7, 'F');
+      pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9);
+      pdf.text('Total', cc.plat, cy + 4.7);
+      pdf.text(fmtGBP(plan.deployable), cc.spend, cy + 4.7);
+      pdf.text('100%', cc.share, cy + 4.7);
+      pdf.text(fmtInt(totalApps), cc.apps, cy + 4.7);
+      const blendedCpa = totalApps > 0 ? plan.deployable / totalApps : 0;
+      pdf.text(fmtGBP(blendedCpa), cc.cpa, cy + 4.7);
+      pdf.text('', cc.range, cy + 4.7);
+      cy += 12;
+    });
+
+    // Methodology note at the bottom
+    pdf.setFont('helvetica', 'italic'); pdf.setFontSize(7.8);
+    setColor(MID);
+    const cnote = 'CPA is the historic spend-per-application for that platform across this role, with light shrinkage toward the role-wide rate for thin samples. '
+      + 'Predicted apps = platform spend \u00F7 platform CPA. Likely range reflects month-to-month variation in that platform\u2019s CPA across the data window. '
+      + 'Platform totals may differ slightly from the headline figure on the location pages, which uses a single blended CPA per location rather than per-platform.';
+    pdf.text(pdf.splitTextToSize(cnote, pageW - margin * 2), margin, cy + 4);
+
+    footer(3, TOTAL_PAGES);
 
     // ---- Glossary page ---------------------------------------------------
     pdf.addPage();
