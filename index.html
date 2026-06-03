@@ -802,6 +802,21 @@ function rolePlatformCPA(plat, role) {
   return { cpa, rawCpa: raw, apps, source: Math.abs(cpa - raw) > 0.5 ? 'shrunk' : 'measured' };
 }
 
+// Per-platform CPA for a specific region and role. Shrinks toward the
+// platform's role-wide CPA rather than the overall role benchmark, so a thin
+// London-Appcast cell gets pulled toward Appcast's typical rate for this role
+// rather than the overall blended rate.
+function regionPlatformCPA(plat, region, role) {
+  const platRole = rolePlatformCPA(plat, role);
+  const s = getStats(plat, region, role);
+  if (!s || s.completes <= 0) {
+    return { cpa: platRole.cpa, rawCpa: null, apps: 0, source: 'benchmark' };
+  }
+  const raw = s.spend / s.completes;
+  const cpa = (s.completes * raw + CPA_PRIOR_K * platRole.cpa) / (s.completes + CPA_PRIOR_K);
+  return { cpa, rawCpa: raw, apps: s.completes, source: Math.abs(cpa - raw) > 0.5 ? 'shrunk' : 'measured' };
+}
+
 // Month-to-month volatility of a platform's role-wide cost-per-application.
 // Same method as regionPredictionBand but aggregated across regions for the
 // single platform, so we can present a +/- range for the channel summary.
@@ -899,16 +914,42 @@ function buildFundingPlan(role, p) {
   const coverageReserve = deployable * coverageRate;
   const demandPool = deployable - coverageReserve;
 
+  // Per-location-per-platform CPAs, used as the source of truth for predicting
+  // applications. Each platform's spend in a location predicts apps using that
+  // platform's CPA there. Location predicted apps = sum across platforms. This
+  // makes the location-level total and the channel-level total reconcile by
+  // construction, and means changing the platform mix (via min/max) actually
+  // shifts the predicted apps - not just the budget allocation.
+  locs.forEach(l => {
+    l.platCpa = {};
+    l.platCpaSource = {};
+    PLATFORMS.forEach(plat => {
+      const pc = regionPlatformCPA(plat, l.region, role);
+      l.platCpa[plat] = pc.cpa;
+      l.platCpaSource[plat] = pc.source;
+    });
+  });
+
   locs.forEach(l => {
     l.coverageSlice = M > 0 ? coverageReserve / M : 0;
     l.demandShare = totalVac > 0 ? demandPool * (l.vacancies / totalVac) : 0;
     l.spend = l.coverageSlice + l.demandShare;
-    l.predApps = l.cpa > 0 ? l.spend / l.cpa : 0;
+    l.appSubTarget = totalVac > 0 ? appTarget * (l.vacancies / totalVac) : 0;
+    PLATFORMS.forEach(plat => { l.platSpend[plat] = l.spend * l.platShare[plat]; });
+    // Per-platform predicted apps
+    l.platApps = {};
+    let totApps = 0;
+    PLATFORMS.forEach(plat => {
+      const a = l.platCpa[plat] > 0 ? l.platSpend[plat] / l.platCpa[plat] : 0;
+      l.platApps[plat] = a;
+      totApps += a;
+    });
+    l.predApps = totApps;
+    // Derived blended CPA for display: implied weighted average across platforms
+    l.cpa = totApps > 0 ? l.spend / totApps : 0;
     l.predLow = l.predApps * (1 - l.bandPct / 100);
     l.predHigh = l.predApps * (1 + l.bandPct / 100);
     l.predHires = l.predApps * l.cvr;
-    l.appSubTarget = totalVac > 0 ? appTarget * (l.vacancies / totalVac) : 0;
-    PLATFORMS.forEach(plat => { l.platSpend[plat] = l.spend * l.platShare[plat]; });
   });
 
   // ----- Apply per-platform min/max constraints (role-wide totals) -----
@@ -975,11 +1016,23 @@ function buildFundingPlan(role, p) {
         }
       });
     }
-    // Recompute display shares
+    // Recompute display shares AND per-platform-per-location predictions
+    // (constraints have shifted the spend mix, so apps and the implied
+    // blended CPA need to be recalculated)
     locs.forEach(l => {
+      let totApps = 0;
+      l.platApps = {};
       PLATFORMS.forEach(plat => {
         l.platShare[plat] = l.spend > 0 ? (l.platSpend[plat] || 0) / l.spend : 0;
+        const a = l.platCpa[plat] > 0 ? (l.platSpend[plat] || 0) / l.platCpa[plat] : 0;
+        l.platApps[plat] = a;
+        totApps += a;
       });
+      l.predApps = totApps;
+      l.cpa = totApps > 0 ? l.spend / totApps : 0;
+      l.predLow = l.predApps * (1 - l.bandPct / 100);
+      l.predHigh = l.predApps * (1 + l.bandPct / 100);
+      l.predHires = l.predApps * l.cvr;
     });
   }
 
@@ -1001,20 +1054,22 @@ function buildFundingPlan(role, p) {
 
   // Per-channel summary (Spend, share, CPA, predicted apps, range) for the
   // PDF's channel breakdown and any tracker the client wants to drop it into.
+  // Predicted apps are rolled up from per-platform-per-location predictions,
+  // so the channel total reconciles with the location-page total by construction.
+  // CPA shown is the effective rate implied by the plan's allocation
+  // (channel spend / channel predicted apps).
   const channelSummary = PLATFORMS.map(plat => {
     const spend = platformTotals[plat] || 0;
-    const cpaInfo = rolePlatformCPA(plat, role);
+    const apps = locs.reduce((s, l) => s + (l.platApps && l.platApps[plat] || 0), 0);
     const bandInfo = rolePlatformBand(plat, role);
-    const predApps = cpaInfo.cpa > 0 ? spend / cpaInfo.cpa : 0;
     return {
       platform: plat,
       spend,
       share: deployable > 0 ? spend / deployable : 0,
-      cpa: cpaInfo.cpa,
-      cpaSource: cpaInfo.source,
-      predApps,
-      predLow: predApps * (1 - bandInfo.pct / 100),
-      predHigh: predApps * (1 + bandInfo.pct / 100),
+      cpa: apps > 0 ? spend / apps : 0,
+      predApps: apps,
+      predLow: apps * (1 - bandInfo.pct / 100),
+      predHigh: apps * (1 + bandInfo.pct / 100),
       bandPct: bandInfo.pct,
     };
   });
@@ -2239,9 +2294,9 @@ function exportPDF(state) {
     // Methodology note at the bottom
     pdf.setFont('helvetica', 'italic'); pdf.setFontSize(7.8);
     setColor(MID);
-    const cnote = 'CPA is the historic spend-per-application for that platform across this role, with light shrinkage toward the role-wide rate for thin samples. '
-      + 'Predicted apps = platform spend \u00F7 platform CPA. Likely range reflects month-to-month variation in that platform\u2019s CPA across the data window. '
-      + 'Platform totals may differ slightly from the headline figure on the location pages, which uses a single blended CPA per location rather than per-platform.';
+    const cnote = 'CPA is the effective rate for each channel implied by this plan (channel spend / predicted apps). '
+      + 'Predicted apps roll up from per-platform-per-location calculations, so the channel totals here reconcile to the headline numbers on the location pages. '
+      + 'Likely range reflects month-to-month variation in that platform\u2019s CPA across the data window.';
     pdf.text(pdf.splitTextToSize(cnote, pageW - margin * 2), margin, cy + 4);
 
     footer(3, TOTAL_PAGES);
