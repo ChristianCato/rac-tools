@@ -1542,7 +1542,7 @@ function PlanTab({ state, setState }) {
           <div className="kpi kpi-accent-blue">
             <div className="kpi-label">Predicted hires</div>
             <div className="kpi-value mono">{plan.predictedHires.toFixed(1)}</div>
-            <div className="kpi-sub">{plan.predictedHires > 0 ? fmtGBP(deployable / plan.predictedHires) + ' per hire' : 'from RAC hire rates'}</div>
+            <div className="kpi-sub">{plan.predictedHires > 0 ? fmtGBP(plan.deployable / plan.predictedHires) + ' per hire' : 'from RAC hire rates'}</div>
           </div>
           <div className="kpi kpi-accent-navy">
             <div className="kpi-label">Application target</div>
