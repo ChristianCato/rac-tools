@@ -944,16 +944,37 @@ function buildFundingPlan(role, p) {
       if (locHistTotal >= 200) PLATFORMS.forEach(plat => { platShare[plat] = locHist[plat] / locHistTotal; });
       else PLATFORMS.forEach(plat => { platShare[plat] = roleShare[plat]; });
       const platShareSource = locHistTotal >= 200 ? 'location' : 'role';
+      // Coverage mask: for this region, which platforms may receive budget.
+      // Default (no coverage set) is every platform on, so the plan behaves
+      // exactly as before. An off platform is removed from the location's mix
+      // and the remaining on-platforms are renormalised to soak up its share.
+      // This is what lets a plan run, e.g., South East on Meta and Google only
+      // while other regions carry Indeed and Appcast.
+      const covRegion = (p.coverage && p.coverage[region]) || null;
+      const onPlat = {};
+      PLATFORMS.forEach(plat => { onPlat[plat] = covRegion ? covRegion[plat] !== false : true; });
+      PLATFORMS.forEach(plat => { if (!onPlat[plat]) platShare[plat] = 0; });
+      const onSum = PLATFORMS.reduce((s, plat) => s + platShare[plat], 0);
+      const coveredCount = PLATFORMS.filter(plat => onPlat[plat]).length;
+      if (onSum > 0) {
+        PLATFORMS.forEach(plat => { platShare[plat] = platShare[plat] / onSum; });
+      } else if (coveredCount > 0) {
+        // Eligible platforms exist but none carry historic share: split equally.
+        PLATFORMS.forEach(plat => { platShare[plat] = onPlat[plat] ? 1 / coveredCount : 0; });
+      }
       return {
         region, vacancies: vac,
         cpa: c.cpa, rawCpa: c.rawCpa, cpaSource: c.source, cvr,
         bandPct: band.pct, bandBasis: band.basis,
         coverageSlice: 0, demandShare: 0, spend: 0,
         predApps: 0, predLow: 0, predHigh: 0, predHires: 0, appSubTarget: 0,
-        platShare, platShareSource, platSpend: {},
+        platShare, platShareSource, platSpend: {}, onPlat, coveredCount,
       };
     })
-    .filter(l => l.vacancies > 0);
+    // Live regions must have a vacancy and at least one covered platform to
+    // receive budget; a region with every platform switched off is dropped so
+    // its demand share flows to the regions that can actually spend it.
+    .filter(l => l.vacancies > 0 && l.coveredCount > 0);
 
   const M = locs.length;
   const totalVac = locs.reduce((s, l) => s + l.vacancies, 0);
@@ -1073,6 +1094,24 @@ function buildFundingPlan(role, p) {
         }
       });
     }
+    // Coverage safety net: the constraint pass can nudge budget onto a platform
+    // a region has switched off. Pull any such spend back onto that region's
+    // on-platforms, preserving the location total, before predictions recompute.
+    locs.forEach(l => {
+      let stray = 0;
+      PLATFORMS.forEach(plat => {
+        if (!l.onPlat[plat] && (l.platSpend[plat] || 0) > 0) { stray += l.platSpend[plat]; l.platSpend[plat] = 0; }
+      });
+      if (stray > 0) {
+        const onTotal = PLATFORMS.reduce((s, plat) => s + (l.onPlat[plat] ? (l.platSpend[plat] || 0) : 0), 0);
+        if (onTotal > 0) {
+          PLATFORMS.forEach(plat => { if (l.onPlat[plat]) l.platSpend[plat] += stray * ((l.platSpend[plat] || 0) / onTotal); });
+        } else {
+          const onCount = l.coveredCount || 1;
+          PLATFORMS.forEach(plat => { if (l.onPlat[plat]) l.platSpend[plat] += stray / onCount; });
+        }
+      }
+    });
     // Recompute display shares AND per-platform-per-location predictions
     // (constraints have shifted the spend mix, so apps and the implied
     // blended CPA need to be recalculated)
@@ -1232,6 +1271,17 @@ function defaultVacancies(role) {
   return out;
 }
 
+// Default coverage: every region on for every platform, so the plan behaves
+// exactly as before until the operator switches cells off. Shape is
+// { region: { indeed, meta, google, appcast } } of booleans.
+function defaultCoverage(role) {
+  const out = {};
+  DATA.regions_ordered.forEach(r => {
+    out[r] = { indeed: true, meta: true, google: true, appcast: true };
+  });
+  return out;
+}
+
 // ====================================================================
 // SHARED SMALL COMPONENTS
 // ====================================================================
@@ -1245,6 +1295,129 @@ function ConfDot({ conf }) {
     display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
     background: color, marginLeft: 5
   }} />;
+}
+
+// ====================================================================
+// Coverage matrix: which platforms may run in which regions, for a role.
+// Collapsed by default. Every cell on = the plan behaves as normal. Switching
+// cells off is how, for example, a plan runs South East on Meta and Google only
+// while other regions carry Indeed and Appcast.
+// ====================================================================
+function CoverageMatrix({ role, state, setState }) {
+  const [open, setOpen] = useState(false);
+  const cov = (state.coverage && state.coverage[role]) || {};
+  const isOn = (region, plat) => {
+    const c = cov[region];
+    return c ? c[plat] !== false : true;
+  };
+  // Count off cells across the live regions only (off cells in dead regions
+  // don't matter). Live = has a vacancy this month.
+  const liveRegions = DATA.regions_ordered.filter(r =>
+    (state.vacancies && state.vacancies[role] && state.vacancies[role][r]) > 0);
+  let offCount = 0;
+  liveRegions.forEach(r => PLATFORMS.forEach(p => { if (!isOn(r, p)) offCount++; }));
+
+  const setCell = (region, plat, val) => {
+    setState(prev => {
+      const roleCov = { ...((prev.coverage && prev.coverage[role]) || {}) };
+      const existing = roleCov[region] || { indeed: true, meta: true, google: true, appcast: true };
+      roleCov[region] = { ...existing, [plat]: val };
+      return { ...prev, coverage: { ...prev.coverage, [role]: roleCov } };
+    });
+  };
+  const setColumn = (plat, val) => {
+    setState(prev => {
+      const roleCov = { ...((prev.coverage && prev.coverage[role]) || {}) };
+      DATA.regions_ordered.forEach(region => {
+        const existing = roleCov[region] || { indeed: true, meta: true, google: true, appcast: true };
+        roleCov[region] = { ...existing, [plat]: val };
+      });
+      return { ...prev, coverage: { ...prev.coverage, [role]: roleCov } };
+    });
+  };
+  const setRow = (region, val) => {
+    setState(prev => {
+      const roleCov = { ...((prev.coverage && prev.coverage[role]) || {}) };
+      roleCov[region] = { indeed: val, meta: val, google: val, appcast: val };
+      return { ...prev, coverage: { ...prev.coverage, [role]: roleCov } };
+    });
+  };
+  const resetAll = () => {
+    setState(prev => ({ ...prev, coverage: { ...prev.coverage, [role]: defaultCoverage(role) } }));
+  };
+  const colOnCount = (plat) => liveRegions.filter(r => isOn(r, plat)).length;
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div className="section-label" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => setOpen(o => !o)}>
+        <span style={{ display: 'inline-block', width: 14, color: 'var(--rac-orange)' }}>{open ? '\u25BE' : '\u25B8'}</span>
+        Platform coverage by region
+        <span className="text-muted" style={{ fontWeight: 400 }}>
+          {' '}&middot; {offCount === 0 ? 'all on' : offCount + ' cell' + (offCount === 1 ? '' : 's') + ' switched off'}
+        </span>
+      </div>
+      {open && (
+        <div>
+          <div className="help-text" style={{ marginBottom: 10 }}>
+            Every cell is on by default, which runs the plan as normal. Switch a cell off to keep that platform
+            out of that region. Click a platform heading to clear or fill the whole column, or a region name to
+            toggle the whole row. Only live locations are shown.
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', fontSize: 13, minWidth: 360 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', padding: '6px 10px', borderBottom: '1px solid var(--line-c)', color: 'var(--ink-55)', fontWeight: 600 }}>Region</th>
+                  {PLATFORMS.map(plat => (
+                    <th key={plat} onClick={() => setColumn(plat, colOnCount(plat) === liveRegions.length ? false : true)}
+                      title="Click to clear or fill this platform"
+                      style={{ padding: '6px 10px', borderBottom: '1px solid var(--line-c)', color: 'var(--rac-navy)', fontWeight: 600, cursor: 'pointer', textAlign: 'center' }}>
+                      {PLATFORM_LABELS[plat]}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {liveRegions.length === 0 && (
+                  <tr><td colSpan={5} style={{ padding: 10, color: 'var(--ink-35)' }}>No live locations yet. Set vacancies above first.</td></tr>
+                )}
+                {liveRegions.map(region => (
+                  <tr key={region}>
+                    <td onClick={() => { const anyOn = PLATFORMS.some(p => isOn(region, p)); setRow(region, !anyOn); }}
+                      title="Click to toggle the whole region"
+                      style={{ padding: '5px 10px', borderBottom: '1px solid var(--ink-04)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      {region}
+                    </td>
+                    {PLATFORMS.map(plat => {
+                      const on = isOn(region, plat);
+                      return (
+                        <td key={plat} style={{ padding: '5px 10px', borderBottom: '1px solid var(--ink-04)', textAlign: 'center' }}>
+                          <span onClick={() => setCell(region, plat, !on)}
+                            title={on ? 'On' : 'Off'}
+                            style={{
+                              display: 'inline-block', width: 20, height: 20, lineHeight: '20px',
+                              borderRadius: 5, cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                              background: on ? 'var(--good-lt)' : 'var(--ink-04)',
+                              color: on ? 'var(--good)' : 'var(--ink-35)',
+                              border: '1px solid ' + (on ? 'var(--good)' : 'var(--line-c)'),
+                            }}>
+                            {on ? '\u2713' : ''}
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button className="btn btn-ghost" style={{ marginTop: 10, fontSize: 12 }} onClick={resetAll}>
+            Reset {role} to all on
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ====================================================================
@@ -1425,6 +1598,8 @@ function SetupTab({ state, setState }) {
                 );
               })}
             </div>
+
+            <CoverageMatrix role={role} state={state} setState={setState} />
           </div>
         </div>
       ))}
@@ -1450,6 +1625,7 @@ function PlanTab({ state, setState }) {
     acReserve: (state.acReserve && state.acReserve[role]) || 0,
     platMin: (state.platMin && state.platMin[role]) || {},
     platMax: (state.platMax && state.platMax[role]) || {},
+    coverage: (state.coverage && state.coverage[role]) || {},
     daysInMonth: days,
   }), [role, state]);
 
@@ -1704,6 +1880,7 @@ function PlatformsTab({ state }) {
     acReserve: (state.acReserve && state.acReserve[role]) || 0,
     platMin: (state.platMin && state.platMin[role]) || {},
     platMax: (state.platMax && state.platMax[role]) || {},
+    coverage: (state.coverage && state.coverage[role]) || {},
     daysInMonth: days,
   }), [role, state]);
 
@@ -2124,6 +2301,7 @@ function exportPDF(state) {
         acReserve: (state.acReserve && state.acReserve[role]) || 0,
         platMin: (state.platMin && state.platMin[role]) || {},
         platMax: (state.platMax && state.platMax[role]) || {},
+        coverage: (state.coverage && state.coverage[role]) || {},
         daysInMonth: days,
       });
     });
@@ -2629,6 +2807,10 @@ function App() {
       SMR: { indeed: 0, meta: 0, google: 0, appcast: 0 },
       Patrol: { indeed: 0, meta: 0, google: 0, appcast: 0 },
     }),
+    coverage: lsGet('coverage', {
+      SMR: defaultCoverage('SMR'),
+      Patrol: defaultCoverage('Patrol'),
+    }),
   }));
   const setState = (updater) => {
     setStateRaw(prev => {
@@ -2645,6 +2827,7 @@ function App() {
       lsSet('acReserve', next.acReserve);
       lsSet('platMin', next.platMin);
       lsSet('platMax', next.platMax);
+      lsSet('coverage', next.coverage);
       return next;
     });
   };
