@@ -997,11 +997,78 @@ function buildFundingPlan(role, p) {
     });
   });
 
+  // Base per-location budget: equal coverage slice plus demand share.
   locs.forEach(l => {
     l.coverageSlice = M > 0 ? coverageReserve / M : 0;
     l.demandShare = totalVac > 0 ? demandPool * (l.vacancies / totalVac) : 0;
     l.spend = l.coverageSlice + l.demandShare;
     l.appSubTarget = totalVac > 0 ? appTarget * (l.vacancies / totalVac) : 0;
+  });
+
+  // ----- Apply per-region budget limits (GBP, per location) -----
+  // regionMin/regionMax cap what a single location can take. 0 or undefined
+  // means no limit. Money trimmed off a capped location is redistributed to
+  // the locations still below their cap, in proportion to their demand share.
+  // Money needed to lift a location to its floor is taken from the others the
+  // same way. The deployable total is preserved; if every location is capped
+  // the remainder is reported as unplaced rather than silently vanishing.
+  const regionMin = p.regionMin || {};
+  const regionMax = p.regionMax || {};
+  const regionClamped = {};
+  let unplacedBudget = 0;
+  const hasRegionLimits = locs.some(l =>
+    (regionMin[l.region] > 0) || (regionMax[l.region] > 0));
+  if (hasRegionLimits && locs.length > 0) {
+    const capOf = l => (regionMax[l.region] > 0 ? regionMax[l.region] : Infinity);
+    const floorOf = l => (regionMin[l.region] > 0 ? regionMin[l.region] : 0);
+    // Pass 1: clamp every location to its cap or floor, collecting the
+    // difference in a pool (positive = money to place, negative = money owed).
+    let pool = 0;
+    locs.forEach(l => {
+      const cap = capOf(l), floor = floorOf(l);
+      if (l.spend > cap) { pool += l.spend - cap; l.spend = cap; regionClamped[l.region] = 'max'; }
+      else if (l.spend < floor) { pool -= floor - l.spend; l.spend = floor; regionClamped[l.region] = 'min'; }
+    });
+    // Pass 2: settle the pool. Each round places what the open locations can
+    // actually absorb (or claws back what donors can give); anything that will
+    // not fit stays in the pool and is retried next round against the
+    // locations that still have room. Without this carry-over, money that hit
+    // a cap mid-redistribution would silently disappear from the plan.
+    for (let iter = 0; iter < 40 && Math.abs(pool) > 0.5; iter++) {
+      if (pool > 0) {
+        const open = locs.filter(l => l.spend < capOf(l) - 0.005);
+        if (open.length === 0) break;
+        const w = open.reduce((s, l) => s + (l.vacancies || 0), 0);
+        let placed = 0;
+        open.forEach(l => {
+          const share = w > 0 ? (l.vacancies || 0) / w : 1 / open.length;
+          const add = Math.min(pool * share, capOf(l) - l.spend);
+          l.spend += add; placed += add;
+        });
+        if (placed < 0.005) break;
+        pool -= placed;
+      } else {
+        const need = -pool;
+        const donors = locs.filter(l => l.spend > floorOf(l) + 0.005);
+        if (donors.length === 0) break;
+        const w = donors.reduce((s, l) => s + (l.vacancies || 0), 0);
+        let taken = 0;
+        donors.forEach(l => {
+          const share = w > 0 ? (l.vacancies || 0) / w : 1 / donors.length;
+          const sub = Math.min(need * share, l.spend - floorOf(l));
+          l.spend -= sub; taken += sub;
+        });
+        if (taken < 0.005) break;
+        pool += taken;
+      }
+    }
+    // Whatever could not be placed (every location at its cap) is reported
+    // rather than quietly dropped, so the plan always reconciles.
+    unplacedBudget = Math.max(0, pool);
+  }
+
+  // Platform split and predictions, using the (possibly clamped) location spend.
+  locs.forEach(l => {
     PLATFORMS.forEach(plat => { l.platSpend[plat] = l.spend * l.platShare[plat]; });
     // Per-platform predicted apps
     l.platApps = {};
@@ -1235,6 +1302,7 @@ function buildFundingPlan(role, p) {
     coverageReserve, demandPool,
     locations: locs, totalVac, totalCount: M, platformTotals, channelSummary, regionChannel,
     platBreaches, platClamped: clamped, platMin, platMax,
+    regionMin, regionMax, regionClamped, unplacedBudget,
     appTarget, predictedApps, predLow, predHigh, aggBandPct, predictedHires,
     onTarget: appTarget > 0 && predictedApps >= appTarget,
     pctOfTarget: appTarget > 0 ? predictedApps / appTarget : (predictedApps > 0 ? 1 : 0),
@@ -1343,25 +1411,43 @@ function CoverageMatrix({ role, state, setState }) {
     });
   };
   const resetAll = () => {
-    setState(prev => ({ ...prev, coverage: { ...prev.coverage, [role]: defaultCoverage(role) } }));
+    setState(prev => ({
+      ...prev,
+      coverage: { ...prev.coverage, [role]: defaultCoverage(role) },
+      regionMin: { ...prev.regionMin, [role]: {} },
+      regionMax: { ...prev.regionMax, [role]: {} },
+    }));
   };
   const colOnCount = (plat) => liveRegions.filter(r => isOn(r, plat)).length;
+  // Per-region budget limits (GBP). 0 means no limit.
+  const minOf = (region) => (state.regionMin && state.regionMin[role] && state.regionMin[role][region]) || 0;
+  const maxOf = (region) => (state.regionMax && state.regionMax[role] && state.regionMax[role][region]) || 0;
+  const setLimit = (kind, region, value) => {
+    setState(prev => ({
+      ...prev,
+      [kind]: { ...prev[kind], [role]: { ...((prev[kind] && prev[kind][role]) || {}), [region]: value } },
+    }));
+  };
+  const limitCount = liveRegions.filter(r => minOf(r) > 0 || maxOf(r) > 0).length;
 
   return (
     <div style={{ marginTop: 14 }}>
       <div className="section-label" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => setOpen(o => !o)}>
         <span style={{ display: 'inline-block', width: 14, color: 'var(--rac-orange)' }}>{open ? '\u25BE' : '\u25B8'}</span>
-        Platform coverage by region
+        Platform coverage &amp; budget limits by region
         <span className="text-muted" style={{ fontWeight: 400 }}>
-          {' '}&middot; {offCount === 0 ? 'all on' : offCount + ' cell' + (offCount === 1 ? '' : 's') + ' switched off'}
+          {' '}&middot; {offCount === 0 ? 'all platforms on' : offCount + ' cell' + (offCount === 1 ? '' : 's') + ' off'}
+          {limitCount > 0 ? ', ' + limitCount + ' region' + (limitCount === 1 ? '' : 's') + ' capped' : ''}
         </span>
       </div>
       {open && (
         <div>
           <div className="help-text" style={{ marginBottom: 10 }}>
-            Every cell is on by default, which runs the plan as normal. Switch a cell off to keep that platform
-            out of that region. Click a platform heading to clear or fill the whole column, or a region name to
-            toggle the whole row. Only live locations are shown.
+            Every platform is on by default and every region uncapped, which runs the plan as normal. Switch a cell
+            off to keep that platform out of that region. Click a platform heading to clear or fill the column, or a
+            region name to toggle the row. Set a max budget to stop a region taking more than that, the money moves
+            to the other regions; set a min to guarantee a region gets at least that much. Leave a limit at &pound;0
+            for no limit. Only live locations are shown.
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ borderCollapse: 'collapse', fontSize: 13, minWidth: 360 }}>
@@ -1375,11 +1461,13 @@ function CoverageMatrix({ role, state, setState }) {
                       {PLATFORM_LABELS[plat]}
                     </th>
                   ))}
+                  <th style={{ padding: '6px 10px', borderBottom: '1px solid var(--line-c)', color: 'var(--ink-55)', fontWeight: 600, textAlign: 'center' }}>Min budget</th>
+                  <th style={{ padding: '6px 10px', borderBottom: '1px solid var(--line-c)', color: 'var(--ink-55)', fontWeight: 600, textAlign: 'center' }}>Max budget</th>
                 </tr>
               </thead>
               <tbody>
                 {liveRegions.length === 0 && (
-                  <tr><td colSpan={5} style={{ padding: 10, color: 'var(--ink-35)' }}>No live locations yet. Set vacancies above first.</td></tr>
+                  <tr><td colSpan={7} style={{ padding: 10, color: "var(--ink-35)" }}>No live locations yet. Set vacancies above first.</td></tr>
                 )}
                 {liveRegions.map(region => (
                   <tr key={region}>
@@ -1406,13 +1494,23 @@ function CoverageMatrix({ role, state, setState }) {
                         </td>
                       );
                     })}
+                    <td style={{ padding: '4px 6px', borderBottom: '1px solid var(--ink-04)', textAlign: 'center' }}>
+                      <input className="text-input" style={{ width: 88, padding: '4px 6px', fontSize: 12, textAlign: 'right' }}
+                        value={'\u00A3' + (minOf(region)).toLocaleString('en-GB')}
+                        onChange={e => setLimit('regionMin', region, parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0)} />
+                    </td>
+                    <td style={{ padding: '4px 6px', borderBottom: '1px solid var(--ink-04)', textAlign: 'center' }}>
+                      <input className="text-input" style={{ width: 88, padding: '4px 6px', fontSize: 12, textAlign: 'right' }}
+                        value={'\u00A3' + (maxOf(region)).toLocaleString('en-GB')}
+                        onChange={e => setLimit('regionMax', region, parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0)} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
           <button className="btn btn-ghost" style={{ marginTop: 10, fontSize: 12 }} onClick={resetAll}>
-            Reset {role} to all on
+            Reset {role} coverage and limits
           </button>
         </div>
       )}
@@ -1626,6 +1724,8 @@ function PlanTab({ state, setState }) {
     platMin: (state.platMin && state.platMin[role]) || {},
     platMax: (state.platMax && state.platMax[role]) || {},
     coverage: (state.coverage && state.coverage[role]) || {},
+    regionMin: (state.regionMin && state.regionMin[role]) || {},
+    regionMax: (state.regionMax && state.regionMax[role]) || {},
     daysInMonth: days,
   }), [role, state]);
 
@@ -1701,6 +1801,32 @@ function PlanTab({ state, setState }) {
                 {' '}<strong>~{fmtInt(plan.predictedApps)} applications</strong> against {fmtInt(plan.appTarget)}
                 {' '}({pct}%). Even the top of the likely range ({fmtInt(plan.predHigh)}) is below target.
                 Hitting it needs about <strong>{fmtGBP(plan.budgetForTarget)}</strong>.
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Region limit warnings: money that could not be placed, or floors that
+          overspend the deployable budget. Both are silent otherwise. */}
+      {liveCount > 0 && (plan.unplacedBudget > 1 ||
+        plan.locations.reduce((s, l) => s + l.spend, 0) > plan.deployable + 1) && (
+        <div className="banner banner-warn">
+          <div className="banner-icon">!</div>
+          <div>
+            {plan.unplacedBudget > 1 && (
+              <>
+                <strong>{fmtGBP(plan.unplacedBudget)} could not be placed.</strong> Every location has hit its
+                maximum budget, so this money has nowhere to go. Raise a cap, or lower the budget to
+                {' '}{fmtGBP(plan.deployable - plan.unplacedBudget + plan.premiumHoldback + plan.acHoldback)}.
+              </>
+            )}
+            {plan.locations.reduce((s, l) => s + l.spend, 0) > plan.deployable + 1 && (
+              <>
+                <strong>Minimum budgets exceed the deployable budget.</strong> The location minimums add up to
+                {' '}{fmtGBP(plan.locations.reduce((s, l) => s + l.spend, 0))} against a deployable budget of
+                {' '}{fmtGBP(plan.deployable)}. The plan is honouring the minimums, so it is overspending. Lower
+                the minimums or raise the budget.
               </>
             )}
           </div>
@@ -1881,6 +2007,8 @@ function PlatformsTab({ state }) {
     platMin: (state.platMin && state.platMin[role]) || {},
     platMax: (state.platMax && state.platMax[role]) || {},
     coverage: (state.coverage && state.coverage[role]) || {},
+    regionMin: (state.regionMin && state.regionMin[role]) || {},
+    regionMax: (state.regionMax && state.regionMax[role]) || {},
     daysInMonth: days,
   }), [role, state]);
 
@@ -2302,6 +2430,8 @@ function exportPDF(state) {
         platMin: (state.platMin && state.platMin[role]) || {},
         platMax: (state.platMax && state.platMax[role]) || {},
         coverage: (state.coverage && state.coverage[role]) || {},
+        regionMin: (state.regionMin && state.regionMin[role]) || {},
+        regionMax: (state.regionMax && state.regionMax[role]) || {},
         daysInMonth: days,
       });
     });
@@ -2811,6 +2941,8 @@ function App() {
       SMR: defaultCoverage('SMR'),
       Patrol: defaultCoverage('Patrol'),
     }),
+    regionMin: lsGet('regionMin', { SMR: {}, Patrol: {} }),
+    regionMax: lsGet('regionMax', { SMR: {}, Patrol: {} }),
   }));
   const setState = (updater) => {
     setStateRaw(prev => {
@@ -2828,6 +2960,8 @@ function App() {
       lsSet('platMin', next.platMin);
       lsSet('platMax', next.platMax);
       lsSet('coverage', next.coverage);
+      lsSet('regionMin', next.regionMin);
+      lsSet('regionMax', next.regionMax);
       return next;
     });
   };
