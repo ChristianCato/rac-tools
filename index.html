@@ -3279,6 +3279,7 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Why now shows a fourth figure for locations the plan never funded. Their applications were always in the maths but never on screen, so the three figures on the page did not add up to the gap. It names the locations and says how much went to them.',
     'Fixed the mix table counting locations the plan never funded. Spend somewhere with no planned share was still diluting everyone else\u2019s share, so every funded location looked like it had lost ground to nobody and London losing share read as a loss when it should have been a gain. The mix now only covers locations the plan funded, and off-plan spend is called out separately.',
     'Plainer wording across the banners and help text.',
     'Plainer wording throughout Why. The callouts now just say the numbers, for example "the live mix now has a blended CPA of £60 compared to £54 in the plan", instead of explaining what that means about the mix.',
@@ -4737,8 +4738,9 @@ function explainGap(rows) {
     r.mixContrib = (planBlended && r.planCpa)
       ? (r.actualSpend - wouldHave) * (1 / r.planCpa - 1 / planBlended)
       : 0;
-    r.offPlan = !r.planCpa && r.actualSpend > 0;
+    r.offPlan = !r.planCpa && (r.actualSpend > 0 || r.actualApps > 0);
   });
+  t.offPlanRegions = [...new Set(out.filter(r => r.offPlan).map(r => r.region))];
 
   return { rows: out, totals: t };
 }
@@ -4790,9 +4792,9 @@ function WhyView({ pacing, planDemand, liveDemand }) {
         <div className="banner-icon">{behind ? '!' : '\u2713'}</div>
         <div>
           <strong>{role} is {behind ? 'behind by' : 'ahead by'} {Math.abs(Math.round(t.gap))} applications.</strong>
-          {' '}{fmtInt(t.actualApps)} in against {fmtInt(t.expApps)} expected by now. The three figures below
-          say how much of that is the amount spent, how much is where it went, and how much is what each
-          application cost.
+          {' '}{fmtInt(t.actualApps)} in against {fmtInt(t.expApps)} expected by now. The figures below
+          split that up{t.unplanned !== 0 ? ', including what came from locations the plan never funded' : ''}.
+          They add up to the {behind ? 'shortfall' : 'gain'}.
         </div>
       </div>
 
@@ -4814,6 +4816,18 @@ function WhyView({ pacing, planDemand, liveDemand }) {
             ) : 'Not enough of the plan has a rate to compare.'}
           </div>
         </div>
+        {t.unplanned !== 0 && (
+          <div className={'kpi kpi-accent-' + (t.unplanned < 0 ? 'orange' : 'good')}>
+            <div className="kpi-label">Locations not in the plan</div>
+            <div className="kpi-value mono">{n(t.unplanned)}</div>
+            <div className="kpi-sub">
+              {fmtGBP(t.unplannedSpend)} in {t.offPlanRegions.length} location{t.offPlanRegions.length === 1 ? '' : 's'} the
+              plan gave nothing to: {t.offPlanRegions.slice(0, 4).join(', ')}
+              {t.offPlanRegions.length > 4 ? ' and ' + (t.offPlanRegions.length - 4) + ' more' : ''}.
+              There was no target for these, so everything they bring in counts as a gain.
+            </div>
+          </div>
+        )}
         <div className={'kpi kpi-accent-' + (t.rateEffect < 0 ? 'orange' : 'good')}>
           <div className="kpi-label">Cost per application</div>
           <div className="kpi-value mono">{n(t.rateEffect)}</div>
@@ -4942,11 +4956,12 @@ function WhyView({ pacing, planDemand, liveDemand }) {
             </table>
           </div>
           <div className="help-text" style={{ padding: '10px 16px' }}>
-            The three add up to the gap exactly. Amount spent is the change in total money at the plan's
+            These add up to the gap exactly. Amount spent is the change in total money at the plan's
             blended rate. Where it went is the same money spread differently across locations, which moves
             the total even when spend doesn't change. What each cost is the actual rate against the planned
-            one. The two columns in the table below are per location at that location's own planned rate,
-            so the mix shows up in the totals rather than on any one row.
+            one. Locations the plan never funded are separate, because there was no target to miss there.
+            The two columns in the table below are per location at that location's own planned rate, so the
+            mix shows up in the totals rather than on any one row.
           </div>
         </div>
       </div>
