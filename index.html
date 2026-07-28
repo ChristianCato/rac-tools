@@ -446,6 +446,8 @@ input[type=range]::-moz-range-thumb {
   transition: transform 0.12s ease; transform: rotate(0deg); margin-right: 2px;
 }
 .fold-chev.open { transform: rotate(90deg); }
+.role-switch-lead button.active { background: var(--rac-navy); }
+.role-switch-lead { font-weight: 700; }
 .chg-list li { font-size: 13px; color: var(--ink-70); margin-bottom: 5px; line-height: 1.5; }
 .paste-box {
   width: 100%; font-family: "JetBrains Mono", monospace; font-size: 12px;
@@ -3303,6 +3305,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Location priorities is split by role first. Pick SMR or Patrol, then Vacancies, What changed, Trends or Month on month underneath. What changed and Trends used to show both roles stacked on one page.',
+    'Month on month is per role too, so the blended CPA of the mix is SMR\u2019s or Patrol\u2019s rather than the two averaged together, which was not a number that meant anything.',
     'Fixed a month with nothing pasted showing July\u2019s locations under its own heading. July\u2019s tracker was being used as the fallback for every month, so August looked populated when it was empty, and Month on month only counted one month because only one had anything genuinely stored against it.',
     'Renamed "this month\u2019s actuals" to In platform data, and it folds away once loaded so it stops taking up the top of the page.',
     'Location priorities has a Month on month view. Pick two months and it shows open roles, live locations and the blended CPA of the mix for each, then the same by location. It says whether this month\u2019s spread of roles is a more expensive one to fill than last month\u2019s, before anything about how either month ran.',
@@ -3908,10 +3912,10 @@ function PriorityGrid({ role, pri, setPri, month }) {
 }
 
 // ---- What changed ----
-function WhatChanged({ pri, from, to }) {
+function WhatChanged({ pri, from, to, role }) {
   return (
     <div>
-      {ROLES.map(role => {
+      {[role].map(role => {
         const rows = (pri.roles[role] || {}).rows || [];
         const closed = rows.filter(r => (r.v[from] || 0) > 0 && !((r.v[to] || 0) > 0));
         const opened = rows.filter(r => !((r.v[from] || 0) > 0) && (r.v[to] || 0) > 0);
@@ -3951,11 +3955,11 @@ function WhatChanged({ pri, from, to }) {
 }
 
 // ---- Trends ----
-function TrendsView({ pri }) {
+function TrendsView({ pri, role }) {
   const dates = pri.dates || [];
   return (
     <div>
-      {ROLES.map(role => {
+      {[role].map(role => {
         const rows = (pri.roles[role] || {}).rows || [];
         const cuts = {}; dates.forEach(d => { cuts[d] = regionCut(rows, d); });
         const planCut = regionCut(rows, 'plan');
@@ -4009,9 +4013,12 @@ function TrendsView({ pri }) {
 }
 
 // Compare a month against another, on the numbers the priorities grid holds.
-function MonthOnMonth({ ws, month }) {
+function MonthOnMonth({ ws, month, role }) {
   const withData = Object.keys(ws.months || {})
-    .filter(m => (priorityFor(m, ws.months[m]).dates || []).length > 0).sort();
+    .filter(m => {
+      const p = priorityFor(m, ws.months[m]);
+      return (p.dates || []).length > 0 && (((p.roles || {})[role] || {}).rows || []).length > 0;
+    }).sort();
   const [a, setA] = useState(withData[Math.max(0, withData.indexOf(month) - 1)] || withData[0]);
   const [b, setB] = useState(month);
 
@@ -4019,7 +4026,8 @@ function MonthOnMonth({ ws, month }) {
     return (
       <div className="card"><div className="card-body">
         <div className="help-text">
-          Only {withData.length} month has priorities pasted in. Paste another month's tabs and this fills in.
+          Only {withData.length} month has {role} priorities in it. Paste another month's {role} tab and
+          this fills in.
         </div>
       </div></div>
     );
@@ -4031,12 +4039,10 @@ function MonthOnMonth({ ws, month }) {
     const last = dates[dates.length - 1];
     const out = {};
     DATA.regions_ordered.forEach(r => { out[r] = { locs: 0, vac: 0 }; });
-    ROLES.forEach(role => {
-      ((pri.roles || {})[role] || {}).rows?.forEach(row => {
-        const n = row.v && row.v[last];
-        if (!out[row.region] || !(n > 0)) return;
-        out[row.region].locs += 1; out[row.region].vac += n;
-      });
+    ((pri.roles || {})[role] || {}).rows?.forEach(row => {
+      const n = row.v && row.v[last];
+      if (!out[row.region] || !(n > 0)) return;
+      out[row.region].locs += 1; out[row.region].vac += n;
     });
     return { cut: out, asAt: last };
   };
@@ -4045,21 +4051,18 @@ function MonthOnMonth({ ws, month }) {
   // Historic cost per application for the location, blended across roles by
   // how many roles are open there. That is what makes one month's mix of
   // locations more expensive than another's.
-  const rate = (region, w) => {
-    let num = 0, den = 0;
-    ROLES.forEach(role => {
-      try {
-        const c = regionBlendedCPA(region, role);
-        if (c && c.cpa > 0) { num += c.cpa * w; den += w; }
-      } catch (e) { /* no data for that pair */ }
-    });
-    return den > 0 ? num / den : null;
+  const rate = (region) => {
+    try {
+      const c = regionBlendedCPA(region, role);
+      if (c && c.cpa > 0) return c.cpa;
+    } catch (e) { /* no data for this location and role */ }
+    return null;
   };
   const blended = (c) => {
     let spendish = 0, apps = 0;
     DATA.regions_ordered.forEach(r => {
       const v = c[r].vac; if (!v) return;
-      const cpa = rate(r, 1); if (!cpa) return;
+      const cpa = rate(r); if (!cpa) return;
       spendish += v * cpa; apps += v;
     });
     return apps > 0 ? spendish / apps : null;
@@ -4124,7 +4127,7 @@ function MonthOnMonth({ ws, month }) {
               {DATA.regions_ordered.map(r => {
                 const va = A.cut[r].vac, vb = B.cut[r].vac;
                 if (!va && !vb) return null;
-                const cpa = rate(r, 1);
+                const cpa = rate(r);
                 const sa = tot(A.cut) > 0 ? va / tot(A.cut) : 0;
                 const sb = tot(B.cut) > 0 ? vb / tot(B.cut) : 0;
                 const d = vb - va;
@@ -4159,7 +4162,8 @@ function MonthOnMonth({ ws, month }) {
 }
 
 function PrioritiesTool({ container, patchMonth, month, ws }) {
-  const [view, setView] = useState('SMR');
+  const [role, setRole] = useState('SMR');
+  const [view, setView] = useState('grid');
   const pri = priorityFor(month, container);
   const dates = pri.dates || [];
   const [from, setFrom] = useState(dates.length > 1 ? dates[dates.length - 2] : dates[0]);
@@ -4177,7 +4181,7 @@ function PrioritiesTool({ container, patchMonth, month, ws }) {
     patchMonth({ priorities: next, demand });
   };
 
-  const views = [['SMR', 'SMR'], ['Patrol', 'Patrol'], ['changed', 'What changed'],
+  const views = [['grid', 'Vacancies'], ['changed', 'What changed'],
                  ['trends', 'Trends'], ['mom', 'Month on month']];
 
   if (dates.length === 0 && view !== 'mom') {
@@ -4185,7 +4189,7 @@ function PrioritiesTool({ container, patchMonth, month, ws }) {
       <div>
         <div className="card"><div className="card-body">
           <div className="help-text">
-            No location data for {month} yet. Paste the SMR or Patrol tab on those views, or use
+            No {role} data for {month} yet. Paste the {role} tab on Vacancies, or use
             {' '}<a href="#" className="link-inline" onClick={e => { e.preventDefault(); setView('mom'); }}>Month on month</a>
             {' '}to look at months that do have data.
           </div>
@@ -4199,13 +4203,18 @@ function PrioritiesTool({ container, patchMonth, month, ws }) {
       <div className="banner banner-info">
         <div className="banner-icon">i</div>
         <div>
-          <strong>Each day.</strong> Paste the whole SMR and Patrol tabs back in. The whole month, not
-          just the new day, so anything RAC have changed since gets picked up. Locations match on name so
-          the order doesn't matter. What changed gives you the pause and launch list.
+          <strong>Each day.</strong> Paste the whole tab back in on Vacancies, for each role. The whole
+          month, not just the new day, so anything RAC have changed since gets picked up. Locations match
+          on name so the order doesn't matter. What changed gives you the pause and launch list.
         </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div className="role-switch role-switch-lead">
+          {ROLES.map(r => (
+            <button key={r} className={r === role ? 'active' : ''} onClick={() => setRole(r)}>{r}</button>
+          ))}
+        </div>
         <div className="role-switch">
           {views.map(([id, label]) => (
             <button key={id} className={id === view ? 'active' : ''} onClick={() => setView(id)}>{label}</button>
@@ -4225,10 +4234,10 @@ function PrioritiesTool({ container, patchMonth, month, ws }) {
         )}
       </div>
 
-      {(view === 'SMR' || view === 'Patrol') && <PriorityGrid role={view} pri={pri} setPri={setPri} month={month} />}
-      {view === 'changed' && <WhatChanged pri={pri} from={from} to={to} />}
-      {view === 'trends' && <TrendsView pri={pri} />}
-      {view === 'mom' && <MonthOnMonth ws={ws} month={month} />}
+      {view === 'grid' && <PriorityGrid role={role} pri={pri} setPri={setPri} month={month} />}
+      {view === 'changed' && <WhatChanged pri={pri} from={from} to={to} role={role} />}
+      {view === 'trends' && <TrendsView pri={pri} role={role} />}
+      {view === 'mom' && <MonthOnMonth ws={ws} month={month} role={role} />}
     </div>
   );
 }
