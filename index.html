@@ -3279,6 +3279,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Fixed pacing showing nothing unless the master sheet was loaded. Windsor and the Indeed and Appcast pastes now stand on their own, which is what was intended when Windsor started carrying applications. The master sheet is only needed if you want Eploy applications for Indeed.',
+    'Added an "actuals run to day" box for when there is no master sheet, since a paste carries no dates. Windsor fills it in from the day it pulled to.',
     'Fixed saved plans disappearing. Saving opened a box asking for a note, and closing it counted as coming back to the tab, which reloaded the shared copy over the top of the save before it had gone up. The reload now waits for anything unsaved to finish, and saving no longer asks anything. Use Rename to add a name and a note once it is saved.',
     'Windsor now brings applications as well as spend for Google and Meta, so the master sheet is no longer needed for those two. Set up the same way the Excel pacing doc pulls them: for Google, the conversion action named exactly "Application Submitted"; for Meta, its own applications field on the same row as spend.',
     'Google and Meta spend now comes straight from Windsor with a button, for the same days the master sheet covers. The Windsor key sits on the server and never reaches the browser. Pasting an export still works if the button will not play.',
@@ -4263,9 +4265,15 @@ function digestActuals(rows, month) {
 // Platform pastes replace the master sheet's figures for that platform.
 // The paste is straight off the platform, so where the two disagree the
 // platform is the better source.
-function mergeActuals(base, pastes) {
-  if (!base || base.error) return base;
-  const out = { ...base, regional: { ...base.regional }, other: { ...base.other }, sources: {} };
+function mergeActuals(base, pastes, asAtDay) {
+  if (base && base.error) return base;
+  const hasPaste = Object.keys(pastes || {}).some(k => pastes[k] && !pastes[k].error);
+  if (!base && !hasPaste) return null;
+  // With no master sheet, the pastes are the whole picture. Start from
+  // nothing and let them fill it in.
+  const start = base || { regional: {}, other: {}, lastDay: 0, totalSpend: 0, totalApps: 0, monthRows: 0 };
+  const out = { ...start, regional: { ...start.regional }, other: { ...start.other }, sources: {} };
+  if (!base) out.lastDay = asAtDay || 0;
   Object.keys(pastes || {}).forEach(plat => {
     const p = pastes[plat]; if (!p || p.error) return;
     let removedSpend = 0, removedApps = 0;
@@ -4279,7 +4287,7 @@ function mergeActuals(base, pastes) {
       const k = c.role + '|' + c.region + '|' + plat;
       // Indeed's export carries no applications, so keep the ones the
       // master sheet had from Eploy rather than zeroing them.
-      const keepApps = p.appsIncluded ? c.apps : (base.regional[k] ? base.regional[k].apps : 0);
+      const keepApps = p.appsIncluded ? c.apps : ((start.regional[k] || {}).apps || 0);
       out.regional[k] = { role: c.role, region: c.region, platform: plat, spend: c.spend, apps: keepApps };
       addedSpend += c.spend; addedApps += keepApps;
     });
@@ -4820,7 +4828,7 @@ function WindsorPull({ month, lastDay, priRows, onApply }) {
       if (!j.rows || !j.rows.length) throw new Error('Windsor returned nothing for ' + from + ' to ' + to + '.');
       const parsed = parsePlatformPaste(rowsToCsv(j.rows), priRows);
       if (parsed.error) throw new Error(parsed.error);
-      onApply(parsed);
+      onApply(parsed, Number(to.slice(-2)));
       setState({ status: 'done', spend: j.spend, apps: j.apps, rows: j.rows.length, parsed,
         warn: (j.errors || []).map(e => e.error).join(' ') });
     } catch (e) {
@@ -4928,6 +4936,12 @@ function PacingTool({ month, container, patchMonth }) {
   const pastes = container.pastes || {};
   const setBaseActuals = (v) => patchMonth({ actuals: v });
   const setPastes = (u) => patchMonth({ pastes: typeof u === 'function' ? u(container.pastes || {}) : u });
+  // How far through the month the actuals run. The master sheet says so
+  // itself; Windsor sets it from the day it pulled to; otherwise it is
+  // yesterday, and editable, because a paste carries no dates.
+  const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.getDate(); })();
+  const asAt = container.actualsAsAt || yesterday;
+  const setAsAt = (d) => patchMonth({ actualsAsAt: d });
   const [busy, setBusy] = useState('');
   const [grain, setGrain] = useState('region');
   const [fRole, setFRole] = useState('All');
@@ -4996,7 +5010,7 @@ function PacingTool({ month, container, patchMonth }) {
     ROLES.forEach(r => { out[r] = DATA.regions_ordered.reduce((a, x) => a + (((container.demand || {})[r] || {})[x] || 0), 0); });
     return out;
   }, [container.demand]);
-  const actuals = useMemo(() => mergeActuals(baseActuals, pastes), [baseActuals, pastes]);
+  const actuals = useMemo(() => mergeActuals(baseActuals, pastes, asAt), [baseActuals, pastes, asAt]);
   const pacing = useMemo(
     () => (actuals && !actuals.error && chosenPlan ? buildPacing(month, container, actuals, chosenPlan) : null),
     [actuals, month, container, chosenPlan]);
@@ -5106,7 +5120,7 @@ function PacingTool({ month, container, patchMonth }) {
 
           <div className="card">
             <div className="card-head">
-              <div className="card-title">Load this month's actuals</div>
+              <div className="card-title">This month's actuals</div>
               <div className="card-sub">
                 {(DATA.month_labels && DATA.month_labels[month]) || month}
                 {pacing ? ' \u00B7 day ' + pacing.elapsed + ' of ' + pacing.days : ''}
@@ -5122,9 +5136,20 @@ function PacingTool({ month, container, patchMonth }) {
                 Choose file
               </button>
               <span className="help-text" style={{ marginLeft: 12 }}>
-                The Blended Reporting master sheet. I take the rows for this month and work out how far
-                through it they run.
+                The Blended Reporting master sheet, if you want Eploy applications for Indeed. Not needed
+                otherwise: Windsor and the two pastes below cover the rest on their own.
               </span>
+              {!baseActuals && (
+                <div className="dial-row" style={{ marginTop: 12 }}>
+                  <label className="field-label" style={{ flex: 'none' }}>Actuals run to day</label>
+                  <input className="text-input" style={{ width: 80, flex: 'none' }} value={asAt}
+                    onChange={e => setAsAt(Math.max(1, Math.min(31, parseInt(e.target.value.replace(/[^0-9]/g, ''), 10) || 1)))} />
+                  <span className="help-text" style={{ flex: 1 }}>
+                    Of {(DATA.days_in_month && DATA.days_in_month[month]) || 30}. Sets what the plan should
+                    have delivered by now. Windsor fills this in when you pull.
+                  </span>
+                </div>
+              )}
               {busy && <div className="help-text" style={{ marginTop: 10 }}>{busy}...</div>}
 
               <div style={{ marginTop: 18, borderTop: '1px solid var(--line-c)', paddingTop: 14 }}>
@@ -5135,7 +5160,8 @@ function PacingTool({ month, container, patchMonth }) {
                   here replaces that platform's figures.
                 </div>
                 <WindsorPull month={month} lastDay={baseActuals && !baseActuals.error ? baseActuals.lastDay : null}
-                  priRows={priRows} onApply={(r) => setPastes(x => ({ ...x, ...splitByPlatform(r) }))} />
+                  priRows={priRows}
+                  onApply={(r, day) => { if (day) setAsAt(day); setPastes(x => ({ ...x, ...splitByPlatform(r) })); }} />
                 <PlatformPasteBox label="Appcast" priRows={priRows} range={exportRange}
                   hint="The by-campaign export. Carries spend and applications."
                   applied={!!pastes.appcast} onApply={(p, r) => setPastes(x => ({ ...x, ...splitByPlatform(r) }))} />
