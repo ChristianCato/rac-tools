@@ -1843,10 +1843,10 @@ function SetupTab({ state, setState, onOpenPriorities }) {
       <div className="banner banner-info">
         <div className="banner-icon">i</div>
         <div>
-          <strong>Start here.</strong> For each role, set the budget, the hold-backs and RAC&rsquo;s hire
-          target. The hire target sets the application target: I work it back through the blended hire rate
-          for the locations that are live this month. Open roles per location come from Location priorities.
-          The Plan tab then predicts applications against that target and shows the figure by location.
+          <strong>Start here.</strong> Set the budget, the hold-backs and RAC's hire target for each role.
+          The application target comes off the hire target, worked back through the blended hire rate for
+          whichever locations are live this month. Open roles come from Location priorities. Plan then
+          predicts applications against that target, by location.
         </div>
       </div>
 
@@ -3279,6 +3279,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Fixed the mix table counting locations the plan never funded. Spend somewhere with no planned share was still diluting everyone else\u2019s share, so every funded location looked like it had lost ground to nobody and London losing share read as a loss when it should have been a gain. The mix now only covers locations the plan funded, and off-plan spend is called out separately.',
+    'Plainer wording across the banners and help text.',
     'Plainer wording throughout Why. The callouts now just say the numbers, for example "the live mix now has a blended CPA of £60 compared to £54 in the plan", instead of explaining what that means about the mix.',
     'Fixed the worth column in the mix table. It was showing what a location\u2019s money was doing against the average, which is positive for any cheap location whatever its share does, so a cheap location losing share still read as a gain. It now prices only the shift: the money held over or under the planned share. A location on its planned share reads nil, however cheap or dear.',
     'Why now shows how the mix has moved: share of spend in the plan against share now, per location, priced at that location\u2019s historic cost per application. So if London was a tenth of the plan and is now nearly a third, that is on the page with what it has cost in applications. Rates used are the historic ones the plan was built on, never this month\u2019s, because the question is what moving the money is worth on known performance rather than how the month happens to be running.',
@@ -3988,10 +3990,9 @@ function PrioritiesTool({ container, patchMonth, month }) {
       <div className="banner banner-info">
         <div className="banner-icon">i</div>
         <div>
-          <strong>Daily routine.</strong> Paste the whole SMR and Patrol tabs back in each day. Repasting
-          the full month rather than a single day means anything RAC have sent or revised gets picked up,
-          and the trends always line up with the source. Locations are matched by name, so the order makes
-          no difference. Then check What changed for the locations to pause or launch.
+          <strong>Each day.</strong> Paste the whole SMR and Patrol tabs back in. The whole month, not
+          just the new day, so anything RAC have changed since gets picked up. Locations match on name so
+          the order doesn't matter. What changed gives you the pause and launch list.
         </div>
       </div>
 
@@ -4708,32 +4709,35 @@ function explainGap(rows) {
   // nothing is invented and the three still add up to the gap.
   const planBlended = t.planApps > 0 ? t.planSpend / t.planApps : null;
   t.planBlendedCpa = planBlended;
-  t.moneyEffect = planBlended ? (t.actualSpend - t.expSpend) / planBlended : 0;
-  t.mixEffect = t.spendEffect - t.moneyEffect;
-  t.rateEffect = t.effEffect;
-  // The rate the current mix of locations was planned to deliver, against
-  // the plan's own blended rate. Higher means the money has moved to
-  // locations the plan expected to cost more.
-  const actualAtPlanRates = out.reduce((a, r) => a + (r.planCpa ? r.actualSpend / r.planCpa : 0), 0);
-  t.mixCpa = actualAtPlanRates > 0 ? t.actualSpend / actualAtPlanRates : null;
 
-  // Where the mix moved, and what it cost. Rates here are the historic
-  // benchmark ones the plan was built on, never this month's actuals: the
-  // point is what the shift is worth on known performance, separate from
-  // how the month happens to be running.
+  // Only locations the plan actually funded can be part of a mix comparison.
+  // Spend somewhere the plan gave nothing has no planned share to move away
+  // from, and counting it as part of the total made every funded location
+  // look like it had lost share to nobody.
+  const funded = out.filter(r => r.planCpa);
+  const fundedSpend = funded.reduce((a, r) => a + r.actualSpend, 0);
+  t.fundedSpend = fundedSpend;
+  t.unplannedSpend = t.actualSpend - fundedSpend;
+
+  t.moneyEffect = planBlended ? (fundedSpend - t.expSpend) / planBlended : 0;
+  const atOwnRates = funded.reduce((a, r) => a + r.actualSpend / r.planCpa, 0);
+  t.mixEffect = planBlended ? atOwnRates - (fundedSpend / planBlended) : 0;
+  t.rateEffect = funded.reduce((a, r) => a + r.actualApps, 0) - atOwnRates;
+  t.mixCpa = atOwnRates > 0 ? fundedSpend / atOwnRates : null;
+
   out.forEach(r => {
     r.planShare = t.planSpend > 0 ? r.planSpend / t.planSpend : 0;
-    r.actualShare = t.actualSpend > 0 ? r.actualSpend / t.actualSpend : 0;
-    r.shareShift = r.actualShare - r.planShare;
-    // Only the SHIFT counts. Take the money this location holds over and
-    // above what the plan's share would have given it, and price that
-    // difference at its own historic rate against the plan's blended one.
-    // A location on its planned share contributes nothing, however cheap or
-    // dear it is.
-    const wouldHave = t.actualSpend * r.planShare;
+    // Share of the money that went to locations the plan funded, so the
+    // shares are comparable with the plan's own.
+    r.actualShare = r.planCpa && fundedSpend > 0 ? r.actualSpend / fundedSpend : 0;
+    r.shareShift = r.planCpa ? r.actualShare - r.planShare : 0;
+    // Price only the shift: the money held over or under the planned share,
+    // at this location's own historic rate against the plan's blended one.
+    const wouldHave = fundedSpend * r.planShare;
     r.mixContrib = (planBlended && r.planCpa)
       ? (r.actualSpend - wouldHave) * (1 / r.planCpa - 1 / planBlended)
       : 0;
+    r.offPlan = !r.planCpa && r.actualSpend > 0;
   });
 
   return { rows: out, totals: t };
@@ -4849,16 +4853,17 @@ function WhyView({ pacing, planDemand, liveDemand }) {
                   ex.rows.forEach(r => {
                     const o = byLoc[r.region] = byLoc[r.region] ||
                       { region: r.region, planSpend: 0, actualSpend: 0, atRate: 0, mixContrib: 0 };
-                    o.planSpend += r.planSpend; o.actualSpend += r.actualSpend;
+                    o.planSpend += r.planSpend;
+                    if (r.planCpa) o.actualSpend += r.actualSpend;
                     o.atRate += r.planCpa ? r.actualSpend / r.planCpa : 0;
                     o.mixContrib += r.mixContrib;
                   });
                   return Object.values(byLoc)
-                    .filter(o => o.planSpend > 0 || o.actualSpend > 0)
+                    .filter(o => o.planSpend > 0)
                     .sort((a, b) => a.mixContrib - b.mixContrib)
                     .map(o => {
                       const ps = t.planSpend > 0 ? o.planSpend / t.planSpend : 0;
-                      const as = t.actualSpend > 0 ? o.actualSpend / t.actualSpend : 0;
+                      const as = t.fundedSpend > 0 ? o.actualSpend / t.fundedSpend : 0;
                       const shift = as - ps;
                       const cpa = o.atRate > 0 ? o.actualSpend / o.atRate : null;
                       return (
@@ -4882,6 +4887,8 @@ function WhyView({ pacing, planDemand, liveDemand }) {
               </tbody>
             </table>
             <div className="help-text" style={{ padding: '10px 16px' }}>
+              Only locations the plan funded are in here. Spend somewhere the plan gave nothing has no
+              planned share to move away from{t.unplannedSpend > 1 ? ', and there is ' + fmtGBP(t.unplannedSpend) + ' of that this month' : ''}.
               Historic CPA is what that location has cost per application across the whole dataset. That's
               what the plan was built on. This month's own rate isn't used here, because the question is
               what moving the money is worth on what we already know, not how the month is going.
@@ -5223,10 +5230,9 @@ function PacingTool({ month, container, patchMonth }) {
             <div className="banner banner-warn">
               <div className="banner-icon">!</div>
               <div>
-                <strong>No saved plan for this month.</strong> Pacing needs one to measure against. The
-                working plan takes its open roles from Location priorities as they are today, so it moves
-                every time a list is pasted and nothing could ever read as off plan. Save a plan in the
-                planner first.
+                <strong>No saved plan for this month.</strong> Save one in the planner first. Pacing can't
+                measure against the working plan, because that reads open roles as they are today and moves
+                every time a list is pasted.
               </div>
             </div>
           )}
@@ -5306,10 +5312,8 @@ function PacingTool({ month, container, patchMonth }) {
 
               <div style={{ marginTop: 18, borderTop: '1px solid var(--line-c)', paddingTop: 14 }}>
                 <div className="help-text" style={{ marginBottom: 12 }}>
-                  Appcast and Indeed can go in straight off the platform instead, which saves waiting for the
-                  master sheet and saves typing the Indeed spend in by hand. Both name their campaigns the
-                  same way, so I read the role and the location out of the campaign name. Whatever you paste
-                  here replaces that platform's figures.
+                  Appcast and Indeed go in straight off the platform. Role and location come out of the
+                  campaign name. What you paste replaces that platform's figures.
                 </div>
                 <WindsorPull month={month} lastDay={baseActuals && !baseActuals.error ? baseActuals.lastDay : null}
                   priRows={priRows}
@@ -5910,9 +5914,9 @@ function DataTool() {
       <div className="banner banner-info">
         <div className="banner-icon">i</div>
         <div>
-          <strong>Keeping the benchmarks current.</strong> Drop the master sheet in below and pick the months
-          to fold in. It applies the same rules the dataset was built on, shows you what it would move before
-          it moves anything, and gives you a new data file to publish.
+          <strong>Updating the benchmarks.</strong> Drop the master sheet in and pick the months you want.
+          Same rules the dataset was built on. It shows you what would change before anything changes, then
+          gives you a new data file to publish.
         </div>
       </div>
 
@@ -6174,9 +6178,8 @@ function CompareView({ month, container, onClose }) {
       <div className="banner banner-info">
         <div className="banner-icon">i</div>
         <div>
-          <strong>Two saved plans, side by side.</strong> Both are for
-          {' '}{(DATA.month_labels && DATA.month_labels[month]) || month}, so they share the same open-role
-          counts. Anything that differs here is a planning choice, not a change in demand.
+          Two saved plans for {(DATA.month_labels && DATA.month_labels[month]) || month}, side by side.
+          Anything different is a planning choice.
         </div>
       </div>
       <div className="card">
