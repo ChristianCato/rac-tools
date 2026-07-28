@@ -3179,6 +3179,30 @@ function exportPlanPDF(state, roleFilter) {
 const CHANGELOG = [
   {
     date: '2026-07-28',
+    body: 'Appcast and Indeed can now be pasted straight off the platform, in whatever layout the export comes in. Both name their campaigns the same way, so I read the role and the location out of the campaign name and match it up. No more typing the Indeed spend in by hand. Anything I cannot place is listed with its campaign name and stays in the total spend figure, just not against plan.',
+  },
+  {
+    date: '2026-07-28',
+    body: 'Indeed spend comes from Total cost, not Budget spent, which is the lifetime figure. The Indeed export carries no applications at all, so those keep coming from Eploy and a paste never overwrites them with nought.',
+  },
+  {
+    date: '2026-07-28',
+    body: 'Pacing is in. Load the master sheet and it shows where the plan said we would be against where we are, by role, location and platform, with the day of the month read off the data rather than the calendar. Straight-line for now. On pace is within ten percent of expected, over or under pacing to fifteen, and beyond that over or under spending.',
+  },
+  {
+    date: '2026-07-28',
+    body: 'Pacing exports to Excel: a summary, a region breakdown, a region by platform breakdown and a platform view, all flat rows with the workings rather than only the verdicts, so it can be fed straight back in when writing the weekly and monthly reports.',
+  },
+  {
+    date: '2026-07-28',
+    body: 'Against plan covers SMR and Patrol tagged to a location on the four planned platforms, which is what the plan funds. Total spend carries everything, non-standard included, so the whole month is still visible without it flattering the pacing.',
+  },
+  {
+    date: '2026-07-28',
+    body: 'Region view now reads its budget per location from the plan instead of it being typed in a second place. Same principle as the open-role count: one number, one home. If no plan is saved it falls back to the typed budgets and says so.',
+  },
+  {
+    date: '2026-07-28',
     body: 'Location priorities now takes the whole tab rather than a single day. Paste the full SMR or Patrol table, header row of dates and all, and it replaces the month outright. That way anything RAC have sent or gone back and revised gets picked up, and the trends always line up with the source instead of drifting from it. Locations are still matched by name, so the order makes no difference, and it tells you before applying which locations are new, which have disappeared from the paste, and which days it has not seen before.',
   },
   {
@@ -3907,19 +3931,337 @@ function PrioritiesTool({ container, patchMonth, month }) {
 }
 
 // ====================================================================
+// PLATFORM PASTES
+// Appcast and Indeed both encode everything in the campaign name, so the
+// raw export off either platform can go in as it comes. No reshaping, no
+// manual spend entry.
+//
+//   RAC | Conversion | Patrol Mechanics | London | Appcast | Nov 25 | 2936
+//   RAC | Conversion | SMR Mechanics | Mobile Vehicle Tech - Derby | Indeed | ...
+//
+// Role sits at the third pipe, location at the fourth. The location is
+// sometimes a region and sometimes a job title ending in a city, so it gets
+// resolved against the location map and then against whatever the
+// priorities grid already knows.
+// ====================================================================
+
+// A CSV line splitter that respects quotes, because Indeed quotes every
+// field and Appcast writes thousands as "1,400".
+function splitCsvLine(line) {
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { if (q && line[i + 1] === '"') { cur += '"'; i++; } else q = !q; }
+    else if ((c === ',' || c === '\t') && !q) { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out.map(x => x.trim());
+}
+
+const toNum = v => {
+  const t = String(v == null ? '' : v).replace(/[^0-9.\-]/g, '');
+  const n = parseFloat(t);
+  return isFinite(n) ? n : 0;
+};
+
+function campaignRole(seg) {
+  const s = String(seg || '').toLowerCase();
+  if (s.includes('smr')) return 'SMR';
+  if (s.includes('patrol')) return 'Patrol';
+  return null;
+}
+
+// Resolve a campaign's location segment to one of the twelve regions.
+// Tries the region names, then the location map, then the city after a
+// dash, then anything the pasted priorities grid knows.
+function campaignRegion(seg, priRows) {
+  if (!seg) return null;
+  const direct = priorityRegion(seg);
+  if (direct) return direct;
+  const norm = s => String(s).toLowerCase().replace(/[^a-z]/g, '');
+  const map = DATA.location_map || {};
+  const tryKey = (s) => {
+    const k = norm(s);
+    if (!k) return null;
+    const asRegion = priorityRegion(s);   // the tail can be a region, not a city
+    if (asRegion) return asRegion;
+    if (map[k]) return priorityRegion(map[k]) || map[k];
+    if (priRows) {
+      const hit = priRows.find(r => norm(r.location) === k ||
+        norm(String(r.location).split(' - ').pop()) === k);
+      if (hit) return hit.region;
+    }
+    return null;
+  };
+  return tryKey(seg) || (String(seg).includes(' - ') ? tryKey(String(seg).split(' - ').pop()) : null);
+}
+
+// Read a raw platform export. Works out which platform it is from the
+// headers, so you paste and it just knows.
+function parsePlatformPaste(text, priRows) {
+  const lines = String(text || '').split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return { error: 'Paste the export including its header row.' };
+  const rows = lines.map(splitCsvLine);
+  const head = rows[0].map(h => h.toLowerCase().replace(/[^a-z]/g, ''));
+  const find = (...names) => {
+    for (const n of names) {
+      const k = n.toLowerCase().replace(/[^a-z]/g, '');
+      const i = head.indexOf(k);
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+  const iCamp = find('Campaign');
+  if (iCamp < 0) return { error: 'I could not find a Campaign column. Paste the export with its header row.' };
+
+  // Indeed carries Total cost; Appcast carries Spend and Total Applies.
+  const iTotalCost = find('Total cost');
+  const iSpend = find('Spend');
+  const iApplies = find('Total Applies', 'Paid Applies');
+  let platform, iMoney, iApps;
+  if (iTotalCost >= 0) {
+    platform = 'indeed'; iMoney = iTotalCost; iApps = -1;   // Indeed apps come from Eploy
+  } else if (iSpend >= 0) {
+    platform = 'appcast'; iMoney = iSpend; iApps = iApplies;
+  } else {
+    return { error: 'I could not tell which platform this is. I look for a Total cost column for Indeed, or Spend for Appcast.' };
+  }
+
+  const cells = {}, unmatched = [];
+  let matchedSpend = 0, unmatchedSpend = 0, matchedApps = 0, n = 0;
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const camp = r[iCamp]; if (!camp) continue;
+    const spend = toNum(r[iMoney]);
+    const apps = iApps >= 0 ? toNum(r[iApps]) : 0;
+    if (!spend && !apps) continue;
+    n++;
+    const parts = camp.split('|').map(x => x.trim());
+    const role = campaignRole(parts[2]);
+    const region = campaignRegion(parts[3], priRows);
+    if (!role || !region) {
+      unmatchedSpend += spend;
+      unmatched.push({ campaign: camp.slice(0, 78), spend,
+        why: !role ? 'role not SMR or Patrol' : 'location not recognised' });
+      continue;
+    }
+    const key = role + '|' + region + '|' + platform;
+    cells[key] = cells[key] || { role, region, platform, spend: 0, apps: 0 };
+    cells[key].spend += spend; cells[key].apps += apps;
+    matchedSpend += spend; matchedApps += apps;
+  }
+  if (!n) return { error: 'No rows with any spend in that paste.' };
+  return { platform, cells, unmatched, matchedSpend, unmatchedSpend, matchedApps,
+           rows: n, appsIncluded: iApps >= 0 };
+}
+
+// ---- pacing maths ----
+
+// Where the plan said we would be by now. Straight-line: a plan is a month
+// of intent spread evenly, and anything cleverer needs a reason.
+function paceStatus(ratio, kind) {
+  if (ratio == null || !isFinite(ratio)) return { label: '-', kind: 'none' };
+  const words = kind === 'apps'
+    ? ['Well behind', 'Behind', 'On pace', 'Ahead', 'Well ahead']
+    : ['Under spending', 'Under pacing', 'On pace', 'Over pacing', 'Over spending'];
+  if (ratio < 0.85) return { label: words[0], kind: 'bad' };
+  if (ratio < 0.90) return { label: words[1], kind: 'warn' };
+  if (ratio <= 1.10) return { label: words[2], kind: 'good' };
+  if (ratio <= 1.15) return { label: words[3], kind: 'warn' };
+  return { label: words[4], kind: 'bad' };
+}
+
+// The plan baseline, as Role x Region x Platform rows. Read from whichever
+// plan is loaded, so pacing measures against the plan you actually issued.
+function planBaseline(month, container) {
+  const state = composePlannerState(month, container);
+  const rows = [];
+  ROLES.forEach(role => {
+    const plan = buildFundingPlan(role, { ...planParams(role, state), appTarget: state.appTarget[role] || 0 });
+    PLATFORMS.forEach(plat => {
+      ((plan.regionChannel && plan.regionChannel[plat]) || []).forEach(r => {
+        if (!(r.spend > 0) && !(r.predApps > 0)) return;
+        rows.push({ role, region: r.region, platform: plat, planSpend: r.spend, planApps: r.predApps });
+      });
+    });
+  });
+  return rows;
+}
+
+// Actuals for one month out of the master sheet. Regional rows are SMR and
+// Patrol on the four modelled platforms, tagged to a location. Everything
+// else is counted separately for the total view rather than thrown away.
+function digestActuals(rows, month) {
+  if (!rows || rows.length < 2) return { error: 'No rows found in that file.' };
+  const head = rows[0].map(normHeader);
+  const col = (...names) => { for (const n of names) { const i = head.indexOf(normHeader(n)); if (i >= 0) return i; } return -1; };
+  const iDate = col('Date'), iPlat = col('Platform'), iArea = col('Area'),
+        iReg = col('Region'), iSpend = col('Ad Spend'), iApps = col('Blended Apply Completes');
+  if ([iDate, iPlat, iArea, iReg, iSpend, iApps].some(i => i < 0)) {
+    return { error: 'That sheet is missing columns. It should be the Raw Data Export tab of the master sheet.' };
+  }
+  const regional = {}, other = {};
+  let lastDay = 0, totalSpend = 0, totalApps = 0;
+  let nonStdSpend = 0, nonStdApps = 0, untaggedSpend = 0, untaggedApps = 0, monthRows = 0;
+
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r]; if (!row || !row.length) continue;
+    const raw = row[iDate];
+    let dt = raw instanceof Date ? raw : (typeof raw === 'number' ? new Date(Math.round((raw - 25569) * 86400000)) : new Date(raw));
+    if (!dt || isNaN(dt.getTime())) continue;
+    const mo = dt.getUTCFullYear() + '-' + String(dt.getUTCMonth() + 1).padStart(2, '0');
+    if (mo !== month) continue;
+    monthRows++;
+    lastDay = Math.max(lastDay, dt.getUTCDate());
+
+    const spend = Number(row[iSpend]) || 0, apps = Number(row[iApps]) || 0;
+    totalSpend += spend; totalApps += apps;
+    const platRaw = String(row[iPlat] || '').trim();
+    const plat = UPDATE_PLATMAP[platRaw.toLowerCase()];
+    const role = String(row[iArea] || '').trim();
+    const region = priorityRegion(row[iReg]);
+
+    if (!plat || (role !== 'SMR' && role !== 'Patrol')) {
+      nonStdSpend += spend; nonStdApps += apps;
+      const k = platRaw || 'Unknown';
+      other[k] = other[k] || { spend: 0, apps: 0 };
+      other[k].spend += spend; other[k].apps += apps;
+      continue;
+    }
+    if (!region) {
+      untaggedSpend += spend; untaggedApps += apps;
+      const k = platRaw + ' (not tagged to a location)';
+      other[k] = other[k] || { spend: 0, apps: 0 };
+      other[k].spend += spend; other[k].apps += apps;
+      continue;
+    }
+    const key = role + '|' + region + '|' + plat;
+    regional[key] = regional[key] || { role, region, platform: plat, spend: 0, apps: 0 };
+    regional[key].spend += spend; regional[key].apps += apps;
+  }
+  if (!monthRows) return { error: 'No rows for ' + ((DATA.month_labels && DATA.month_labels[month]) || month) + ' in that file.' };
+  return { regional, other, lastDay, totalSpend, totalApps, nonStdSpend, nonStdApps, untaggedSpend, untaggedApps, monthRows };
+}
+
+// Platform pastes replace the master sheet's figures for that platform.
+// The paste is straight off the platform, so where the two disagree the
+// platform is the better source.
+function mergeActuals(base, pastes) {
+  if (!base || base.error) return base;
+  const out = { ...base, regional: { ...base.regional }, other: { ...base.other }, sources: {} };
+  Object.keys(pastes || {}).forEach(plat => {
+    const p = pastes[plat]; if (!p || p.error) return;
+    let removedSpend = 0, removedApps = 0;
+    Object.keys(out.regional).forEach(k => {
+      if (out.regional[k].platform !== plat) return;
+      removedSpend += out.regional[k].spend; removedApps += out.regional[k].apps;
+      delete out.regional[k];
+    });
+    let addedSpend = 0, addedApps = 0;
+    Object.values(p.cells).forEach(c => {
+      const k = c.role + '|' + c.region + '|' + plat;
+      // Indeed's export carries no applications, so keep the ones the
+      // master sheet had from Eploy rather than zeroing them.
+      const keepApps = p.appsIncluded ? c.apps : (base.regional[k] ? base.regional[k].apps : 0);
+      out.regional[k] = { role: c.role, region: c.region, platform: plat, spend: c.spend, apps: keepApps };
+      addedSpend += c.spend; addedApps += keepApps;
+    });
+    out.totalSpend = out.totalSpend - removedSpend + addedSpend + p.unmatchedSpend;
+    if (p.appsIncluded) out.totalApps = out.totalApps - removedApps + addedApps;
+    if (p.unmatchedSpend > 0) {
+      out.other[PLATFORM_LABELS[plat] + ' (campaign not recognised)'] = { spend: p.unmatchedSpend, apps: 0 };
+    }
+    out.sources[plat] = { matched: p.matchedSpend, unmatched: p.unmatchedSpend, cells: Object.keys(p.cells).length, appsIncluded: p.appsIncluded };
+  });
+  return out;
+}
+
+// Join plan to actuals and work out the pace on each line.
+function buildPacing(month, container, actuals) {
+  const days = (DATA.days_in_month && DATA.days_in_month[month]) || 30;
+  const elapsed = Math.min(days, actuals.lastDay || days);
+  const pace = elapsed / days;
+  const plan = planBaseline(month, container);
+  const seen = {};
+  const rows = plan.map(p => {
+    const key = p.role + '|' + p.region + '|' + p.platform;
+    seen[key] = true;
+    const a = actuals.regional[key] || { spend: 0, apps: 0 };
+    const expSpend = p.planSpend * pace, expApps = p.planApps * pace;
+    return {
+      ...p, actualSpend: a.spend, actualApps: a.apps,
+      expSpend, expApps,
+      spendRatio: expSpend > 0 ? a.spend / expSpend : null,
+      appsRatio: expApps > 0 ? a.apps / expApps : null,
+      cpa: a.apps > 0 ? a.spend / a.apps : null,
+    };
+  });
+  // Spend that landed somewhere the plan did not fund.
+  Object.keys(actuals.regional).forEach(k => {
+    if (seen[k]) return;
+    const a = actuals.regional[k];
+    rows.push({ role: a.role, region: a.region, platform: a.platform,
+      planSpend: 0, planApps: 0, actualSpend: a.spend, actualApps: a.apps,
+      expSpend: 0, expApps: 0, spendRatio: null, appsRatio: null,
+      cpa: a.apps > 0 ? a.spend / a.apps : null, unplanned: true });
+  });
+  return { rows, days, elapsed, pace };
+}
+
+function agg(rows, keyFn) {
+  const out = {};
+  rows.forEach(r => {
+    const k = keyFn(r);
+    const o = out[k] = out[k] || { key: k, planSpend: 0, actualSpend: 0, expSpend: 0, planApps: 0, actualApps: 0, expApps: 0 };
+    o.planSpend += r.planSpend; o.actualSpend += r.actualSpend; o.expSpend += r.expSpend;
+    o.planApps += r.planApps; o.actualApps += r.actualApps; o.expApps += r.expApps;
+  });
+  Object.values(out).forEach(o => {
+    o.spendRatio = o.expSpend > 0 ? o.actualSpend / o.expSpend : null;
+    o.appsRatio = o.expApps > 0 ? o.actualApps / o.expApps : null;
+    o.cpa = o.actualApps > 0 ? o.actualSpend / o.actualApps : null;
+  });
+  return Object.values(out);
+}
+
+function PaceCell({ ratio, kind }) {
+  const s = paceStatus(ratio, kind);
+  return (
+    <>
+      <td className="mono">{ratio == null ? '-' : Math.round(ratio * 100) + '%'}</td>
+      <td><Pill kind={s.kind === 'none' ? undefined : s.kind}>{s.label}</Pill></td>
+    </>
+  );
+}
+
+// ====================================================================
 // PACING
 // Region view lives here, because it is a plan-against-reality question
 // rather than a record of what RAC sent. The rest of pacing comes next.
 // ====================================================================
-function RegionView({ pri, from, to }) {
+function RegionView({ pri, from, to, month, container, setPri }) {
   const th = pri.thresholds || {};
+  // Budget per location comes from the plan itself now, rather than being
+  // typed in a second time. One number, one home, same as the demand.
+  const planBudgets = useMemo(() => {
+    const out = {};
+    ROLES.forEach(r => { out[r] = {}; });
+    try {
+      planBaseline(month, container).forEach(p => {
+        out[p.role][p.region] = (out[p.role][p.region] || 0) + p.planSpend;
+      });
+    } catch (e) { /* no plan yet, fall back below */ }
+    return out;
+  }, [month, container]);
   return (
     <div>
       {ROLES.map(role => {
         const rows = (pri.roles[role] || {}).rows || [];
         const plan = regionCut(rows, 'plan');
         const a = regionCut(rows, from), b = regionCut(rows, to);
-        const budgets = (pri.budgets || {})[role] || {};
+        const fromPlan = planBudgets[role] || {};
+        const budgets = Object.keys(fromPlan).length ? fromPlan : ((pri.budgets || {})[role] || {});
         let tB = 0, tPL = 0, tA = 0, tR = 0;
         const body = DATA.regions_ordered.map(reg => {
           const budget = budgets[reg] || 0;
@@ -3936,7 +4278,10 @@ function RegionView({ pri, from, to }) {
           <div className="card" key={role}>
             <div className="card-head">
               <div className="card-title">{role === 'SMR' ? 'Mobile Vehicle Tech (SMR)' : 'Roadside Tech (Patrol, incl. SuperFlex)'}</div>
-              <div className="card-sub">{fmtDay(from)} to {fmtDay(to)}</div>
+              <div className="card-sub">
+                {fmtDay(from)} to {fmtDay(to)}
+                {Object.keys(fromPlan).length ? ' \u00B7 budget read from the plan' : ' \u00B7 no plan, using typed budgets'}
+              </div>
             </div>
             <div className="card-body" style={{ padding: 0 }}>
               <table className="alloc-table rv">
@@ -4047,22 +4392,179 @@ function PriorityInputs({ pri, setPri }) {
   );
 }
 
+// Excel out. This is the thing that gets fed back in to write the weekly
+// and monthly reports, so it is flat, labelled, and carries the workings
+// rather than only the verdicts.
+function exportPacingXLSX(month, pacing, actuals) {
+  if (!window.XLSX) { alert('The spreadsheet writer did not load. Check the connection and reload.'); return; }
+  const label = (DATA.month_labels && DATA.month_labels[month]) || month;
+  const pct = r => (r == null ? '' : Math.round(r * 1000) / 10);
+  const money = n => Math.round(n * 100) / 100;
+  const wb = window.XLSX.utils.book_new();
+
+  const roleRows = agg(pacing.rows, r => r.role);
+  const total = agg(pacing.rows, () => 'All')[0] || {};
+
+  const summary = [
+    ['RAC pacing', label],
+    ['Days in month', pacing.days],
+    ['Days elapsed', pacing.elapsed],
+    ['Pace through month (%)', Math.round(pacing.pace * 1000) / 10],
+    [],
+    ['Scope', 'SMR and Patrol, tagged to a location, on Indeed / Meta / Google Search / Appcast. This is what the plan covers.'],
+    [],
+    ['Role', 'Plan spend', 'Actual spend', 'Expected spend at pace', 'Spend vs expected (%)', 'Spend status',
+     'Plan apps', 'Actual apps', 'Expected apps at pace', 'Apps vs expected (%)', 'Apps status', 'Actual CPA'],
+  ];
+  [...roleRows, { ...total, key: 'Total' }].forEach(r => summary.push([
+    r.key, money(r.planSpend), money(r.actualSpend), money(r.expSpend), pct(r.spendRatio),
+    paceStatus(r.spendRatio, 'spend').label,
+    Math.round(r.planApps), Math.round(r.actualApps * 10) / 10, Math.round(r.expApps * 10) / 10,
+    pct(r.appsRatio), paceStatus(r.appsRatio, 'apps').label,
+    r.cpa ? money(r.cpa) : '',
+  ]));
+  summary.push([]);
+  summary.push(['Total activity, including non-standard']);
+  summary.push(['Line', 'Spend', 'Applications']);
+  summary.push(['In plan (regional SMR and Patrol)', money(total.actualSpend || 0), Math.round((total.actualApps || 0) * 10) / 10]);
+  summary.push(['Non-standard and untagged', money(actuals.totalSpend - (total.actualSpend || 0)),
+                Math.round((actuals.totalApps - (total.actualApps || 0)) * 10) / 10]);
+  summary.push(['Total', money(actuals.totalSpend), Math.round(actuals.totalApps * 10) / 10]);
+  window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(summary), 'Summary');
+
+  const head = ['Role', 'Region', 'Platform', 'Plan spend', 'Actual spend', 'Expected spend', 'Spend vs expected (%)',
+                'Spend status', 'Plan apps', 'Actual apps', 'Expected apps', 'Apps vs expected (%)', 'Apps status',
+                'Actual CPA', 'In plan'];
+  const detail = [head];
+  pacing.rows.slice().sort((a, b) =>
+    a.role.localeCompare(b.role) || a.region.localeCompare(b.region) || a.platform.localeCompare(b.platform)
+  ).forEach(r => detail.push([
+    r.role, r.region, PLATFORM_LABELS[r.platform],
+    money(r.planSpend), money(r.actualSpend), money(r.expSpend), pct(r.spendRatio), paceStatus(r.spendRatio, 'spend').label,
+    Math.round(r.planApps * 10) / 10, Math.round(r.actualApps * 10) / 10, Math.round(r.expApps * 10) / 10,
+    pct(r.appsRatio), paceStatus(r.appsRatio, 'apps').label,
+    r.cpa ? money(r.cpa) : '', r.unplanned ? 'No, not funded in plan' : 'Yes',
+  ]));
+  window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(detail), 'By region and platform');
+
+  const byRegion = [['Role', 'Region', 'Plan spend', 'Actual spend', 'Expected spend', 'Spend vs expected (%)', 'Spend status',
+                     'Plan apps', 'Actual apps', 'Expected apps', 'Apps vs expected (%)', 'Apps status', 'Actual CPA']];
+  agg(pacing.rows, r => r.role + '|' + r.region)
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .forEach(r => {
+      const [role, region] = r.key.split('|');
+      byRegion.push([role, region, money(r.planSpend), money(r.actualSpend), money(r.expSpend),
+        pct(r.spendRatio), paceStatus(r.spendRatio, 'spend').label,
+        Math.round(r.planApps * 10) / 10, Math.round(r.actualApps * 10) / 10, Math.round(r.expApps * 10) / 10,
+        pct(r.appsRatio), paceStatus(r.appsRatio, 'apps').label, r.cpa ? money(r.cpa) : '']);
+    });
+  window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(byRegion), 'By region');
+
+  const byPlat = [['Platform', 'Plan spend', 'Actual spend', 'Expected spend', 'Spend vs expected (%)', 'Spend status',
+                   'Plan apps', 'Actual apps', 'Expected apps', 'Apps vs expected (%)', 'Apps status', 'Actual CPA']];
+  agg(pacing.rows, r => r.platform).forEach(r => byPlat.push([
+    PLATFORM_LABELS[r.key], money(r.planSpend), money(r.actualSpend), money(r.expSpend),
+    pct(r.spendRatio), paceStatus(r.spendRatio, 'spend').label,
+    Math.round(r.planApps * 10) / 10, Math.round(r.actualApps * 10) / 10, Math.round(r.expApps * 10) / 10,
+    pct(r.appsRatio), paceStatus(r.appsRatio, 'apps').label, r.cpa ? money(r.cpa) : '']));
+  byPlat.push([]);
+  byPlat.push(['Outside the plan', 'Spend', 'Applications']);
+  Object.keys(actuals.other).sort((a, b) => actuals.other[b].spend - actuals.other[a].spend)
+    .forEach(k => byPlat.push([k, money(actuals.other[k].spend), Math.round(actuals.other[k].apps * 10) / 10]));
+  window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(byPlat), 'By platform');
+
+  window.XLSX.writeFile(wb, 'RAC_pacing_' + month + '.xlsx');
+}
+
+function PlatformPasteBox({ label, hint, priRows, onApply, applied }) {
+  const [text, setText] = useState('');
+  const parsed = useMemo(() => (text.trim() ? parsePlatformPaste(text, priRows) : null), [text, priRows]);
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div className="section-label">{label}{applied ? ' \u00B7 loaded' : ''}</div>
+      <div className="help-text" style={{ marginBottom: 6 }}>{hint}</div>
+      <textarea className="paste-box" rows={3} value={text}
+        placeholder="Paste the export, header row included"
+        onChange={e => setText(e.target.value)} />
+      {parsed && parsed.error && <div className="parse-bad" style={{ marginTop: 8 }}>{parsed.error}</div>}
+      {parsed && !parsed.error && (
+        <div className="parse-report">
+          <div className="parse-line">
+            Read as <strong>{PLATFORM_LABELS[parsed.platform]}</strong>
+            {' \u00B7 '}<strong>{fmtGBP(parsed.matchedSpend)}</strong> matched across {Object.keys(parsed.cells).length} location rows
+            {parsed.appsIncluded ? ' \u00B7 ' + fmtInt(parsed.matchedApps) + ' applications' : ' \u00B7 spend only, applications come from Eploy'}
+          </div>
+          {parsed.unmatchedSpend > 0 && (
+            <div className="parse-bad">
+              <strong>{fmtGBP(parsed.unmatchedSpend)} I could not place.</strong> It stays in the total but not against plan.
+              <ul style={{ margin: '6px 0 0 18px' }}>
+                {parsed.unmatched.filter(u => u.spend > 0).slice(0, 5).map((u, i) => (
+                  <li key={i}>{fmtGBP(u.spend)} {u.campaign} <span className="text-muted">({u.why})</span></li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <button className="btn btn-sm btn-primary" style={{ marginTop: 8 }}
+            onClick={() => { onApply(parsed.platform, parsed); setText(''); }}>
+            Use this for {PLATFORM_LABELS[parsed.platform]}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PacingTool({ month, container, patchMonth }) {
-  const [view, setView] = useState('region');
+  const [view, setView] = useState('pacing');
+  const [baseActuals, setBaseActuals] = useState(null);
+  const [pastes, setPastes] = useState({});
+  const [busy, setBusy] = useState('');
+  const [grain, setGrain] = useState('region');
+  const fileRef = useRef(null);
   const pri = container.priorities || seedPriorities();
   const dates = pri.dates || [];
   const [from, setFrom] = useState(dates.length > 1 ? dates[dates.length - 2] : dates[0]);
   const [to, setTo] = useState(dates[dates.length - 1]);
-  const setPri = (updater) => patchMonth({
-    priorities: typeof updater === 'function' ? updater(pri) : updater,
-  });
-  const saved = (container.versions || []).length;
+  const setPri = (u) => patchMonth({ priorities: typeof u === 'function' ? u(pri) : u });
+
+  const readFile = async (file) => {
+    setBusy('Reading ' + file.name);
+    try {
+      const buf = await file.arrayBuffer();
+      let rows;
+      if (/\.csv$/i.test(file.name)) rows = new TextDecoder().decode(buf).split(/\r?\n/).map(l => l.split(','));
+      else {
+        if (!window.XLSX) throw new Error('The spreadsheet reader did not load.');
+        const wb = window.XLSX.read(buf, { cellDates: true });
+        const n = wb.SheetNames.find(x => normHeader(x).includes('rawdata')) || wb.SheetNames[0];
+        rows = window.XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true });
+      }
+      setBaseActuals(digestActuals(rows, month));
+    } catch (e) { setBaseActuals({ error: e.message }); }
+    setBusy('');
+  };
+
+  const priRows = useMemo(() => ROLES.reduce((a, r) => a.concat(((pri.roles || {})[r] || {}).rows || []), []), [pri]);
+  const actuals = useMemo(() => mergeActuals(baseActuals, pastes), [baseActuals, pastes]);
+  const pacing = useMemo(
+    () => (actuals && !actuals.error ? buildPacing(month, container, actuals) : null),
+    [actuals, month, container]);
+
+  const roleRows = pacing ? agg(pacing.rows, r => r.role) : [];
+  const total = pacing ? (agg(pacing.rows, () => 'All')[0] || {}) : {};
+  const detail = pacing
+    ? (grain === 'region'
+        ? agg(pacing.rows, r => r.role + '|' + r.region)
+        : grain === 'platform'
+          ? agg(pacing.rows, r => r.platform)
+          : agg(pacing.rows, r => r.role + '|' + r.region + '|' + r.platform))
+    : [];
 
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         <div className="role-switch">
-          {[['region', 'Region view'], ['inputs', 'Plan budgets'], ['pacing', 'Spend & applications']].map(([id, label]) => (
+          {[['pacing', 'Against plan'], ['total', 'Total spend'], ['region', 'Region view']].map(([id, label]) => (
             <button key={id} className={id === view ? 'active' : ''} onClick={() => setView(id)}>{label}</button>
           ))}
         </div>
@@ -4081,48 +4583,207 @@ function PacingTool({ month, container, patchMonth }) {
       </div>
 
       {view === 'region' && (dates.length > 0
-        ? <RegionView pri={pri} from={from} to={to} />
+        ? <RegionView pri={pri} from={from} to={to} month={month} container={container} setPri={setPri} />
         : <div className="card"><div className="card-body"><div className="help-text">No location data for this month yet.</div></div></div>)}
-      {view === 'inputs' && <PriorityInputs pri={pri} setPri={setPri} />}
-      {view === 'pacing' && (
-        <div>
-          <div className="banner banner-info">
-            <div className="banner-icon">i</div>
-            <div>
-              <strong>Not built yet.</strong> Spend and applications against plan is the last piece.
-            </div>
-          </div>
+
+      {(view === 'pacing' || view === 'total') && (
+        <>
           <div className="card">
             <div className="card-head">
-              <div className="card-title">What this will show</div>
+              <div className="card-title">Load this month's actuals</div>
               <div className="card-sub">
                 {(DATA.month_labels && DATA.month_labels[month]) || month}
-                {' \u00B7 '}{saved} saved plan{saved === 1 ? '' : 's'} to measure against
+                {pacing ? ' \u00B7 day ' + pacing.elapsed + ' of ' + pacing.days : ''}
               </div>
             </div>
             <div className="card-body">
-              <div className="help-text" style={{ marginBottom: 12 }}>
-                Where the plan said we would be against where we actually are, to date, by role, location
-                and platform. On day 18, the plan expected a certain spend and a certain number of
-                applications. Here is what came in. On pace, or not.
-              </div>
-              <div className="help-text" style={{ marginBottom: 12 }}>
-                Pacing starts straight-line, a thirtieth of the plan per day. Rough, but easy to argue with.
-              </div>
-              <div className="help-text">
-                Actuals arrive by paste to begin with, from the master sheet export, with Windsor covering
-                Google and Meta spend and Eploy covering applications. One thing to settle first: the plan
-                models four platforms, and the export carries six. Demand Gen and Acast would make actuals
-                run ahead of plan every month for no performance reason, so either pacing filters to the
-                same four, or it shows a modelled line and a total line side by side.
+              <input ref={fileRef} type="file" accept=".xlsx,.xlsm,.csv" style={{ display: 'none' }}
+                onChange={e => { const f = e.target.files[0]; if (f) readFile(f); e.target.value = ''; }} />
+              <button className="btn btn-primary" onClick={() => fileRef.current && fileRef.current.click()}>
+                Choose file
+              </button>
+              <span className="help-text" style={{ marginLeft: 12 }}>
+                The Blended Reporting master sheet. I take the rows for this month and work out how far
+                through it they run.
+              </span>
+              {busy && <div className="help-text" style={{ marginTop: 10 }}>{busy}...</div>}
+
+              <div style={{ marginTop: 18, borderTop: '1px solid var(--line-c)', paddingTop: 14 }}>
+                <div className="help-text" style={{ marginBottom: 12 }}>
+                  Appcast and Indeed can go in straight off the platform instead, which saves waiting for the
+                  master sheet and saves typing the Indeed spend in by hand. Both name their campaigns the
+                  same way, so I read the role and the location out of the campaign name. Whatever you paste
+                  here replaces that platform's figures.
+                </div>
+                <PlatformPasteBox label="Appcast" priRows={priRows}
+                  hint="The by-campaign export. Carries spend and applications."
+                  applied={!!pastes.appcast} onApply={(p, r) => setPastes(x => ({ ...x, [p]: r }))} />
+                <PlatformPasteBox label="Indeed" priRows={priRows}
+                  hint="The advanced campaign report. Spend only, from Total cost; applications keep coming from Eploy."
+                  applied={!!pastes.indeed} onApply={(p, r) => setPastes(x => ({ ...x, [p]: r }))} />
+                {Object.keys(pastes).length > 0 && (
+                  <div className="help-text">
+                    Using pasted figures for {Object.keys(pastes).map(p => PLATFORM_LABELS[p]).join(' and ')}.
+                    {' '}<a href="#" className="link-inline" onClick={e => { e.preventDefault(); setPastes({}); }}>Clear them</a>
+                  </div>
+                )}
               </div>
             </div>
           </div>
-        </div>
+
+          {actuals && actuals.error && (
+            <div className="banner banner-bad"><div className="banner-icon">!</div><div>{actuals.error}</div></div>
+          )}
+
+          {pacing && view === 'pacing' && (
+            <>
+              <div className="banner banner-info">
+                <div className="banner-icon">i</div>
+                <div>
+                  Day {pacing.elapsed} of {pacing.days}, so {Math.round(pacing.pace * 100)}% through the month.
+                  Expected is the plan spread evenly across the month. This covers SMR and Patrol tagged to a
+                  location on the four planned platforms, which is what the plan actually funds. Everything
+                  else sits under Total spend.
+                </div>
+              </div>
+
+              <div className="kpi-row" style={{ marginBottom: 18 }}>
+                {[['Spend', total.actualSpend, total.expSpend, total.spendRatio, 'spend', true],
+                  ['Applications', total.actualApps, total.expApps, total.appsRatio, 'apps', false]].map(
+                  ([label, act, exp, ratio, kind, isMoney]) => {
+                    const st = paceStatus(ratio, kind);
+                    return (
+                      <div className={'kpi kpi-accent-' + (st.kind === 'good' ? 'good' : st.kind === 'warn' ? 'orange' : 'navy')} key={label}>
+                        <div className="kpi-label">{label}</div>
+                        <div className="kpi-value mono">{isMoney ? fmtGBP(act || 0) : fmtInt(act || 0)}</div>
+                        <div className="kpi-sub">
+                          {isMoney ? fmtGBP(exp || 0) : fmtInt(exp || 0)} expected by now
+                          {' \u00B7 '}{ratio == null ? '-' : Math.round(ratio * 100) + '%'} \u00B7 {st.label}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+
+              <div className="card">
+                <div className="card-head">
+                  <div className="card-title">By role</div>
+                  <div className="spacer" style={{ flex: 1 }} />
+                  <button className="btn btn-sm btn-primary" onClick={() => exportPacingXLSX(month, pacing, actuals)}>
+                    Export to Excel
+                  </button>
+                </div>
+                <div className="card-body" style={{ padding: 0 }}>
+                  <table className="alloc-table rv">
+                    <thead>
+                      <tr>
+                        <th>Role</th><th>Plan spend</th><th>Actual</th><th>Expected</th><th>%</th><th>Spend</th>
+                        <th>Plan apps</th><th>Actual</th><th>Expected</th><th>%</th><th>Apps</th><th>CPA</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...roleRows, { ...total, key: 'Total' }].map(r => (
+                        <tr key={r.key} className={r.key === 'Total' ? 'tot-row' : ''}>
+                          <td><strong>{r.key}</strong></td>
+                          <td className="mono">{fmtGBP(r.planSpend)}</td>
+                          <td className="mono">{fmtGBP(r.actualSpend)}</td>
+                          <td className="mono">{fmtGBP(r.expSpend)}</td>
+                          <PaceCell ratio={r.spendRatio} kind="spend" />
+                          <td className="mono">{fmtInt(r.planApps)}</td>
+                          <td className="mono">{fmtInt(r.actualApps)}</td>
+                          <td className="mono">{fmtInt(r.expApps)}</td>
+                          <PaceCell ratio={r.appsRatio} kind="apps" />
+                          <td className="mono">{r.cpa ? fmtGBP(r.cpa) : '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-head">
+                  <div className="card-title">Breakdown</div>
+                  <div className="spacer" style={{ flex: 1 }} />
+                  <div className="role-switch">
+                    {[['region', 'By region'], ['platform', 'By platform'], ['full', 'Region and platform']].map(([id, l]) => (
+                      <button key={id} className={id === grain ? 'active' : ''} onClick={() => setGrain(id)}>{l}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="card-body" style={{ padding: 0 }}>
+                  <div className="grid-scroll">
+                    <table className="alloc-table rv">
+                      <thead>
+                        <tr>
+                          <th>{grain === 'platform' ? 'Platform' : 'Role and location'}</th>
+                          <th>Plan spend</th><th>Actual</th><th>%</th><th>Spend</th>
+                          <th>Plan apps</th><th>Actual</th><th>%</th><th>Apps</th><th>CPA</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.slice().sort((a, b) => b.actualSpend - a.actualSpend).map(r => (
+                          <tr key={r.key}>
+                            <td>{grain === 'platform' ? PLATFORM_LABELS[r.key]
+                              : r.key.split('|').map((x, i) => i === 2 ? PLATFORM_LABELS[x] : x).join(' \u00B7 ')}</td>
+                            <td className="mono">{fmtGBP(r.planSpend)}</td>
+                            <td className="mono">{fmtGBP(r.actualSpend)}</td>
+                            <PaceCell ratio={r.spendRatio} kind="spend" />
+                            <td className="mono">{fmtInt(r.planApps)}</td>
+                            <td className="mono">{fmtInt(r.actualApps)}</td>
+                            <PaceCell ratio={r.appsRatio} kind="apps" />
+                            <td className="mono">{r.cpa ? fmtGBP(r.cpa) : '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {pacing && view === 'total' && (
+            <div className="card">
+              <div className="card-head">
+                <div className="card-title">Total spend this month</div>
+                <div className="card-sub">Everything, including what the plan does not cover</div>
+              </div>
+              <div className="card-body" style={{ padding: 0 }}>
+                <table className="alloc-table rv">
+                  <thead><tr><th>Line</th><th>Spend</th><th>Applications</th><th>Share of spend</th></tr></thead>
+                  <tbody>
+                    <tr>
+                      <td>In plan: SMR and Patrol by location</td>
+                      <td className="mono">{fmtGBP(total.actualSpend || 0)}</td>
+                      <td className="mono">{fmtInt(total.actualApps || 0)}</td>
+                      <td className="mono">{Math.round(100 * (total.actualSpend || 0) / actuals.totalSpend)}%</td>
+                    </tr>
+                    {Object.keys(actuals.other).sort((a, b) => actuals.other[b].spend - actuals.other[a].spend).map(k => (
+                      <tr key={k}>
+                        <td>{k}</td>
+                        <td className="mono">{fmtGBP(actuals.other[k].spend)}</td>
+                        <td className="mono">{fmtInt(actuals.other[k].apps)}</td>
+                        <td className="mono">{Math.round(100 * actuals.other[k].spend / actuals.totalSpend)}%</td>
+                      </tr>
+                    ))}
+                    <tr className="tot-row">
+                      <td><strong>Total</strong></td>
+                      <td className="mono"><strong>{fmtGBP(actuals.totalSpend)}</strong></td>
+                      <td className="mono"><strong>{fmtInt(actuals.totalApps)}</strong></td>
+                      <td className="mono"><strong>100%</strong></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
 }
+
 // ====================================================================
 // DATA UPDATE
 // Folding a finished month into the benchmarks, without me.
