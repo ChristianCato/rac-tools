@@ -43,6 +43,16 @@ const CONNECTORS = [
 
 const APP_ACTION = "application submitted";
 
+async function windsor(connector, apiKey, from, to, fields) {
+  const url = `${WINDSOR_BASE}/${connector}?api_key=${encodeURIComponent(apiKey)}` +
+    `&date_from=${from}&date_to=${to}` +
+    `&fields=${fields.join(",")}&_renderer=json`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`Windsor ${connector} returned ${r.status}`);
+  const j = await r.json();
+  return Array.isArray(j) ? j : (j.data || []);
+}
+
 async function pull(c, apiKey, from, to) {
   const out = new Map();
   const add = (date, campaign, spend, apps) => {
