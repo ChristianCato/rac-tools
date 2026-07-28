@@ -3279,10 +3279,11 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Plainer wording throughout Why. The callouts now just say the numbers, for example "the live mix now has a blended CPA of £60 compared to £54 in the plan", instead of explaining what that means about the mix.',
     'Fixed the worth column in the mix table. It was showing what a location\u2019s money was doing against the average, which is positive for any cheap location whatever its share does, so a cheap location losing share still read as a gain. It now prices only the shift: the money held over or under the planned share. A location on its planned share reads nil, however cheap or dear.',
     'Why now shows how the mix has moved: share of spend in the plan against share now, per location, priced at that location\u2019s historic cost per application. So if London was a tenth of the plan and is now nearly a third, that is on the page with what it has cost in applications. Rates used are the historic ones the plan was built on, never this month\u2019s, because the question is what moving the money is worth on known performance rather than how the month happens to be running.',
     'Why now splits a gap three ways instead of two: how much was spent, where it went, and what each application cost. The middle one was missing, which is why it could say "underspending costs applications" while spend was actually up. Money moving off cheap locations onto dear ones loses applications without spend falling at all, and that now has its own number.',
-    'Where it went shows the rate the plan expected from the locations currently carrying the money, against the plan\u2019s blended rate. So you can say the mix has shifted to dearer locations and put a figure on it.',
+    'Where it went compares the blended CPA of the locations currently carrying the money against the blended CPA in the plan, so a shift onto more expensive locations shows up with a number on it.',
     'Spend on a different project is now dropped completely rather than sitting in the total. The four-digit code at the end of a campaign name says which project it belongs to, and any code that has no campaigns in the plan is somebody else\u2019s work. For July that takes out Geofencing and the OneRAC open day, about £4,200.',
     'Non-standard is now its own line, separate from other projects. Brand, competitor, consideration and remarketing are RAC recruitment money so they stay in total spend, they just never count against plan. About £4,500 in July.',
     'Fixed the not-placed figure being counted twice. A Windsor pull covers Google and Meta together but its leftovers are recorded once, and the table was adding them for both. It read £25,816 where the real figure is £8,642.',
@@ -4711,8 +4712,8 @@ function explainGap(rows) {
   t.mixEffect = t.spendEffect - t.moneyEffect;
   t.rateEffect = t.effEffect;
   // The rate the current mix of locations was planned to deliver, against
-  // the plan's own blended rate. Above 1 means the money has moved to
-  // locations the plan expected to be dearer.
+  // the plan's own blended rate. Higher means the money has moved to
+  // locations the plan expected to cost more.
   const actualAtPlanRates = out.reduce((a, r) => a + (r.planCpa ? r.actualSpend / r.planCpa : 0), 0);
   t.mixCpa = actualAtPlanRates > 0 ? t.actualSpend / actualAtPlanRates : null;
 
@@ -4785,41 +4786,36 @@ function WhyView({ pacing, planDemand, liveDemand }) {
         <div className="banner-icon">{behind ? '!' : '\u2713'}</div>
         <div>
           <strong>{role} is {behind ? 'behind by' : 'ahead by'} {Math.abs(Math.round(t.gap))} applications.</strong>
-          {' '}{fmtInt(t.actualApps)} in against {fmtInt(t.expApps)} expected by now. Split two ways below:
-          how much of it is spending, and how much is each application costing more or less than planned.
+          {' '}{fmtInt(t.actualApps)} in against {fmtInt(t.expApps)} expected by now. The three figures below
+          say how much of that is the amount spent, how much is where it went, and how much is what each
+          application cost.
         </div>
       </div>
 
       <div className="kpi-row" style={{ marginBottom: 18 }}>
         <div className={'kpi kpi-accent-' + (t.moneyEffect < 0 ? 'orange' : 'good')}>
-          <div className="kpi-label">Because of how much was spent</div>
+          <div className="kpi-label">Amount spent</div>
           <div className="kpi-value mono">{n(t.moneyEffect)}</div>
           <div className="kpi-sub">
-            {fmtGBP(t.actualSpend)} spent against {fmtGBP(t.expSpend)} expected by now.
-            {' '}{t.actualSpend < t.expSpend ? 'Spending behind plan costs applications.'
-                                             : 'The extra money bought applications.'}
+            {fmtGBP(t.actualSpend)} spent so far against {fmtGBP(t.expSpend)} the plan expected by now.
           </div>
         </div>
         <div className={'kpi kpi-accent-' + (t.mixEffect < 0 ? 'orange' : 'good')}>
-          <div className="kpi-label">Because of where it went</div>
+          <div className="kpi-label">Where it went</div>
           <div className="kpi-value mono">{n(t.mixEffect)}</div>
           <div className="kpi-sub">
             {t.mixCpa && t.planBlendedCpa ? (
-              <>The locations carrying the money were planned at {fmtGBP(t.mixCpa)} each against
-              {' '}{fmtGBP(t.planBlendedCpa)} across the plan.
-              {' '}{t.mixEffect < 0 ? ' The mix has shifted to dearer locations.'
-                                    : ' The mix has shifted to cheaper locations.'}</>
+              <>The live mix now has a blended CPA of {fmtGBP(t.mixCpa)} compared to
+              {' '}{fmtGBP(t.planBlendedCpa)} in the plan.</>
             ) : 'Not enough of the plan has a rate to compare.'}
           </div>
         </div>
         <div className={'kpi kpi-accent-' + (t.rateEffect < 0 ? 'orange' : 'good')}>
-          <div className="kpi-label">Because of what each one cost</div>
+          <div className="kpi-label">Cost per application</div>
           <div className="kpi-value mono">{n(t.rateEffect)}</div>
           <div className="kpi-sub">
-            {t.actualApps > 0 ? fmtGBP(t.actualSpend / t.actualApps) : '-'} each against
-            {' '}{t.expApps > 0 ? fmtGBP(t.expSpend / t.expApps) : '-'} planned.
-            {' '}{t.rateEffect < 0 ? 'Dearer than planned, so the money went less far.'
-                                   : 'Cheaper than planned, so it went further.'}
+            Applications are costing {t.actualApps > 0 ? fmtGBP(t.actualSpend / t.actualApps) : '-'} each
+            against {t.expApps > 0 ? fmtGBP(t.expSpend / t.expApps) : '-'} in the plan.
           </div>
         </div>
       </div>
@@ -4886,13 +4882,12 @@ function WhyView({ pacing, planDemand, liveDemand }) {
               </tbody>
             </table>
             <div className="help-text" style={{ padding: '10px 16px' }}>
-              Historic CPA is what that location has cost per application across the whole dataset, which is
-              what the plan was built on. This month's actual rate is deliberately not used here: the
-              question is what moving the money is worth on known performance, not how the month is going.
-              Worth is the applications gained or lost by the shift itself: the money this location holds
-              over or under its planned share, priced at its own rate against the plan's blended one. A
-              location sitting on its planned share contributes nothing, however cheap or dear it is. They
-              add up to the mix figure above.
+              Historic CPA is what that location has cost per application across the whole dataset. That's
+              what the plan was built on. This month's own rate isn't used here, because the question is
+              what moving the money is worth on what we already know, not how the month is going.
+              Worth is the applications gained or lost by the shift on its own: the money a location holds
+              over or under its planned share, at its own rate against the plan's blended one. A location
+              sitting on its planned share comes out at nil. These add up to the mix figure above.
             </div>
           </div>
         </div>
@@ -4921,7 +4916,7 @@ function WhyView({ pacing, planDemand, liveDemand }) {
                   const big = Math.abs(r.spendEffect) >= Math.abs(r.effEffect) ? 'spend' : 'cost';
                   const reading = Math.abs(r.gap) < 1 ? 'On plan'
                     : r.gap > 0 ? (big === 'spend' ? 'Ahead, spending more' : 'Ahead, cheaper than planned')
-                    : (big === 'spend' ? 'Behind, spending less' : 'Behind, dearer than planned');
+                    : (big === 'spend' ? 'Behind, spending less' : 'Behind, costing more than planned');
                   return (
                     <tr key={r.key}>
                       <td>{r.key}</td>
@@ -4940,11 +4935,11 @@ function WhyView({ pacing, planDemand, liveDemand }) {
             </table>
           </div>
           <div className="help-text" style={{ padding: '10px 16px' }}>
-            The three causes add up to the gap exactly. How much was spent is the change in total money at
-            the plan's blended rate. Where it went is that same money spread differently across locations,
-            which moves the total even when spend does not. What each one cost is the actual rate against
-            the planned one. In the table below, the two columns are per location and use that location's
-            own planned rate, so the mix effect shows in the totals rather than on any single row.
+            The three add up to the gap exactly. Amount spent is the change in total money at the plan's
+            blended rate. Where it went is the same money spread differently across locations, which moves
+            the total even when spend doesn't change. What each cost is the actual rate against the planned
+            one. The two columns in the table below are per location at that location's own planned rate,
+            so the mix shows up in the totals rather than on any one row.
           </div>
         </div>
       </div>
@@ -5972,7 +5967,7 @@ function DataTool() {
               <div className="help-text" style={{ marginBottom: 10 }}>
                 A month is ticked once it has closed and had {SETTLE_DAYS} days to settle. Applications keep
                 being credited back for weeks after the spend, so folding a month in too early makes it look
-                dearer than it was. You can tick one early if you want it anyway.
+                more expensive than it was. You can tick one early if you want it anyway.
               </div>
               <div className="parse-cells">
                 {digest.months.map(mo => {
