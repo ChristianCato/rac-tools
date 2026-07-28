@@ -3279,6 +3279,7 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Fixed the worth column in the mix table. It was showing what a location\u2019s money was doing against the average, which is positive for any cheap location whatever its share does, so a cheap location losing share still read as a gain. It now prices only the shift: the money held over or under the planned share. A location on its planned share reads nil, however cheap or dear.',
     'Why now shows how the mix has moved: share of spend in the plan against share now, per location, priced at that location\u2019s historic cost per application. So if London was a tenth of the plan and is now nearly a third, that is on the page with what it has cost in applications. Rates used are the historic ones the plan was built on, never this month\u2019s, because the question is what moving the money is worth on known performance rather than how the month happens to be running.',
     'Why now splits a gap three ways instead of two: how much was spent, where it went, and what each application cost. The middle one was missing, which is why it could say "underspending costs applications" while spend was actually up. Money moving off cheap locations onto dear ones loses applications without spend falling at all, and that now has its own number.',
     'Where it went shows the rate the plan expected from the locations currently carrying the money, against the plan\u2019s blended rate. So you can say the mix has shifted to dearer locations and put a figure on it.',
@@ -4723,10 +4724,14 @@ function explainGap(rows) {
     r.planShare = t.planSpend > 0 ? r.planSpend / t.planSpend : 0;
     r.actualShare = t.actualSpend > 0 ? r.actualSpend / t.actualSpend : 0;
     r.shareShift = r.actualShare - r.planShare;
-    // What this location's share of the money buys at its own historic rate,
-    // against what that money would buy at the plan's blended historic rate.
+    // Only the SHIFT counts. Take the money this location holds over and
+    // above what the plan's share would have given it, and price that
+    // difference at its own historic rate against the plan's blended one.
+    // A location on its planned share contributes nothing, however cheap or
+    // dear it is.
+    const wouldHave = t.actualSpend * r.planShare;
     r.mixContrib = (planBlended && r.planCpa)
-      ? (r.actualSpend / r.planCpa) - (r.actualSpend / planBlended)
+      ? (r.actualSpend - wouldHave) * (1 / r.planCpa - 1 / planBlended)
       : 0;
   });
 
@@ -4884,8 +4889,10 @@ function WhyView({ pacing, planDemand, liveDemand }) {
               Historic CPA is what that location has cost per application across the whole dataset, which is
               what the plan was built on. This month's actual rate is deliberately not used here: the
               question is what moving the money is worth on known performance, not how the month is going.
-              Worth is the applications gained or lost by that location holding a bigger or smaller share
-              than the plan gave it. They add up to the mix figure above.
+              Worth is the applications gained or lost by the shift itself: the money this location holds
+              over or under its planned share, priced at its own rate against the plan's blended one. A
+              location sitting on its planned share contributes nothing, however cheap or dear it is. They
+              add up to the mix figure above.
             </div>
           </div>
         </div>
