@@ -3210,6 +3210,10 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Pacing export rebuilt with far more in it: role by platform, role by region, role by region by platform, region totals, platform totals, a spend and applications grid per role, and every line unaggregated. Each row now also carries spend left in plan, apps left to target, projected spend and apps at the current rate, and plan CPA against actual CPA.',
+    'Plans are named "RAC Media Budgets - July 2026 v1" instead of just v1, and can be renamed or deleted. Delete asks first.',
+    'Applications running ahead of plan now shows green instead of red. Spend keeps flagging both directions.',
+    'Added a spend reconciliation showing master sheet against pasted figures per platform, with a warning when a paste is a long way off. Neither the Appcast nor the Indeed export carries dates, so a paste taken over a shorter range silently replaced the whole month.',
     'Open roles can now be set by hand for a single plan instead of always following Location priorities. Default is still live. Use it to rebuild an older plan on the demand it was actually written against, when priorities have moved on since.',
     'Fixed pacing comparing against a moving target. The planner takes its open roles from Location priorities as they stand today, so the plan was silently rebuilding itself every time a list was pasted and nothing could read as off plan. Saved plans now freeze the open-role counts they were built on, and pacing measures against a saved plan you pick rather than the working one.',
     'Pacing says which plan it is measuring against and flags when open roles have moved since that plan was saved.',
@@ -4053,14 +4057,17 @@ function parsePlatformPaste(text, priRows) {
 // of intent spread evenly, and anything cleverer needs a reason.
 function paceStatus(ratio, kind) {
   if (ratio == null || !isFinite(ratio)) return { label: '-', kind: 'none' };
-  const words = kind === 'apps'
+  const apps = kind === 'apps';
+  const words = apps
     ? ['Well behind', 'Behind', 'On pace', 'Ahead', 'Well ahead']
     : ['Under spending', 'Under pacing', 'On pace', 'Over pacing', 'Over spending'];
-  if (ratio < 0.85) return { label: words[0], kind: 'bad' };
-  if (ratio < 0.90) return { label: words[1], kind: 'warn' };
-  if (ratio <= 1.10) return { label: words[2], kind: 'good' };
-  if (ratio <= 1.15) return { label: words[3], kind: 'warn' };
-  return { label: words[4], kind: 'bad' };
+  // On spend, drifting either way is worth a look. On applications, more is
+  // simply better, so ahead reads green rather than being flagged as a miss.
+  const kinds = apps
+    ? ['bad', 'warn', 'good', 'good', 'good']
+    : ['bad', 'warn', 'good', 'warn', 'bad'];
+  const i = ratio < 0.85 ? 0 : ratio < 0.90 ? 1 : ratio <= 1.10 ? 2 : ratio <= 1.15 ? 3 : 4;
+  return { label: words[i], kind: kinds[i] };
 }
 
 // The plan baseline, as Role x Region x Platform rows. Read from whichever
@@ -4388,86 +4395,115 @@ function PriorityInputs({ pri, setPri }) {
 // Excel out. This is the thing that gets fed back in to write the weekly
 // and monthly reports, so it is flat, labelled, and carries the workings
 // rather than only the verdicts.
-function exportPacingXLSX(month, pacing, actuals) {
+function exportPacingXLSX(month, pacing, actuals, planName) {
   if (!window.XLSX) { alert('The spreadsheet writer did not load. Check the connection and reload.'); return; }
   const label = (DATA.month_labels && DATA.month_labels[month]) || month;
-  const pct = r => (r == null ? '' : Math.round(r * 1000) / 10);
-  const money = n => Math.round(n * 100) / 100;
-  const wb = window.XLSX.utils.book_new();
+  const X = window.XLSX;
+  const wb = X.utils.book_new();
+  const n2 = n => Math.round((n || 0) * 100) / 100;
+  const n1 = n => Math.round((n || 0) * 10) / 10;
+  const pc = r => (r == null || !isFinite(r) ? '' : Math.round(r * 1000) / 10);
+  const pace = pacing.pace || 1;
 
+  // One row shape everywhere, so any cut reads the same way and can be
+  // pivoted or pasted without rework.
+  const HEAD = ['Plan spend', 'Actual spend', 'Expected spend to date', 'Spend vs expected %', 'Spend status',
+                'Spend left in plan', 'Projected spend at this rate',
+                'Plan apps', 'Actual apps', 'Expected apps to date', 'Apps vs expected %', 'Apps status',
+                'Apps left to target', 'Projected apps at this rate',
+                'Plan CPA', 'Actual CPA'];
+  const line = r => [
+    n2(r.planSpend), n2(r.actualSpend), n2(r.expSpend), pc(r.spendRatio), paceStatus(r.spendRatio, 'spend').label,
+    n2(r.planSpend - r.actualSpend), n2(pace > 0 ? r.actualSpend / pace : 0),
+    n1(r.planApps), n1(r.actualApps), n1(r.expApps), pc(r.appsRatio), paceStatus(r.appsRatio, 'apps').label,
+    n1(r.planApps - r.actualApps), n1(pace > 0 ? r.actualApps / pace : 0),
+    r.planApps > 0 ? n2(r.planSpend / r.planApps) : '', r.actualApps > 0 ? n2(r.actualSpend / r.actualApps) : '',
+  ];
+
+  // Build a sheet from a grouping. `cols` names the key parts.
+  const sheet = (name, cols, keyFn, sortFn) => {
+    const rows = agg(pacing.rows, keyFn);
+    const out = [[...cols, ...HEAD]];
+    rows.sort(sortFn || ((a, b) => a.key.localeCompare(b.key))).forEach(r => {
+      const parts = r.key.split('|').map(x => PLATFORMS.includes(x) ? PLATFORM_LABELS[x] : x);
+      out.push([...parts, ...line(r)]);
+    });
+    const tot = agg(pacing.rows, () => 'Total')[0];
+    if (tot) out.push([...cols.map((c, i) => i === 0 ? 'Total' : ''), ...line(tot)]);
+    X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(out), name);
+  };
+
+  // --- Summary ---
   const roleRows = agg(pacing.rows, r => r.role);
-  const total = agg(pacing.rows, () => 'All')[0] || {};
-
-  const summary = [
+  const tot = agg(pacing.rows, () => 'All')[0] || {};
+  const sum = [
     ['RAC pacing', label],
+    ['Plan measured against', planName || ''],
     ['Days in month', pacing.days],
     ['Days elapsed', pacing.elapsed],
-    ['Pace through month (%)', Math.round(pacing.pace * 1000) / 10],
+    ['Through the month %', Math.round(pace * 1000) / 10],
     [],
-    ['Scope', 'SMR and Patrol, tagged to a location, on Indeed / Meta / Google Search / Appcast. This is what the plan covers.'],
+    ['Scope', 'SMR and Patrol, tagged to a location, on Indeed / Meta / Google Search / Appcast. That is what the plan funds.'],
+    ['Note', 'Expected is the plan spread evenly across the month. Projected is what the current rate lands on by month end.'],
     [],
-    ['Role', 'Plan spend', 'Actual spend', 'Expected spend at pace', 'Spend vs expected (%)', 'Spend status',
-     'Plan apps', 'Actual apps', 'Expected apps at pace', 'Apps vs expected (%)', 'Apps status', 'Actual CPA'],
+    ['Role', ...HEAD],
   ];
-  [...roleRows, { ...total, key: 'Total' }].forEach(r => summary.push([
-    r.key, money(r.planSpend), money(r.actualSpend), money(r.expSpend), pct(r.spendRatio),
-    paceStatus(r.spendRatio, 'spend').label,
-    Math.round(r.planApps), Math.round(r.actualApps * 10) / 10, Math.round(r.expApps * 10) / 10,
-    pct(r.appsRatio), paceStatus(r.appsRatio, 'apps').label,
-    r.cpa ? money(r.cpa) : '',
-  ]));
-  summary.push([]);
-  summary.push(['Total activity, including non-standard']);
-  summary.push(['Line', 'Spend', 'Applications']);
-  summary.push(['In plan (regional SMR and Patrol)', money(total.actualSpend || 0), Math.round((total.actualApps || 0) * 10) / 10]);
-  summary.push(['Non-standard and untagged', money(actuals.totalSpend - (total.actualSpend || 0)),
-                Math.round((actuals.totalApps - (total.actualApps || 0)) * 10) / 10]);
-  summary.push(['Total', money(actuals.totalSpend), Math.round(actuals.totalApps * 10) / 10]);
-  window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(summary), 'Summary');
+  [...roleRows, { ...tot, key: 'Total' }].forEach(r => sum.push([r.key, ...line(r)]));
+  sum.push([]);
+  sum.push(['Total activity including non-standard']);
+  sum.push(['Line', 'Spend', 'Applications', 'Share of spend %']);
+  sum.push(['In plan: SMR and Patrol by location', n2(tot.actualSpend), n1(tot.actualApps),
+            Math.round(1000 * (tot.actualSpend || 0) / (actuals.totalSpend || 1)) / 10]);
+  Object.keys(actuals.other).sort((a, b) => actuals.other[b].spend - actuals.other[a].spend).forEach(k =>
+    sum.push([k, n2(actuals.other[k].spend), n1(actuals.other[k].apps),
+              Math.round(1000 * actuals.other[k].spend / (actuals.totalSpend || 1)) / 10]));
+  sum.push(['Total', n2(actuals.totalSpend), n1(actuals.totalApps), 100]);
+  X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(sum), 'Summary');
 
-  const head = ['Role', 'Region', 'Platform', 'Plan spend', 'Actual spend', 'Expected spend', 'Spend vs expected (%)',
-                'Spend status', 'Plan apps', 'Actual apps', 'Expected apps', 'Apps vs expected (%)', 'Apps status',
-                'Actual CPA', 'In plan'];
-  const detail = [head];
-  pacing.rows.slice().sort((a, b) =>
-    a.role.localeCompare(b.role) || a.region.localeCompare(b.region) || a.platform.localeCompare(b.platform)
-  ).forEach(r => detail.push([
-    r.role, r.region, PLATFORM_LABELS[r.platform],
-    money(r.planSpend), money(r.actualSpend), money(r.expSpend), pct(r.spendRatio), paceStatus(r.spendRatio, 'spend').label,
-    Math.round(r.planApps * 10) / 10, Math.round(r.actualApps * 10) / 10, Math.round(r.expApps * 10) / 10,
-    pct(r.appsRatio), paceStatus(r.appsRatio, 'apps').label,
-    r.cpa ? money(r.cpa) : '', r.unplanned ? 'No, not funded in plan' : 'Yes',
-  ]));
-  window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(detail), 'By region and platform');
+  sheet('Role x platform', ['Role', 'Platform'], r => r.role + '|' + r.platform);
+  sheet('Role x region', ['Role', 'Region'], r => r.role + '|' + r.region);
+  sheet('Role x region x platform', ['Role', 'Region', 'Platform'], r => r.role + '|' + r.region + '|' + r.platform);
+  sheet('By region', ['Region'], r => r.region);
+  sheet('By platform', ['Platform'], r => r.platform);
 
-  const byRegion = [['Role', 'Region', 'Plan spend', 'Actual spend', 'Expected spend', 'Spend vs expected (%)', 'Spend status',
-                     'Plan apps', 'Actual apps', 'Expected apps', 'Apps vs expected (%)', 'Apps status', 'Actual CPA']];
-  agg(pacing.rows, r => r.role + '|' + r.region)
-    .sort((a, b) => a.key.localeCompare(b.key))
-    .forEach(r => {
-      const [role, region] = r.key.split('|');
-      byRegion.push([role, region, money(r.planSpend), money(r.actualSpend), money(r.expSpend),
-        pct(r.spendRatio), paceStatus(r.spendRatio, 'spend').label,
-        Math.round(r.planApps * 10) / 10, Math.round(r.actualApps * 10) / 10, Math.round(r.expApps * 10) / 10,
-        pct(r.appsRatio), paceStatus(r.appsRatio, 'apps').label, r.cpa ? money(r.cpa) : '']);
+  // Per role, a region by platform grid of spend and of applications, which
+  // is the shape most of the reporting ends up in.
+  ROLES.forEach(role => {
+    const rows = pacing.rows.filter(r => r.role === role);
+    const grid = [[role + ': actual spend by location and platform', ...PLATFORMS.map(p => PLATFORM_LABELS[p]), 'Total']];
+    const pick = (reg, plat, f) => rows.filter(r => r.region === reg && r.platform === plat).reduce((a, r) => a + r[f], 0);
+    DATA.regions_ordered.forEach(reg => {
+      const vals = PLATFORMS.map(p => n2(pick(reg, p, 'actualSpend')));
+      grid.push([reg, ...vals, n2(vals.reduce((a, b) => a + b, 0))]);
     });
-  window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(byRegion), 'By region');
+    grid.push([]);
+    grid.push([role + ': actual applications by location and platform', ...PLATFORMS.map(p => PLATFORM_LABELS[p]), 'Total']);
+    DATA.regions_ordered.forEach(reg => {
+      const vals = PLATFORMS.map(p => n1(pick(reg, p, 'actualApps')));
+      grid.push([reg, ...vals, n1(vals.reduce((a, b) => a + b, 0))]);
+    });
+    grid.push([]);
+    grid.push([role + ': spend vs expected %, by location and platform', ...PLATFORMS.map(p => PLATFORM_LABELS[p])]);
+    DATA.regions_ordered.forEach(reg => {
+      grid.push([reg, ...PLATFORMS.map(p => {
+        const e = pick(reg, p, 'expSpend'), a = pick(reg, p, 'actualSpend');
+        return e > 0 ? Math.round(1000 * a / e) / 10 : '';
+      })]);
+    });
+    X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(grid), role + ' grid');
+  });
 
-  const byPlat = [['Platform', 'Plan spend', 'Actual spend', 'Expected spend', 'Spend vs expected (%)', 'Spend status',
-                   'Plan apps', 'Actual apps', 'Expected apps', 'Apps vs expected (%)', 'Apps status', 'Actual CPA']];
-  agg(pacing.rows, r => r.platform).forEach(r => byPlat.push([
-    PLATFORM_LABELS[r.key], money(r.planSpend), money(r.actualSpend), money(r.expSpend),
-    pct(r.spendRatio), paceStatus(r.spendRatio, 'spend').label,
-    Math.round(r.planApps * 10) / 10, Math.round(r.actualApps * 10) / 10, Math.round(r.expApps * 10) / 10,
-    pct(r.appsRatio), paceStatus(r.appsRatio, 'apps').label, r.cpa ? money(r.cpa) : '']));
-  byPlat.push([]);
-  byPlat.push(['Outside the plan', 'Spend', 'Applications']);
-  Object.keys(actuals.other).sort((a, b) => actuals.other[b].spend - actuals.other[a].spend)
-    .forEach(k => byPlat.push([k, money(actuals.other[k].spend), Math.round(actuals.other[k].apps * 10) / 10]));
-  window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(byPlat), 'By platform');
+  // Every line, unaggregated, for anything the sheets above do not answer.
+  const raw = [['Role', 'Region', 'Platform', 'In plan', ...HEAD]];
+  pacing.rows.slice()
+    .sort((a, b) => a.role.localeCompare(b.role) || a.region.localeCompare(b.region) || a.platform.localeCompare(b.platform))
+    .forEach(r => raw.push([r.role, r.region, PLATFORM_LABELS[r.platform],
+      r.unplanned ? 'No, not funded in plan' : 'Yes', ...line(r)]));
+  X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(raw), 'All lines');
 
-  window.XLSX.writeFile(wb, 'RAC_pacing_' + month + '.xlsx');
+  X.writeFile(wb, 'RAC_pacing_' + month + '.xlsx');
 }
+
 
 function PlatformPasteBox({ label, hint, priRows, onApply, applied }) {
   const [text, setText] = useState('');
@@ -4705,6 +4741,47 @@ function PacingTool({ month, container, patchMonth }) {
             </div>
           </div>
 
+          {baseActuals && !baseActuals.error && Object.keys(pastes).length > 0 && (
+            <div className="card">
+              <div className="card-head">
+                <div className="card-title">Where the spend came from</div>
+                <div className="card-sub">Master sheet against the pasted exports</div>
+              </div>
+              <div className="card-body" style={{ padding: 0 }}>
+                <table className="alloc-table rv">
+                  <thead><tr><th>Platform</th><th>Master sheet</th><th>Pasted</th><th>In use</th><th></th></tr></thead>
+                  <tbody>
+                    {PLATFORMS.map(plat => {
+                      const base = Object.values(baseActuals.regional).filter(x => x.platform === plat)
+                        .reduce((a, x) => a + x.spend, 0);
+                      const p = pastes[plat];
+                      const pasted = p ? p.matchedSpend + p.unmatchedSpend : null;
+                      const inUse = Object.values(actuals.regional).filter(x => x.platform === plat)
+                        .reduce((a, x) => a + x.spend, 0);
+                      const off = p && base > 0 && (pasted < base * 0.7 || pasted > base * 1.4);
+                      return (
+                        <tr key={plat}>
+                          <td>{PLATFORM_LABELS[plat]}</td>
+                          <td className="mono">{fmtGBP(base)}</td>
+                          <td className="mono">{pasted == null ? '-' : fmtGBP(pasted)}</td>
+                          <td className="mono"><strong>{fmtGBP(inUse)}</strong></td>
+                          <td style={{ color: 'var(--bad)', fontSize: 12 }}>
+                            {off ? 'A long way off the master sheet. Check the export covers the same dates.' : ''}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <div className="help-text" style={{ padding: '10px 16px' }}>
+                  Neither the Appcast nor the Indeed export carries dates, so whatever is pasted is taken as
+                  the whole month to date. If one was exported over a shorter range it will replace the full
+                  month with a few days and read as badly under spending.
+                </div>
+              </div>
+            </div>
+          )}
+
           {actuals && actuals.error && (
             <div className="banner banner-bad"><div className="banner-icon">!</div><div>{actuals.error}</div></div>
           )}
@@ -4745,7 +4822,7 @@ function PacingTool({ month, container, patchMonth }) {
                 <div className="card-head">
                   <div className="card-title">By role</div>
                   <div className="spacer" style={{ flex: 1 }} />
-                  <button className="btn btn-sm btn-primary" onClick={() => exportPacingXLSX(month, pacing, actuals)}>
+                  <button className="btn btn-sm btn-primary" onClick={() => exportPacingXLSX(month, pacing, actuals, chosenPlan && chosenPlan.name)}>
                     Export to Excel
                   </button>
                 </div>
@@ -5503,7 +5580,8 @@ function App() {
     const note = window.prompt('A short note on what this plan is (optional)') || '';
     const versions = container.versions || [];
     const id = 'v' + Date.now();
-    const name = 'v' + (versions.length + 1);
+    const monthName = (DATA.month_labels && DATA.month_labels[month]) || month;
+    const name = 'RAC Media Budgets - ' + monthName + ' v' + (versions.length + 1);
     // Freeze the open-role counts too. A plan is a statement made on a day,
     // and pacing against one whose demand keeps moving would mean the plan
     // quietly follows reality and can never be missed.
@@ -5511,6 +5589,25 @@ function App() {
       planner: JSON.parse(JSON.stringify(container.working)),
       demand: JSON.parse(JSON.stringify((container.working && container.working.demandOverride) || container.demand || {})) };
     patchMonth({ versions: [...versions, entry], loaded: id });
+  };
+
+  const renameVersion = (id) => {
+    const v = (container.versions || []).find(x => x.id === id);
+    if (!v) return;
+    const name = window.prompt('Name for this plan', v.name);
+    if (!name || !name.trim()) return;
+    patchMonth({ versions: container.versions.map(x => x.id === id ? { ...x, name: name.trim() } : x) });
+  };
+
+  const deleteVersion = (id) => {
+    const v = (container.versions || []).find(x => x.id === id);
+    if (!v) return;
+    const ok = window.confirm('Delete "' + v.name + '"?\n\nThis cannot be undone. Any pacing measured against it will need a different plan.');
+    if (!ok) return;
+    patchMonth({
+      versions: container.versions.filter(x => x.id !== id),
+      loaded: container.loaded === id ? null : container.loaded,
+    });
   };
 
   const loadVersion = (id) => {
@@ -5589,6 +5686,12 @@ function App() {
                   {dirty && <span className="dirty-dot" title="Unsaved changes" />}
                 </div>
                 <button className="btn btn-sm" onClick={saveVersion}>Save as new plan</button>
+                {loadedVersion && (
+                  <>
+                    <button className="btn btn-sm" onClick={() => renameVersion(loadedVersion.id)}>Rename</button>
+                    <button className="btn btn-sm" onClick={() => deleteVersion(loadedVersion.id)}>Delete</button>
+                  </>
+                )}
                 <button className="btn btn-sm" onClick={() => setComparing(c => !c)}
                   disabled={versions.length < 2}>
                   {comparing ? 'Close comparison' : 'Compare plans'}
