@@ -3212,6 +3212,10 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Added plan CPA next to actual CPA everywhere, with actual shown green when it is at or under plan.',
+    'Renamed the "%" columns to "vs expected" and spelt out that percentages are against where the plan says we should be by now, not against the whole month.',
+    'Left-hand menu: Planner is now Monthly Budget Planner, Pacing is Performance Pacing, and Data and Changelog moved to an Admin group at the bottom so they are not sat with the tools.',
+    'The Appcast and Indeed paste boxes now name the exact date range to export for, taken from where the master sheet stops. Those exports carry no dates, so one taken month to date against a master sheet that stops on the 25th was reading as over pacing purely for having more days in it.',
     'Pacing breakdown can be filtered by role, location and platform, and any column can be clicked to sort. Default order is role then location then platform instead of biggest spend first. Totals at the bottom follow whatever is filtered.',
     'Fixed Indeed and Appcast pastes reading the wrong spend when copied out of Excel. Excel copies with tabs and leaves the comma in numbers like 1,395.67, and the splitter was treating that comma as a new column, so everything after it shifted along the row. Rows under a thousand were fine, rows over it were not, which is why the total came out low. It now works out the separator from the header and sticks to it.',
     'Pacing export rebuilt with far more in it: role by platform, role by region, role by region by platform, region totals, platform totals, a spend and applications grid per role, and every line unaggregated. Each row now also carries spend left in plan, apps left to target, projected spend and apps at the current rate, and plan CPA against actual CPA.',
@@ -4234,6 +4238,7 @@ function agg(rows, keyFn) {
     o.spendRatio = o.expSpend > 0 ? o.actualSpend / o.expSpend : null;
     o.appsRatio = o.expApps > 0 ? o.actualApps / o.expApps : null;
     o.cpa = o.actualApps > 0 ? o.actualSpend / o.actualApps : null;
+    o.planCpa = o.planApps > 0 ? o.planSpend / o.planApps : null;
   });
   return Object.values(out);
 }
@@ -4518,13 +4523,18 @@ function exportPacingXLSX(month, pacing, actuals, planName) {
 }
 
 
-function PlatformPasteBox({ label, hint, priRows, onApply, applied }) {
+function PlatformPasteBox({ label, hint, priRows, onApply, applied, range }) {
   const [text, setText] = useState('');
   const parsed = useMemo(() => (text.trim() ? parsePlatformPaste(text, priRows) : null), [text, priRows]);
   return (
     <div style={{ marginBottom: 14 }}>
       <div className="section-label">{label}{applied ? ' \u00B7 loaded' : ''}</div>
-      <div className="help-text" style={{ marginBottom: 6 }}>{hint}</div>
+      <div className="help-text" style={{ marginBottom: 6 }}>
+        {hint}
+        {range
+          ? <> Export it for <strong>{range}</strong> so it covers the same days as the master sheet.</>
+          : <> Load the master sheet first, then this will tell you which dates to export for.</>}
+      </div>
       <textarea className="paste-box" rows={3} value={text}
         placeholder="Paste the export, header row included"
         onChange={e => setText(e.target.value)} />
@@ -4602,6 +4612,15 @@ function PacingTool({ month, container, patchMonth }) {
   };
 
   const priRows = useMemo(() => ROLES.reduce((a, r) => a.concat(((pri.roles || {})[r] || {}).rows || []), []), [pri]);
+  // The platform exports carry no dates at all, so they are taken as covering
+  // the same days as the master sheet. If one is exported month to date and
+  // the master sheet stops earlier, that platform reads as over pacing for no
+  // reason but the extra days. Naming the range is the cheapest guard.
+  const exportRange = useMemo(() => {
+    if (!baseActuals || baseActuals.error || !baseActuals.lastDay) return null;
+    const mName = new Date(month + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'long' });
+    return '1 to ' + baseActuals.lastDay + ' ' + mName;
+  }, [baseActuals, month]);
   // Pacing measures against whatever plan the planner is currently on. Load
   // a saved plan there and pacing follows it.
   // Pacing measures against a SAVED plan, never the working one. A working
@@ -4761,10 +4780,10 @@ function PacingTool({ month, container, patchMonth }) {
                   same way, so I read the role and the location out of the campaign name. Whatever you paste
                   here replaces that platform's figures.
                 </div>
-                <PlatformPasteBox label="Appcast" priRows={priRows}
+                <PlatformPasteBox label="Appcast" priRows={priRows} range={exportRange}
                   hint="The by-campaign export. Carries spend and applications."
                   applied={!!pastes.appcast} onApply={(p, r) => setPastes(x => ({ ...x, [p]: r }))} />
-                <PlatformPasteBox label="Indeed" priRows={priRows}
+                <PlatformPasteBox label="Indeed" priRows={priRows} range={exportRange}
                   hint="The advanced campaign report. Spend only, from Total cost; applications keep coming from Eploy."
                   applied={!!pastes.indeed} onApply={(p, r) => setPastes(x => ({ ...x, [p]: r }))} />
                 {Object.keys(pastes).length > 0 && (
@@ -4811,8 +4830,10 @@ function PacingTool({ month, container, patchMonth }) {
                 </table>
                 <div className="help-text" style={{ padding: '10px 16px' }}>
                   Neither the Appcast nor the Indeed export carries dates, so whatever is pasted is taken as
-                  the whole month to date. If one was exported over a shorter range it will replace the full
-                  month with a few days and read as badly under spending.
+                  covering the same days as the master sheet
+                  {exportRange ? ', which is ' + exportRange : ''}. A platform exported month to date while the
+                  master sheet stops earlier will read as over pacing purely because it has more days in it.
+                  A shorter range reads as under spending the same way.
                 </div>
               </div>
             </div>
@@ -4830,6 +4851,7 @@ function PacingTool({ month, container, patchMonth }) {
                   Measured against <strong>{chosenPlan.name}</strong>, saved
                   {' '}{new Date(chosenPlan.saved).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}.
                   {' '}Day {pacing.elapsed} of {pacing.days}, so {Math.round(pacing.pace * 100)}% through the month.
+                  {' '}Percentages are against where the plan says we should be by now, not against the whole month.
                   Expected is the plan spread evenly across the month. This covers SMR and Patrol tagged to a
                   location on the four planned platforms, which is what the plan actually funds. Everything
                   else sits under Total spend.
@@ -4866,8 +4888,9 @@ function PacingTool({ month, container, patchMonth }) {
                   <table className="alloc-table rv">
                     <thead>
                       <tr>
-                        <th>Role</th><th>Plan spend</th><th>Actual</th><th>Expected</th><th>%</th><th>Spend</th>
-                        <th>Plan apps</th><th>Actual</th><th>Expected</th><th>%</th><th>Apps</th><th>CPA</th>
+                        <th>Role</th><th>Plan spend</th><th>Actual</th><th>Expected by now</th><th>vs expected</th><th>Spend</th>
+                        <th>Plan apps</th><th>Actual</th><th>Expected by now</th><th>vs expected</th><th>Apps</th>
+                        <th>Plan CPA</th><th>Actual CPA</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -4882,7 +4905,11 @@ function PacingTool({ month, container, patchMonth }) {
                           <td className="mono">{fmtInt(r.actualApps)}</td>
                           <td className="mono">{fmtInt(r.expApps)}</td>
                           <PaceCell ratio={r.appsRatio} kind="apps" />
-                          <td className="mono">{r.cpa ? fmtGBP(r.cpa) : '-'}</td>
+                          <td className="mono">{r.planCpa ? fmtGBP(r.planCpa) : '-'}</td>
+                          <td className="mono"
+                            style={{ color: (r.planCpa && r.cpa) ? (r.cpa <= r.planCpa ? 'var(--good)' : 'var(--bad)') : undefined }}>
+                            {r.cpa ? fmtGBP(r.cpa) : '-'}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -4938,10 +4965,10 @@ function PacingTool({ month, container, patchMonth }) {
                       <thead>
                         <tr>
                           {[['key', grain === 'platform' ? 'Role and platform' : 'Role and location'],
-                            ['planSpend', 'Plan spend'], ['actualSpend', 'Actual'], ['spendRatio', '%'],
+                            ['planSpend', 'Plan spend'], ['actualSpend', 'Actual'], ['spendRatio', 'vs expected'],
                             [null, 'Spend'],
-                            ['planApps', 'Plan apps'], ['actualApps', 'Actual'], ['appsRatio', '%'],
-                            [null, 'Apps'], ['cpa', 'CPA']].map(([k, lbl], i) => (
+                            ['planApps', 'Plan apps'], ['actualApps', 'Actual'], ['appsRatio', 'vs expected'],
+                            [null, 'Apps'], ['planCpa', 'Plan CPA'], ['cpa', 'Actual CPA']].map(([k, lbl], i) => (
                             <th key={i} onClick={k ? () => sortOn(k) : undefined}
                               className={k ? 'sort-th' : ''}>
                               {lbl}{sortBy === k ? (sortDir === 'asc' ? ' \u2191' : ' \u2193') : ''}
@@ -4959,7 +4986,11 @@ function PacingTool({ month, container, patchMonth }) {
                             <td className="mono">{fmtInt(r.planApps)}</td>
                             <td className="mono">{fmtInt(r.actualApps)}</td>
                             <PaceCell ratio={r.appsRatio} kind="apps" />
-                            <td className="mono">{r.cpa ? fmtGBP(r.cpa) : '-'}</td>
+                            <td className="mono">{r.planCpa ? fmtGBP(r.planCpa) : '-'}</td>
+                            <td className="mono"
+                              style={{ color: (r.planCpa && r.cpa) ? (r.cpa <= r.planCpa ? 'var(--good)' : 'var(--bad)') : undefined }}>
+                              {r.cpa ? fmtGBP(r.cpa) : '-'}
+                            </td>
                           </tr>
                         ))}
                         {detailTotal && (
@@ -4971,6 +5002,7 @@ function PacingTool({ month, container, patchMonth }) {
                             <td className="mono"><strong>{fmtInt(detailTotal.planApps)}</strong></td>
                             <td className="mono"><strong>{fmtInt(detailTotal.actualApps)}</strong></td>
                             <PaceCell ratio={detailTotal.appsRatio} kind="apps" />
+                            <td className="mono"><strong>{detailTotal.planCpa ? fmtGBP(detailTotal.planCpa) : '-'}</strong></td>
                             <td className="mono"><strong>{detailTotal.cpa ? fmtGBP(detailTotal.cpa) : '-'}</strong></td>
                           </tr>
                         )}
@@ -5733,14 +5765,13 @@ function App() {
         <div className="tool-rail">
           <div className="rail-label">Tools</div>
           <button className={tool === 'planner' ? 'active' : ''}
-            onClick={() => { setTool('planner'); setComparing(false); }}>Planner</button>
+            onClick={() => { setTool('planner'); setComparing(false); }}>Monthly Budget Planner</button>
           <button className={tool === 'priorities' ? 'active' : ''}
             onClick={() => setTool('priorities')}>Location priorities</button>
           <button className={tool === 'pacing' ? 'active' : ''}
-            onClick={() => setTool('pacing')}>
-            Pacing
-          </button>
-          <div className="rail-label">About</div>
+            onClick={() => setTool('pacing')}>Performance Pacing</button>
+          <div style={{ flex: 1 }} />
+          <div className="rail-label">Admin</div>
           <button className={tool === 'data' ? 'active' : ''}
             onClick={() => setTool('data')}>Data</button>
           <button className={tool === 'changelog' ? 'active' : ''}
