@@ -374,6 +374,8 @@ input[type=range]::-moz-range-thumb {
   width: 186px; flex: none; background: #fff;
   border-right: 1px solid var(--line-c); padding: 14px 10px;
   display: flex; flex-direction: column; gap: 3px;
+  position: sticky; top: 60px; align-self: flex-start;
+  height: calc(100vh - 60px); overflow-y: auto;
 }
 .tool-rail .rail-label {
   font-size: 10px; font-weight: 700; letter-spacing: 0.07em;
@@ -437,6 +439,20 @@ input[type=range]::-moz-range-thumb {
 .chg-body { font-size: 13.5px; color: var(--ink-70); }
 .chg-body strong { color: var(--ink); }
 .chg-list { margin: 0 0 0 18px; }
+.chart-wrap { padding: 14px 16px 6px; }
+.chart-head { font-size: 13px; color: var(--ink-70); margin-bottom: 8px; }
+.chart-head span { color: var(--ink-55); }
+.chart-key { float: right; font-size: 11.5px; color: var(--ink-55); }
+.chart-key i { display: inline-block; width: 16px; height: 7px; border-radius: 2px; margin: 0 4px 0 10px; vertical-align: middle; }
+.chart-key i.k-plan { background: var(--ink-35); }
+.chart-key i.k-actual { background: var(--em-blue); }
+.chart-note { font-size: 12px; color: var(--ink-55); padding: 4px 0 10px; }
+svg .b-plan { fill: var(--ink-35); }
+svg .b-actual { fill: var(--em-blue); }
+svg .b-actual.low { fill: var(--bad); }
+svg .b-actual.high { fill: var(--rac-orange); }
+svg .cb-label { font-size: 11px; fill: var(--ink-70); font-family: Inter, sans-serif; }
+svg .cb-val { font-size: 11px; fill: var(--ink-55); font-family: "JetBrains Mono", monospace; }
 .chg-list li { font-size: 13px; color: var(--ink-70); margin-bottom: 5px; line-height: 1.5; }
 .paste-box {
   width: 100%; font-family: "JetBrains Mono", monospace; font-size: 12px;
@@ -3279,6 +3295,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'The tool menu on the left now stays put as the page scrolls.',
+    'Charts added to Performance Pacing. The breakdown and the mix table can both be switched between a table and a chart, with plan and actual as paired bars. Orange on the mix chart means the location costs more per application than the plan\u2019s blended rate.',
     'Locations the plan never funded are now part of where it went, rather than being counted as free applications on their own. Money going to them came out of the funded locations, so it is priced the same way, at that location\u2019s own historic cost per application. The three figures on the page now add up to the gap with nothing left over.',
     'Fixed the mix table counting locations the plan never funded. Spend somewhere with no planned share was still diluting everyone else\u2019s share, so every funded location looked like it had lost ground to nobody and London losing share read as a loss when it should have been a gain. The mix now only covers locations the plan funded, and off-plan spend is called out separately.',
     'Plainer wording across the banners and help text.',
@@ -4382,6 +4400,104 @@ function agg(rows, keyFn) {
   return Object.values(out);
 }
 
+// Paired bars, plan against actual. Inline SVG rather than a chart library:
+// it is two rectangles and a label, and the page already loads enough.
+function PaceBars({ rows, valueKey, planKey, money, title, sub }) {
+  const [hover, setHover] = useState(null);
+  const data = rows
+    .map(r => ({ key: r.key, plan: r[planKey] || 0, actual: r[valueKey] || 0,
+                 ratio: r[planKey] > 0 ? r[valueKey] / r[planKey] : null }))
+    .filter(d => d.plan > 0 || d.actual > 0)
+    .sort((a, b) => b.plan - a.plan);
+  if (!data.length) return null;
+  const max = Math.max(...data.map(d => Math.max(d.plan, d.actual))) || 1;
+  const rowH = 26, labelW = 190, barW = 420, pad = 8;
+  const h = data.length * rowH + 34;
+  const fmt = v => money ? fmtGBP(v) : fmtInt(v);
+
+  return (
+    <div className="chart-wrap">
+      <div className="chart-head">
+        <strong>{title}</strong> <span>{sub}</span>
+        <span className="chart-key">
+          <i className="k-plan" /> plan for the month <i className="k-actual" /> actual so far
+        </span>
+      </div>
+      <svg viewBox={'0 0 ' + (labelW + barW + 90) + ' ' + h} style={{ width: '100%', height: 'auto' }}>
+        {data.map((d, i) => {
+          const y = 20 + i * rowH;
+          const on = hover === d.key;
+          return (
+            <g key={d.key} onMouseEnter={() => setHover(d.key)} onMouseLeave={() => setHover(null)}>
+              <rect x="0" y={y - 4} width={labelW + barW + 90} height={rowH - 2}
+                fill={on ? 'var(--ink-04)' : 'transparent'} />
+              <text x={labelW - 8} y={y + 11} textAnchor="end" className="cb-label">
+                {d.key.split('|').map(x => PLATFORMS.includes(x) ? PLATFORM_LABELS[x] : x).join(' \u00B7 ')}
+              </text>
+              <rect x={labelW} y={y} width={Math.max(1, (d.plan / max) * barW)} height={7} rx="2" className="b-plan" />
+              <rect x={labelW} y={y + 9} width={Math.max(1, (d.actual / max) * barW)} height={7} rx="2"
+                className={'b-actual' + (d.ratio == null ? '' : d.ratio < 0.9 ? ' low' : d.ratio > 1.1 ? ' high' : '')} />
+              <text x={labelW + barW + 8} y={y + 12} className="cb-val">
+                {fmt(d.actual)}{d.ratio != null ? '  ' + Math.round(d.ratio * 100) + '%' : ''}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      {hover && (() => {
+        const d = data.find(x => x.key === hover);
+        return (
+          <div className="chart-note">
+            {d.key.split('|').map(x => PLATFORMS.includes(x) ? PLATFORM_LABELS[x] : x).join(' \u00B7 ')}:
+            {' '}{fmt(d.actual)} so far against {fmt(d.plan)} planned for the whole month.
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+// Plan share against actual share, which is the shape of the mix.
+function ShareBars({ rows, planBlended }) {
+  const data = rows
+    .filter(r => (r.planShare > 0.001 || r.actualShare > 0.001))
+    .sort((a, b) => a.mixContrib - b.mixContrib);
+  if (!data.length) return null;
+  const max = Math.max(...data.map(d => Math.max(d.planShare, d.actualShare))) || 0.01;
+  const rowH = 26, labelW = 170, barW = 360;
+  const h = data.length * rowH + 34;
+  return (
+    <div className="chart-wrap">
+      <div className="chart-head">
+        <strong>Share of spend</strong> <span>plan against now, worst shift first</span>
+        <span className="chart-key"><i className="k-plan" /> plan <i className="k-actual" /> now</span>
+      </div>
+      <svg viewBox={'0 0 ' + (labelW + barW + 130) + ' ' + h} style={{ width: '100%', height: 'auto' }}>
+        {data.map((d, i) => {
+          const y = 20 + i * rowH;
+          const dear = planBlended && d.planCpa > planBlended;
+          return (
+            <g key={d.region + i}>
+              <text x={labelW - 8} y={y + 11} textAnchor="end" className="cb-label">{d.region}</text>
+              <rect x={labelW} y={y} width={Math.max(1, (d.planShare / max) * barW)} height={7} rx="2" className="b-plan" />
+              <rect x={labelW} y={y + 9} width={Math.max(1, (d.actualShare / max) * barW)} height={7} rx="2"
+                className={'b-actual' + (dear ? ' high' : '')} />
+              <text x={labelW + barW + 8} y={y + 12} className="cb-val">
+                {fmtGBP(d.planCpa || 0)}  {d.mixContrib >= 0 ? '+' : ''}{Math.round(d.mixContrib)}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <div className="chart-note">
+        Orange means the location costs more per application than the plan's blended rate, so a longer
+        second bar there is money going somewhere expensive. The figure on the right is what the shift is
+        worth in applications.
+      </div>
+    </div>
+  );
+}
+
 function PaceCell({ ratio, kind }) {
   const s = paceStatus(ratio, kind);
   return (
@@ -4744,6 +4860,7 @@ function explainGap(rows) {
 function WhyView({ pacing, planDemand, liveDemand }) {
   const [role, setRole] = useState('SMR');
   const [grain, setGrain] = useState('region');
+  const [mixShape, setMixShape] = useState('chart');
   const rows = pacing.rows.filter(r => r.role === role);
   const ex = useMemo(() => explainGap(rows), [rows]);
   const t = ex.totals;
@@ -4840,9 +4957,33 @@ function WhyView({ pacing, planDemand, liveDemand }) {
             <div className="card-sub">
               Share of spend, plan against actual, priced at historic rates
             </div>
+            <div style={{ flex: 1 }} />
+            <div className="role-switch">
+              {[['table', 'Table'], ['chart', 'Chart']].map(([id, l]) => (
+                <button key={id} className={id === mixShape ? 'active' : ''} onClick={() => setMixShape(id)}>{l}</button>
+              ))}
+            </div>
           </div>
           <div className="card-body" style={{ padding: 0 }}>
-            <table className="alloc-table rv">
+            {mixShape === 'chart' && (() => {
+              const byLoc = {};
+              ex.rows.forEach(r => {
+                const o = byLoc[r.region] = byLoc[r.region] ||
+                  { region: r.region, planSpend: 0, actualSpend: 0, atRate: 0, mixContrib: 0 };
+                o.planSpend += r.planSpend; o.actualSpend += r.actualSpend;
+                o.atRate += r.planCpa ? r.actualSpend / r.planCpa : 0;
+                o.mixContrib += r.mixContrib;
+              });
+              const rows2 = Object.values(byLoc).map(o => ({
+                region: o.region,
+                planShare: t.planSpend > 0 ? o.planSpend / t.planSpend : 0,
+                actualShare: t.actualSpend > 0 ? o.actualSpend / t.actualSpend : 0,
+                planCpa: o.atRate > 0 ? o.actualSpend / o.atRate : null,
+                mixContrib: o.mixContrib,
+              }));
+              return <ShareBars rows={rows2} planBlended={t.planBlendedCpa} />;
+            })()}
+            <table className="alloc-table rv" style={{ display: mixShape === 'chart' ? 'none' : 'table' }}>
               <thead>
                 <tr>
                   <th>Location</th><th>Historic CPA</th>
@@ -5108,6 +5249,7 @@ function PacingTool({ month, container, patchMonth }) {
   const [fRole, setFRole] = useState('All');
   const [fRegion, setFRegion] = useState('All');
   const [fPlat, setFPlat] = useState('All');
+  const [shape, setShape] = useState('table');
   const [sortBy, setSortBy] = useState('key');
   const [sortDir, setSortDir] = useState('asc');
   const sortOn = (k) => {
@@ -5513,6 +5655,11 @@ function PacingTool({ month, container, patchMonth }) {
                       <button key={id} className={id === grain ? 'active' : ''} onClick={() => setGrain(id)}>{l}</button>
                     ))}
                   </div>
+                  <div className="role-switch" style={{ marginLeft: 8 }}>
+                    {[['table', 'Table'], ['chart', 'Chart']].map(([id, l]) => (
+                      <button key={id} className={id === shape ? 'active' : ''} onClick={() => setShape(id)}>{l}</button>
+                    ))}
+                  </div>
                 </div>
                 <div className="card-body" style={{ paddingBottom: 0 }}>
                   <div className="month-bar" style={{ padding: 0, border: 'none', background: 'none' }}>
@@ -5546,7 +5693,15 @@ function PacingTool({ month, container, patchMonth }) {
                     </span>
                   </div>
                 </div>
-                <div className="card-body" style={{ padding: 0 }}>
+                {shape === 'chart' && (
+                  <div className="card-body" style={{ padding: 0 }}>
+                    <PaceBars rows={detailSorted} valueKey="actualSpend" planKey="planSpend" money
+                      title="Spend" sub={'against the whole month\u2019s plan'} />
+                    <PaceBars rows={detailSorted} valueKey="actualApps" planKey="planApps"
+                      title="Applications" sub={'against the whole month\u2019s plan'} />
+                  </div>
+                )}
+                <div className="card-body" style={{ padding: 0, display: shape === 'chart' ? 'none' : 'block' }}>
                   <div className="grid-scroll">
                     <table className="alloc-table rv sortable">
                       <thead>
