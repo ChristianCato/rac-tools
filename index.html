@@ -496,6 +496,8 @@ input[type=range]::-moz-range-thumb {
 .pri-grid td.cell.same input { color: var(--ink-55); }
 .alloc-table.rv td, .alloc-table.rv th { font-size: 12px; padding: 6px 8px; }
 .alloc-table.rv .tot-row td { background: var(--ink-04); border-top: 2px solid var(--line-c); }
+.alloc-table.sortable th.sort-th { cursor: pointer; user-select: none; white-space: nowrap; }
+.alloc-table.sortable th.sort-th:hover { color: var(--rac-orange); }
 .brief-row { display: flex; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--ink-04); font-size: 13px; }
 .brief-row span { min-width: 150px; color: var(--ink-55); font-weight: 600; }
 .month-pick {
@@ -3210,6 +3212,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Pacing breakdown can be filtered by role, location and platform, and any column can be clicked to sort. Default order is role then location then platform instead of biggest spend first. Totals at the bottom follow whatever is filtered.',
+    'Fixed Indeed and Appcast pastes reading the wrong spend when copied out of Excel. Excel copies with tabs and leaves the comma in numbers like 1,395.67, and the splitter was treating that comma as a new column, so everything after it shifted along the row. Rows under a thousand were fine, rows over it were not, which is why the total came out low. It now works out the separator from the header and sticks to it.',
     'Pacing export rebuilt with far more in it: role by platform, role by region, role by region by platform, region totals, platform totals, a spend and applications grid per role, and every line unaggregated. Each row now also carries spend left in plan, apps left to target, projected spend and apps at the current rate, and plan CPA against actual CPA.',
     'Plans are named "RAC Media Budgets - July 2026 v1" instead of just v1, and can be renamed or deleted. Delete asks first.',
     'Applications running ahead of plan now shows green instead of red. Spend keeps flagging both directions.',
@@ -3942,16 +3946,24 @@ function PrioritiesTool({ container, patchMonth, month }) {
 
 // A CSV line splitter that respects quotes, because Indeed quotes every
 // field and Appcast writes thousands as "1,400".
-function splitCsvLine(line) {
+function splitCsvLine(line, delim) {
   const out = []; let cur = '', q = false;
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
     if (c === '"') { if (q && line[i + 1] === '"') { cur += '"'; i++; } else q = !q; }
-    else if ((c === ',' || c === '\t') && !q) { out.push(cur); cur = ''; }
+    else if (c === delim && !q) { out.push(cur); cur = ''; }
     else cur += c;
   }
   out.push(cur);
   return out.map(x => x.trim());
+}
+
+// Work out the delimiter once from the header, then hold to it. Copying out
+// of Excel gives tabs with unquoted thousands separators, so treating comma
+// as a delimiter too would split 1,395.67 in half and shift every column
+// after it along the row.
+function sniffDelimiter(headerLine) {
+  return headerLine.indexOf('\t') >= 0 ? '\t' : ',';
 }
 
 const toNum = v => {
@@ -3997,7 +4009,8 @@ function campaignRegion(seg, priRows) {
 function parsePlatformPaste(text, priRows) {
   const lines = String(text || '').split(/\r?\n/).filter(l => l.trim());
   if (lines.length < 2) return { error: 'Paste the export including its header row.' };
-  const rows = lines.map(splitCsvLine);
+  const delim = sniffDelimiter(lines[0]);
+  const rows = lines.map(l => splitCsvLine(l, delim));
   const head = rows[0].map(h => h.toLowerCase().replace(/[^a-z]/g, ''));
   const find = (...names) => {
     for (const n of names) {
@@ -4553,6 +4566,15 @@ function PacingTool({ month, container, patchMonth }) {
   const setPastes = (u) => patchMonth({ pastes: typeof u === 'function' ? u(container.pastes || {}) : u });
   const [busy, setBusy] = useState('');
   const [grain, setGrain] = useState('region');
+  const [fRole, setFRole] = useState('All');
+  const [fRegion, setFRegion] = useState('All');
+  const [fPlat, setFPlat] = useState('All');
+  const [sortBy, setSortBy] = useState('key');
+  const [sortDir, setSortDir] = useState('asc');
+  const sortOn = (k) => {
+    if (sortBy === k) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortBy(k); setSortDir(k === 'key' ? 'asc' : 'desc'); }
+  };
   const fileRef = useRef(null);
   const pri = container.priorities || seedPriorities();
   const dates = pri.dates || [];
@@ -4608,13 +4630,27 @@ function PacingTool({ month, container, patchMonth }) {
 
   const roleRows = pacing ? agg(pacing.rows, r => r.role) : [];
   const total = pacing ? (agg(pacing.rows, () => 'All')[0] || {}) : {};
+  const filtered = pacing ? pacing.rows.filter(r =>
+    (fRole === 'All' || r.role === fRole) &&
+    (fRegion === 'All' || r.region === fRegion) &&
+    (fPlat === 'All' || r.platform === fPlat)) : [];
   const detail = pacing
     ? (grain === 'region'
-        ? agg(pacing.rows, r => r.role + '|' + r.region)
+        ? agg(filtered, r => r.role + '|' + r.region)
         : grain === 'platform'
-          ? agg(pacing.rows, r => r.platform)
-          : agg(pacing.rows, r => r.role + '|' + r.region + '|' + r.platform))
+          ? agg(filtered, r => r.role + '|' + r.platform)
+          : agg(filtered, r => r.role + '|' + r.region + '|' + r.platform))
     : [];
+  const detailSorted = detail.slice().sort((a, b) => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    if (sortBy === 'key') return dir * String(a.key).localeCompare(String(b.key));
+    const av = a[sortBy], bv = b[sortBy];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;              // blanks always last
+    if (bv == null) return -1;
+    return dir * (av - bv);
+  });
+  const detailTotal = agg(filtered, () => 'Total')[0];
 
   return (
     <div>
@@ -4864,21 +4900,59 @@ function PacingTool({ month, container, patchMonth }) {
                     ))}
                   </div>
                 </div>
+                <div className="card-body" style={{ paddingBottom: 0 }}>
+                  <div className="month-bar" style={{ padding: 0, border: 'none', background: 'none' }}>
+                    <div className="mb-group">
+                      <label>Role</label>
+                      <select value={fRole} onChange={e => setFRole(e.target.value)}>
+                        <option>All</option>{ROLES.map(r => <option key={r}>{r}</option>)}
+                      </select>
+                    </div>
+                    <div className="mb-group">
+                      <label>Location</label>
+                      <select value={fRegion} onChange={e => setFRegion(e.target.value)}>
+                        <option>All</option>{DATA.regions_ordered.map(r => <option key={r}>{r}</option>)}
+                      </select>
+                    </div>
+                    <div className="mb-group">
+                      <label>Platform</label>
+                      <select value={fPlat} onChange={e => setFPlat(e.target.value)}>
+                        <option value="All">All</option>
+                        {PLATFORMS.map(p => <option key={p} value={p}>{PLATFORM_LABELS[p]}</option>)}
+                      </select>
+                    </div>
+                    {(fRole !== 'All' || fRegion !== 'All' || fPlat !== 'All') && (
+                      <a href="#" className="link-inline"
+                        onClick={e => { e.preventDefault(); setFRole('All'); setFRegion('All'); setFPlat('All'); }}>
+                        Clear filters
+                      </a>
+                    )}
+                    <span className="version-note">
+                      {detail.length} row{detail.length === 1 ? '' : 's'} \u00B7 click a column to sort
+                    </span>
+                  </div>
+                </div>
                 <div className="card-body" style={{ padding: 0 }}>
                   <div className="grid-scroll">
-                    <table className="alloc-table rv">
+                    <table className="alloc-table rv sortable">
                       <thead>
                         <tr>
-                          <th>{grain === 'platform' ? 'Platform' : 'Role and location'}</th>
-                          <th>Plan spend</th><th>Actual</th><th>%</th><th>Spend</th>
-                          <th>Plan apps</th><th>Actual</th><th>%</th><th>Apps</th><th>CPA</th>
+                          {[['key', grain === 'platform' ? 'Role and platform' : 'Role and location'],
+                            ['planSpend', 'Plan spend'], ['actualSpend', 'Actual'], ['spendRatio', '%'],
+                            [null, 'Spend'],
+                            ['planApps', 'Plan apps'], ['actualApps', 'Actual'], ['appsRatio', '%'],
+                            [null, 'Apps'], ['cpa', 'CPA']].map(([k, lbl], i) => (
+                            <th key={i} onClick={k ? () => sortOn(k) : undefined}
+                              className={k ? 'sort-th' : ''}>
+                              {lbl}{sortBy === k ? (sortDir === 'asc' ? ' \u2191' : ' \u2193') : ''}
+                            </th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {detail.slice().sort((a, b) => b.actualSpend - a.actualSpend).map(r => (
+                        {detailSorted.map(r => (
                           <tr key={r.key}>
-                            <td>{grain === 'platform' ? PLATFORM_LABELS[r.key]
-                              : r.key.split('|').map((x, i) => i === 2 ? PLATFORM_LABELS[x] : x).join(' \u00B7 ')}</td>
+                            <td>{r.key.split('|').map(x => PLATFORMS.includes(x) ? PLATFORM_LABELS[x] : x).join(' \u00B7 ')}</td>
                             <td className="mono">{fmtGBP(r.planSpend)}</td>
                             <td className="mono">{fmtGBP(r.actualSpend)}</td>
                             <PaceCell ratio={r.spendRatio} kind="spend" />
@@ -4888,6 +4962,18 @@ function PacingTool({ month, container, patchMonth }) {
                             <td className="mono">{r.cpa ? fmtGBP(r.cpa) : '-'}</td>
                           </tr>
                         ))}
+                        {detailTotal && (
+                          <tr className="tot-row">
+                            <td><strong>Total{(fRole !== 'All' || fRegion !== 'All' || fPlat !== 'All') ? ' of what is shown' : ''}</strong></td>
+                            <td className="mono"><strong>{fmtGBP(detailTotal.planSpend)}</strong></td>
+                            <td className="mono"><strong>{fmtGBP(detailTotal.actualSpend)}</strong></td>
+                            <PaceCell ratio={detailTotal.spendRatio} kind="spend" />
+                            <td className="mono"><strong>{fmtInt(detailTotal.planApps)}</strong></td>
+                            <td className="mono"><strong>{fmtInt(detailTotal.actualApps)}</strong></td>
+                            <PaceCell ratio={detailTotal.appsRatio} kind="apps" />
+                            <td className="mono"><strong>{detailTotal.cpa ? fmtGBP(detailTotal.cpa) : '-'}</strong></td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
