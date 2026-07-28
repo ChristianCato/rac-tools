@@ -3303,6 +3303,7 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Fixed a month with nothing pasted showing July\u2019s locations under its own heading. July\u2019s tracker was being used as the fallback for every month, so August looked populated when it was empty, and Month on month only counted one month because only one had anything genuinely stored against it.',
     'Renamed "this month\u2019s actuals" to In platform data, and it folds away once loaded so it stops taking up the top of the page.',
     'Location priorities has a Month on month view. Pick two months and it shows open roles, live locations and the blended CPA of the mix for each, then the same by location. It says whether this month\u2019s spread of roles is a more expensive one to fill than last month\u2019s, before anything about how either month ran.',
     'The tool menu on the left now stays put as the page scrolls.',
@@ -3635,6 +3636,26 @@ function applyMonthPaste(pri, role, parsed) {
   return { next, report: { total: rows.length, added, gone, newDates, dates: parsed.dates.length } };
 }
 
+
+// The seed is July's tracker. It belongs to July and nowhere else: falling
+// back to it for any month with nothing pasted showed one month's locations
+// under another month's heading.
+function seedMonth() {
+  const d = ((DATA.priorities_seed || {}).dates || [])[0];
+  return d ? d.slice(0, 7) : null;
+}
+
+function emptyPriorities() {
+  return { dates: [], roles: { SMR: { rows: [] }, Patrol: { rows: [] } }, budgets: {}, thresholds: {} };
+}
+
+// What a given month actually holds: what was pasted, or the seed if this is
+// the month the seed is for, or nothing.
+function priorityFor(month, container) {
+  if (container && container.priorities) return container.priorities;
+  if (month === seedMonth()) return seedPriorities();
+  return emptyPriorities();
+}
 
 function seedPriorities() {
   const s = DATA.priorities_seed;
@@ -3990,7 +4011,7 @@ function TrendsView({ pri }) {
 // Compare a month against another, on the numbers the priorities grid holds.
 function MonthOnMonth({ ws, month }) {
   const withData = Object.keys(ws.months || {})
-    .filter(m => ((ws.months[m].priorities || {}).dates || []).length > 0).sort();
+    .filter(m => (priorityFor(m, ws.months[m]).dates || []).length > 0).sort();
   const [a, setA] = useState(withData[Math.max(0, withData.indexOf(month) - 1)] || withData[0]);
   const [b, setB] = useState(month);
 
@@ -4005,7 +4026,7 @@ function MonthOnMonth({ ws, month }) {
   }
 
   const cut = (m) => {
-    const pri = (ws.months[m] || {}).priorities || {};
+    const pri = priorityFor(m, ws.months[m]);
     const dates = pri.dates || [];
     const last = dates[dates.length - 1];
     const out = {};
@@ -4139,7 +4160,7 @@ function MonthOnMonth({ ws, month }) {
 
 function PrioritiesTool({ container, patchMonth, month, ws }) {
   const [view, setView] = useState('SMR');
-  const pri = container.priorities || seedPriorities();
+  const pri = priorityFor(month, container);
   const dates = pri.dates || [];
   const [from, setFrom] = useState(dates.length > 1 ? dates[dates.length - 2] : dates[0]);
   const [to, setTo] = useState(dates[dates.length - 1]);
@@ -5380,7 +5401,7 @@ function PacingTool({ month, container, patchMonth }) {
     else { setSortBy(k); setSortDir(k === 'key' ? 'asc' : 'desc'); }
   };
   const fileRef = useRef(null);
-  const pri = container.priorities || seedPriorities();
+  const pri = priorityFor(month, container);
   const dates = pri.dates || [];
   const [from, setFrom] = useState(dates.length > 1 ? dates[dates.length - 2] : dates[0]);
   const [to, setTo] = useState(dates[dates.length - 1]);
