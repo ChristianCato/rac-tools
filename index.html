@@ -165,7 +165,7 @@ body {
 .pill {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 3px 9px; border-radius: 999px;
-  font-size: 11.5px; font-weight: 600;
+  font-size: 11.5px; font-weight: 600; white-space: nowrap;
   background: var(--ink-04); color: var(--ink-70);
 }
 .pill-good { background: var(--good-lt); color: var(--good); }
@@ -495,6 +495,10 @@ input[type=range]::-moz-range-thumb {
 .pri-grid td.cell.down input { color: var(--warn); font-weight: 600; }
 .pri-grid td.cell.same input { color: var(--ink-55); }
 .alloc-table.rv td, .alloc-table.rv th { font-size: 12px; padding: 6px 8px; }
+/* Status columns hold a pill, so they need room and their own alignment
+   rather than inheriting the numeric right-align. */
+.alloc-table.rv td:has(> .pill), .alloc-table.rv td .pill { text-align: left; }
+.alloc-table.rv td:has(> .pill) { white-space: nowrap; width: 1%; padding-left: 12px; }
 .alloc-table.rv .tot-row td { background: var(--ink-04); border-top: 2px solid var(--line-c); }
 .alloc-table.sortable th.sort-th { cursor: pointer; user-select: none; white-space: nowrap; }
 .alloc-table.sortable th.sort-th:hover { color: var(--rac-orange); }
@@ -3212,6 +3216,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Removed the strapline from the bottom of the page.',
+    'Status labels no longer wrap onto two lines and overflow their column.',
     'Added plan CPA next to actual CPA everywhere, with actual shown green when it is at or under plan.',
     'Renamed the "%" columns to "vs expected" and spelt out that percentages are against where the plan says we should be by now, not against the whole month.',
     'Left-hand menu: Planner is now Monthly Budget Planner, Pacing is Performance Pacing, and Data and Changelog moved to an Admin group at the bottom so they are not sat with the tools.',
@@ -5857,9 +5863,6 @@ function App() {
         </div>
       </div>
 
-      <div className="app-footer">
-        Delivered by Enhance Media &middot; Hire target sets the application target; the plan runs on applications
-      </div>
     </div>
   );
 }
