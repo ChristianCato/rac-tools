@@ -3279,6 +3279,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Fixed the spend reconciliation showing Google at roughly twice its size. Spend the pull could not place, mostly Demand Gen and brand campaigns, was being shown against whichever platform came first in the list rather than on its own. It now has its own row and the per-platform figures show only what actually went into the plan comparison.',
+    'Removed the second Google and Meta paste box. The button covers it.',
     'Fixed pacing showing nothing unless the master sheet was loaded. Windsor and the Indeed and Appcast pastes now stand on their own, which is what was intended when Windsor started carrying applications. The master sheet is only needed if you want Eploy applications for Indeed.',
     'Added an "actuals run to day" box for when there is no master sheet, since a paste carries no dates. Windsor fills it in from the day it pulled to.',
     'Fixed saved plans disappearing. Saving opened a box asking for a note, and closing it counted as coming back to the tab, which reloaded the shared copy over the top of the save before it had gone up. The reload now waits for anything unsaved to finish, and saving no longer asks anything. Use Rename to add a name and a note once it is saved.',
@@ -5168,10 +5170,6 @@ function PacingTool({ month, container, patchMonth }) {
                 <PlatformPasteBox label="Indeed" priRows={priRows} range={exportRange}
                   hint="The advanced campaign report. Spend only, from Total cost; applications keep coming from Eploy."
                   applied={!!pastes.indeed} onApply={(p, r) => setPastes(x => ({ ...x, ...splitByPlatform(r) }))} />
-                <PlatformPasteBox label="Google and Meta, pasted instead" priRows={priRows} range={exportRange}
-                  hint="Only needed if the button above will not play. A Windsor export with date, campaign and spend columns."
-                  applied={!!pastes.google || !!pastes.meta}
-                  onApply={(p, r) => setPastes(x => ({ ...x, ...splitByPlatform(r) }))} />
                 {Object.keys(pastes).length > 0 && (
                   <div className="help-text">
                     Using pasted figures for {Object.keys(pastes).map(p => PLATFORM_LABELS[p]).join(' and ')}.
@@ -5196,7 +5194,10 @@ function PacingTool({ month, container, patchMonth }) {
                       const base = Object.values(baseActuals.regional).filter(x => x.platform === plat)
                         .reduce((a, x) => a + x.spend, 0);
                       const p = pastes[plat];
-                      const pasted = p ? p.matchedSpend + p.unmatchedSpend : null;
+                      // What this platform actually contributed. Spend the
+                      // pull could not place is shown on its own row below,
+                      // not added to whichever platform happened to be first.
+                      const pasted = p ? p.matchedSpend : null;
                       const inUse = Object.values(actuals.regional).filter(x => x.platform === plat)
                         .reduce((a, x) => a + x.spend, 0);
                       const off = p && base > 0 && (pasted < base * 0.7 || pasted > base * 1.4);
@@ -5212,6 +5213,22 @@ function PacingTool({ month, container, patchMonth }) {
                         </tr>
                       );
                     })}
+                    {(() => {
+                      const spare = PLATFORMS.reduce((a, pl) => a + ((pastes[pl] || {}).unmatchedSpend || 0), 0);
+                      if (!spare) return null;
+                      return (
+                        <tr>
+                          <td>Not placed</td>
+                          <td className="mono">-</td>
+                          <td className="mono">{fmtGBP(spare)}</td>
+                          <td className="mono">-</td>
+                          <td style={{ fontSize: 12, color: 'var(--ink-55)' }}>
+                            Non-standard campaigns and anything the campaign name did not resolve.
+                            Counted in total spend, never against plan.
+                          </td>
+                        </tr>
+                      );
+                    })()}
                   </tbody>
                 </table>
                 <div className="help-text" style={{ padding: '10px 16px' }}>
