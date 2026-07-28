@@ -1248,6 +1248,12 @@ function buildFundingPlan(role, p) {
       predLow: apps * (1 - bandInfo.pct / 100),
       predHigh: apps * (1 + bandInfo.pct / 100),
       bandPct: bandInfo.pct,
+      // CPA and apply-CVR ranges share the apps band. A high CPA means clicks
+      // converted worse, so the CVR low end pairs with the CPA high end.
+      cpaLow: (apps > 0 ? spend / apps : 0) * (1 - bandInfo.pct / 100),
+      cpaHigh: (apps > 0 ? spend / apps : 0) * (1 + bandInfo.pct / 100),
+      cvrLow: platformBlendedCVR(plat, role, locs) * (1 - bandInfo.pct / 100),
+      cvrHigh: platformBlendedCVR(plat, role, locs) * (1 + bandInfo.pct / 100),
     };
   });
 
@@ -1279,6 +1285,10 @@ function buildFundingPlan(role, p) {
         predLow: apps * (1 - bandInfo.pct / 100),
         predHigh: apps * (1 + bandInfo.pct / 100),
         bandPct: bandInfo.pct,
+        cpaLow: (apps > 0 ? spend / apps : cpaInfo.cpa) * (1 - bandInfo.pct / 100),
+        cpaHigh: (apps > 0 ? spend / apps : cpaInfo.cpa) * (1 + bandInfo.pct / 100),
+        cvrLow: regionPlatformCVR(plat, region, role) * (1 - bandInfo.pct / 100),
+        cvrHigh: regionPlatformCVR(plat, region, role) * (1 + bandInfo.pct / 100),
       };
     });
   });
@@ -2379,6 +2389,16 @@ function MethodTab() {
 // PDF EXPORT
 // ====================================================================
 function exportPDF(state) {
+  // RAC asked for SMR and Patrol as separate PDFs, so export one per role.
+  exportPlanPDF(state, ['SMR']);
+  exportPlanPDF(state, ['Patrol']);
+}
+
+function exportPlanPDF(state, roleFilter) {
+  const ROLES_ALL = ['SMR', 'Patrol'];
+  const roles = (roleFilter && roleFilter.length ? roleFilter : ROLES_ALL)
+    .filter(r => ROLES_ALL.includes(r));
+  const ROLES = roles; // shadow the global so the body loops over just these
   try {
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF('l', 'mm', 'a4'); // landscape
@@ -2438,7 +2458,7 @@ function exportPDF(state) {
     // Pages: SMR, Patrol, By channel, then region x channel pages
     // (one table per page, 2 roles x 4 platforms = 8 pages), then Glossary
     // (1 or 2 pages depending on how the terms flow).
-    const REGION_CHANNEL_PAGES = 8; // 2 roles x 4 platforms, one table per page
+    const REGION_CHANNEL_PAGES = roles.length * 4; // roles x 4 platforms, one table per page
 
     // Glossary terms (defined here so we can pre-measure how many pages they need)
     const terms = [
@@ -2478,7 +2498,7 @@ function exportPDF(state) {
       return pages;
     }
     const GLOSSARY_PAGES = countGlossaryPages();
-    const TOTAL_PAGES = 3 + REGION_CHANNEL_PAGES + GLOSSARY_PAGES; // SMR, Patrol, By channel + region x channel + glossary
+    const TOTAL_PAGES = roles.length + 1 + REGION_CHANNEL_PAGES + GLOSSARY_PAGES; // role pages + By channel + region x channel + glossary
 
     // ---- one page per role -----------------------------------------------
     ROLES.forEach((role, roleIdx) => {
@@ -2736,26 +2756,33 @@ function exportPDF(state) {
       // Rows
       pdf.setFont('helvetica', 'normal'); setColor(INK);
       let totalApps = 0, totalHires = 0;
+      const CHROW = 10; // taller rows to fit the range sub-line
       (plan.channelSummary || []).forEach((ch, i) => {
         if (i % 2 === 1) {
-          setFill(LIGHT); pdf.rect(margin, cy, pageW - margin * 2, 7, 'F');
+          setFill(LIGHT); pdf.rect(margin, cy, pageW - margin * 2, CHROW, 'F');
         }
         setColor(INK); pdf.setFontSize(8.5);
-        pdf.text(PLATFORM_LABELS[ch.platform], cc.plat, cy + 4.7);
+        pdf.text(PLATFORM_LABELS[ch.platform], cc.plat, cy + 4.4);
         pdf.setFont('helvetica', 'bold');
-        pdf.text(fmtGBP(ch.spend), cc.spend, cy + 4.7);
+        pdf.text(fmtGBP(ch.spend), cc.spend, cy + 4.4);
         pdf.setFont('helvetica', 'normal');
-        pdf.text(ch.cvr > 0 ? (ch.cvr * 100).toFixed(1) + '%' : 'n/a', cc.share, cy + 4.7);
-        pdf.text(fmtInt(ch.predApps), cc.apps, cy + 4.7);
-        pdf.text(fmtGBP(ch.cpa), cc.cpa, cy + 4.7);
-        pdf.text(ch.hireCvr > 0 ? (ch.hireCvr * 100).toFixed(2) + '%' : 'n/a', cc.hcvr, cy + 4.7);
-        pdf.text(ch.predHires >= 0 ? ch.predHires.toFixed(1) : '0', cc.hires, cy + 4.7);
-        pdf.text(ch.cph ? fmtGBP(ch.cph) : 'n/a', cc.cph, cy + 4.7);
+        pdf.text(ch.cvr > 0 ? (ch.cvr * 100).toFixed(1) + '%' : 'n/a', cc.share, cy + 4.4);
+        pdf.text(fmtInt(ch.predApps), cc.apps, cy + 4.4);
+        pdf.text(fmtGBP(ch.cpa), cc.cpa, cy + 4.4);
+        pdf.text(ch.hireCvr > 0 ? (ch.hireCvr * 100).toFixed(2) + '%' : 'n/a', cc.hcvr, cy + 4.4);
+        pdf.text(ch.predHires >= 0 ? ch.predHires.toFixed(1) : '0', cc.hires, cy + 4.4);
+        pdf.text(ch.cph ? fmtGBP(ch.cph) : 'n/a', cc.cph, cy + 4.4);
+        // Range sub-lines (apply CVR, apps, cost per app) in muted grey
+        pdf.setFontSize(6.6); setColor(MUTED);
+        if (ch.cvr > 0) pdf.text((ch.cvrLow * 100).toFixed(1) + '\u2013' + (ch.cvrHigh * 100).toFixed(1) + '%', cc.share, cy + 8.4);
+        if (ch.predApps > 0) pdf.text(fmtInt(ch.predLow) + '\u2013' + fmtInt(ch.predHigh), cc.apps, cy + 8.4);
+        if (ch.cpa > 0) pdf.text(fmtGBP(ch.cpaLow) + '\u2013' + fmtGBP(ch.cpaHigh), cc.cpa, cy + 8.4);
+        setColor(INK); pdf.setFontSize(8.5);
         totalApps += ch.predApps; totalHires += ch.predHires;
-        cy += 7;
+        cy += CHROW;
       });
       // Total row
-      setFill(NAVY); pdf.rect(margin, cy, pageW - margin * 2, 7, 'F');
+      setFill(NAVY); pdf.rect(margin, cy, pageW - margin * 2, 11, 'F');
       pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8.5);
       pdf.text('Total', cc.plat, cy + 4.7);
       pdf.text(fmtGBP(plan.deployable), cc.spend, cy + 4.7);
@@ -2773,10 +2800,16 @@ function exportPDF(state) {
       pdf.text(totalApps > 0 ? (totalHires / totalApps * 100).toFixed(2) + '%' : 'n/a', cc.hcvr, cy + 4.7);
       pdf.text(totalHires.toFixed(1), cc.hires, cy + 4.7);
       pdf.text(totalHires > 0 ? fmtGBP(plan.deployable / totalHires) : 'n/a', cc.cph, cy + 4.7);
-      cy += 12;
+      // Total range sub-lines
+      const abp = plan.aggBandPct || 35;
+      pdf.setFontSize(6.6); pdf.setTextColor(200, 208, 220);
+      if (blendedCvr > 0) pdf.text((blendedCvr * (1 - abp / 100) * 100).toFixed(1) + '\u2013' + (blendedCvr * (1 + abp / 100) * 100).toFixed(1) + '%', cc.share, cy + 8.4);
+      if (totalApps > 0) pdf.text(fmtInt(totalApps * (1 - abp / 100)) + '\u2013' + fmtInt(totalApps * (1 + abp / 100)), cc.apps, cy + 8.4);
+      if (blendedCpa > 0) pdf.text(fmtGBP(blendedCpa * (1 - abp / 100)) + '\u2013' + fmtGBP(blendedCpa * (1 + abp / 100)), cc.cpa, cy + 8.4);
+      cy += 14;
     });
 
-    footer(3, TOTAL_PAGES);
+    footer(roles.length + 1, TOTAL_PAGES);
 
     // ---- Region x channel pages -----------------------------------------
     // For each role and platform, a table of all 12 regions with spend,
@@ -2798,7 +2831,7 @@ function exportPDF(state) {
       let ry = startY;
       const plan = plans[role];
       const rows = (plan.regionChannel && plan.regionChannel[plat]) || [];
-      const RH = 9; // row height
+      const RH = 11; // row height (taller to fit the range sub-line)
       // Sub-heading
       setColor(NAVY); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12);
       pdf.text(role + ' \u00B7 ' + PLATFORM_LABELS[plat], margin, ry);
@@ -2827,22 +2860,29 @@ function exportPDF(state) {
         // Dim regions with no live vacancy so the eye skips to the funded ones
         setColor(r.live ? INK : MID);
         pdf.setFontSize(8.5);
-        pdf.text(r.region, rcCols.region, ry + 6);
-        pdf.text(fmtGBP(r.spend), rcCols.spend, ry + 6);
-        pdf.text(fmtInt(r.predApps), rcCols.apps, ry + 6);
-        pdf.text(r.cvr > 0 ? (r.cvr * 100).toFixed(1) + '%' : 'n/a', rcCols.cvr, ry + 6);
-        pdf.text(r.cpa > 0 ? fmtGBP(r.cpa) : '\u2013', rcCols.cpa, ry + 6);
+        pdf.text(r.region, rcCols.region, ry + 5.6);
+        pdf.text(fmtGBP(r.spend), rcCols.spend, ry + 5.6);
+        pdf.text(fmtInt(r.predApps), rcCols.apps, ry + 5.6);
+        pdf.text(r.cvr > 0 ? (r.cvr * 100).toFixed(1) + '%' : 'n/a', rcCols.cvr, ry + 5.6);
+        pdf.text(r.cpa > 0 ? fmtGBP(r.cpa) : '\u2013', rcCols.cpa, ry + 5.6);
         // Hire columns: "no data" where RAC has no hire rate for the region
         if (r.hireCvr == null) {
-          pdf.text('no data', rcCols.hcvr, ry + 6);
-          pdf.text('\u2013', rcCols.hires, ry + 6);
-          pdf.text('\u2013', rcCols.cph, ry + 6);
+          pdf.text('no data', rcCols.hcvr, ry + 5.6);
+          pdf.text('\u2013', rcCols.hires, ry + 5.6);
+          pdf.text('\u2013', rcCols.cph, ry + 5.6);
         } else {
-          pdf.text((r.hireCvr * 100).toFixed(2) + '%', rcCols.hcvr, ry + 6);
-          pdf.text(r.predHires.toFixed(1), rcCols.hires, ry + 6);
-          pdf.text(r.cph ? fmtGBP(r.cph) : '\u2013', rcCols.cph, ry + 6);
+          pdf.text((r.hireCvr * 100).toFixed(2) + '%', rcCols.hcvr, ry + 5.6);
+          pdf.text(r.predHires.toFixed(1), rcCols.hires, ry + 5.6);
+          pdf.text(r.cph ? fmtGBP(r.cph) : '\u2013', rcCols.cph, ry + 5.6);
         }
-        pdf.text(r.predApps > 0 ? fmtInt(r.predLow) + '\u2013' + fmtInt(r.predHigh) : '\u2013', rcCols.range, ry + 6);
+        pdf.text(r.predApps > 0 ? fmtInt(r.predLow) + '\u2013' + fmtInt(r.predHigh) : '\u2013', rcCols.range, ry + 5.6);
+        // Range sub-lines for apply CVR and cost per app on live rows
+        if (r.spend > 0) {
+          pdf.setFontSize(6.4); setColor(MUTED);
+          if (r.cvr > 0) pdf.text((r.cvrLow * 100).toFixed(1) + '\u2013' + (r.cvrHigh * 100).toFixed(1) + '%', rcCols.cvr, ry + 9.2);
+          if (r.cpa > 0) pdf.text(fmtGBP(r.cpaLow) + '\u2013' + fmtGBP(r.cpaHigh), rcCols.cpa, ry + 9.2);
+          pdf.setFontSize(8.5);
+        }
         tSpend += r.spend; tApps += r.predApps; tHires += r.predHires;
         ry += RH;
       });
@@ -2882,7 +2922,7 @@ function exportPDF(state) {
     header('Glossary', null);
 
     const gColA = margin, gColB = margin + gColW + 6;
-    let gy = 30, gCol = 0, gPageNum = 3 + REGION_CHANNEL_PAGES + 1;
+    let gy = 30, gCol = 0, gPageNum = roles.length + 1 + REGION_CHANNEL_PAGES + 1;
     terms.forEach(t => {
       pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5);
       const split = pdf.splitTextToSize(t[1], gColW - 4);
@@ -2901,7 +2941,8 @@ function exportPDF(state) {
     });
     footer(gPageNum, TOTAL_PAGES);
 
-    pdf.save('RAC_' + monthLabel.replace(' ', '_') + '_Plan.pdf');
+    const roleTag = roles.length === 1 ? '_' + roles[0] : '';
+    pdf.save('RAC_' + monthLabel.replace(' ', '_') + roleTag + '_Plan.pdf');
   } catch (e) {
     alert('PDF export failed: ' + e.message);
   }
