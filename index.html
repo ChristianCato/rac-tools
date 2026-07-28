@@ -439,20 +439,13 @@ input[type=range]::-moz-range-thumb {
 .chg-body { font-size: 13.5px; color: var(--ink-70); }
 .chg-body strong { color: var(--ink); }
 .chg-list { margin: 0 0 0 18px; }
-.chart-wrap { padding: 14px 16px 6px; }
-.chart-head { font-size: 13px; color: var(--ink-70); margin-bottom: 8px; }
-.chart-head span { color: var(--ink-55); }
-.chart-key { float: right; font-size: 11.5px; color: var(--ink-55); }
-.chart-key i { display: inline-block; width: 16px; height: 7px; border-radius: 2px; margin: 0 4px 0 10px; vertical-align: middle; }
-.chart-key i.k-plan { background: var(--ink-35); }
-.chart-key i.k-actual { background: var(--em-blue); }
-.chart-note { font-size: 12px; color: var(--ink-55); padding: 4px 0 10px; }
-svg .b-plan { fill: var(--ink-35); }
-svg .b-actual { fill: var(--em-blue); }
-svg .b-actual.low { fill: var(--bad); }
-svg .b-actual.high { fill: var(--rac-orange); }
-svg .cb-label { font-size: 11px; fill: var(--ink-70); font-family: Inter, sans-serif; }
-svg .cb-val { font-size: 11px; fill: var(--ink-55); font-family: "JetBrains Mono", monospace; }
+.fold-head { cursor: pointer; user-select: none; }
+.fold-head:hover .card-title { color: var(--rac-orange); }
+.fold-chev {
+  display: inline-block; font-size: 19px; line-height: 1; color: var(--ink-35);
+  transition: transform 0.12s ease; transform: rotate(0deg); margin-right: 2px;
+}
+.fold-chev.open { transform: rotate(90deg); }
 .chg-list li { font-size: 13px; color: var(--ink-70); margin-bottom: 5px; line-height: 1.5; }
 .paste-box {
   width: 100%; font-family: "JetBrains Mono", monospace; font-size: 12px;
@@ -1668,6 +1661,21 @@ function defaultCoverage(role) {
 // ====================================================================
 // SHARED SMALL COMPONENTS
 // ====================================================================
+function Foldable({ title, sub, open, onToggle, children }) {
+  return (
+    <div className="card">
+      <div className="card-head fold-head" onClick={onToggle}>
+        <span className={'fold-chev' + (open ? ' open' : '')}>{'\u203A'}</span>
+        <div>
+          <div className="card-title">{title}</div>
+          {sub && <div className="card-sub">{sub}</div>}
+        </div>
+      </div>
+      {open && children}
+    </div>
+  );
+}
+
 function Pill({ kind, children }) {
   return <span className={'pill' + (kind ? ' pill-' + kind : '')}>{children}</span>;
 }
@@ -3295,8 +3303,10 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Renamed "this month\u2019s actuals" to In platform data, and it folds away once loaded so it stops taking up the top of the page.',
+    'Location priorities has a Month on month view. Pick two months and it shows open roles, live locations and the blended CPA of the mix for each, then the same by location. It says whether this month\u2019s spread of roles is a more expensive one to fill than last month\u2019s, before anything about how either month ran.',
     'The tool menu on the left now stays put as the page scrolls.',
-    'Charts added to Performance Pacing. The breakdown and the mix table can both be switched between a table and a chart, with plan and actual as paired bars. Orange on the mix chart means the location costs more per application than the plan\u2019s blended rate.',
+    'Why now breaks the cost per application down by platform: planned rate against actual, and how many locations each platform is above its planned rate in. If one platform is above plan almost everywhere, that reads differently to one or two locations being off.',
     'Locations the plan never funded are now part of where it went, rather than being counted as free applications on their own. Money going to them came out of the funded locations, so it is priced the same way, at that location\u2019s own historic cost per application. The three figures on the page now add up to the gap with nothing left over.',
     'Fixed the mix table counting locations the plan never funded. Spend somewhere with no planned share was still diluting everyone else\u2019s share, so every funded location looked like it had lost ground to nobody and London losing share read as a loss when it should have been a gain. The mix now only covers locations the plan funded, and off-plan spend is called out separately.',
     'Plainer wording across the banners and help text.',
@@ -3977,7 +3987,157 @@ function TrendsView({ pri }) {
   );
 }
 
-function PrioritiesTool({ container, patchMonth, month }) {
+// Compare a month against another, on the numbers the priorities grid holds.
+function MonthOnMonth({ ws, month }) {
+  const withData = Object.keys(ws.months || {})
+    .filter(m => ((ws.months[m].priorities || {}).dates || []).length > 0).sort();
+  const [a, setA] = useState(withData[Math.max(0, withData.indexOf(month) - 1)] || withData[0]);
+  const [b, setB] = useState(month);
+
+  if (withData.length < 2) {
+    return (
+      <div className="card"><div className="card-body">
+        <div className="help-text">
+          Only {withData.length} month has priorities pasted in. Paste another month's tabs and this fills in.
+        </div>
+      </div></div>
+    );
+  }
+
+  const cut = (m) => {
+    const pri = (ws.months[m] || {}).priorities || {};
+    const dates = pri.dates || [];
+    const last = dates[dates.length - 1];
+    const out = {};
+    DATA.regions_ordered.forEach(r => { out[r] = { locs: 0, vac: 0 }; });
+    ROLES.forEach(role => {
+      ((pri.roles || {})[role] || {}).rows?.forEach(row => {
+        const n = row.v && row.v[last];
+        if (!out[row.region] || !(n > 0)) return;
+        out[row.region].locs += 1; out[row.region].vac += n;
+      });
+    });
+    return { cut: out, asAt: last };
+  };
+  const A = cut(a), B = cut(b);
+  const label = m => (DATA.month_labels && DATA.month_labels[m]) || m;
+  // Historic cost per application for the location, blended across roles by
+  // how many roles are open there. That is what makes one month's mix of
+  // locations more expensive than another's.
+  const rate = (region, w) => {
+    let num = 0, den = 0;
+    ROLES.forEach(role => {
+      try {
+        const c = regionBlendedCPA(region, role);
+        if (c && c.cpa > 0) { num += c.cpa * w; den += w; }
+      } catch (e) { /* no data for that pair */ }
+    });
+    return den > 0 ? num / den : null;
+  };
+  const blended = (c) => {
+    let spendish = 0, apps = 0;
+    DATA.regions_ordered.forEach(r => {
+      const v = c[r].vac; if (!v) return;
+      const cpa = rate(r, 1); if (!cpa) return;
+      spendish += v * cpa; apps += v;
+    });
+    return apps > 0 ? spendish / apps : null;
+  };
+  const bA = blended(A.cut), bB = blended(B.cut);
+  const tot = c => DATA.regions_ordered.reduce((s, r) => s + c[r].vac, 0);
+  const locs = c => DATA.regions_ordered.reduce((s, r) => s + c[r].locs, 0);
+
+  return (
+    <div>
+      <div className="month-bar" style={{ padding: 0, border: 'none', background: 'none', marginBottom: 14 }}>
+        <div className="mb-group">
+          <label>Compare</label>
+          <select value={a} onChange={e => setA(e.target.value)}>
+            {withData.map(m => <option key={m} value={m}>{label(m)}</option>)}
+          </select>
+          <label>with</label>
+          <select value={b} onChange={e => setB(e.target.value)}>
+            {withData.map(m => <option key={m} value={m}>{label(m)}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="kpi-row" style={{ marginBottom: 18 }}>
+        <div className="kpi kpi-accent-navy">
+          <div className="kpi-label">Open roles</div>
+          <div className="kpi-value mono">{tot(B.cut)}</div>
+          <div className="kpi-sub">{tot(A.cut)} in {label(a)}, {tot(B.cut)} in {label(b)}</div>
+        </div>
+        <div className="kpi kpi-accent-navy">
+          <div className="kpi-label">Live locations</div>
+          <div className="kpi-value mono">{locs(B.cut)}</div>
+          <div className="kpi-sub">{locs(A.cut)} in {label(a)}, {locs(B.cut)} in {label(b)}</div>
+        </div>
+        <div className={'kpi kpi-accent-' + (bA && bB && bB > bA ? 'orange' : 'good')}>
+          <div className="kpi-label">Blended CPA of the mix</div>
+          <div className="kpi-value mono">{bB ? fmtGBP(bB) : '-'}</div>
+          <div className="kpi-sub">
+            {bA ? fmtGBP(bA) : '-'} in {label(a)}, {bB ? fmtGBP(bB) : '-'} in {label(b)}.
+            {' '}On historic rates, weighted by where the roles are.
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <div className="card-title">By location</div>
+          <div className="card-sub">
+            {label(a)} as at {A.asAt ? fmtDay(A.asAt) : '-'} against {label(b)} as at {B.asAt ? fmtDay(B.asAt) : '-'}
+          </div>
+        </div>
+        <div className="card-body" style={{ padding: 0 }}>
+          <table className="alloc-table rv">
+            <thead>
+              <tr>
+                <th>Location</th><th>Historic CPA</th>
+                <th>{label(a)} roles</th><th>{label(b)} roles</th><th>Change</th>
+                <th>{label(a)} share</th><th>{label(b)} share</th>
+              </tr>
+            </thead>
+            <tbody>
+              {DATA.regions_ordered.map(r => {
+                const va = A.cut[r].vac, vb = B.cut[r].vac;
+                if (!va && !vb) return null;
+                const cpa = rate(r, 1);
+                const sa = tot(A.cut) > 0 ? va / tot(A.cut) : 0;
+                const sb = tot(B.cut) > 0 ? vb / tot(B.cut) : 0;
+                const d = vb - va;
+                return (
+                  <tr key={r}>
+                    <td>{r}</td>
+                    <td className="mono" style={{ color: (cpa && bB && cpa > bB) ? 'var(--bad)' : 'var(--ink)' }}>
+                      {cpa ? fmtGBP(cpa) : '-'}
+                    </td>
+                    <td className="mono">{va}</td>
+                    <td className="mono">{vb}</td>
+                    <td className="mono" style={{ fontWeight: 600, color: d === 0 ? 'var(--ink-35)' : d > 0 ? 'var(--good)' : 'var(--bad)' }}>
+                      {d === 0 ? '-' : (d > 0 ? '+' : '') + d}
+                    </td>
+                    <td className="mono">{Math.round(sa * 1000) / 10}%</td>
+                    <td className="mono">{Math.round(sb * 1000) / 10}%</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="help-text" style={{ padding: '10px 16px' }}>
+            Both months are taken at their last recorded day. Historic CPA is what that location has cost
+            per application across the whole dataset, so the blended figure above says whether this month's
+            spread of roles is a more expensive one to fill than last month's, before anything about how
+            either month actually ran.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PrioritiesTool({ container, patchMonth, month, ws }) {
   const [view, setView] = useState('SMR');
   const pri = container.priorities || seedPriorities();
   const dates = pri.dates || [];
@@ -3996,12 +4156,21 @@ function PrioritiesTool({ container, patchMonth, month }) {
     patchMonth({ priorities: next, demand });
   };
 
-  const views = [['SMR', 'SMR'], ['Patrol', 'Patrol'], ['changed', 'What changed'], ['trends', 'Trends']];
+  const views = [['SMR', 'SMR'], ['Patrol', 'Patrol'], ['changed', 'What changed'],
+                 ['trends', 'Trends'], ['mom', 'Month on month']];
 
-  if (dates.length === 0) {
-    return <div className="card"><div className="card-body">
-      <div className="help-text">No location data for {month} yet.</div>
-    </div></div>;
+  if (dates.length === 0 && view !== 'mom') {
+    return (
+      <div>
+        <div className="card"><div className="card-body">
+          <div className="help-text">
+            No location data for {month} yet. Paste the SMR or Patrol tab on those views, or use
+            {' '}<a href="#" className="link-inline" onClick={e => { e.preventDefault(); setView('mom'); }}>Month on month</a>
+            {' '}to look at months that do have data.
+          </div>
+        </div></div>
+      </div>
+    );
   }
 
   return (
@@ -4038,6 +4207,7 @@ function PrioritiesTool({ container, patchMonth, month }) {
       {(view === 'SMR' || view === 'Patrol') && <PriorityGrid role={view} pri={pri} setPri={setPri} month={month} />}
       {view === 'changed' && <WhatChanged pri={pri} from={from} to={to} />}
       {view === 'trends' && <TrendsView pri={pri} />}
+      {view === 'mom' && <MonthOnMonth ws={ws} month={month} />}
     </div>
   );
 }
@@ -4400,104 +4570,6 @@ function agg(rows, keyFn) {
   return Object.values(out);
 }
 
-// Paired bars, plan against actual. Inline SVG rather than a chart library:
-// it is two rectangles and a label, and the page already loads enough.
-function PaceBars({ rows, valueKey, planKey, money, title, sub }) {
-  const [hover, setHover] = useState(null);
-  const data = rows
-    .map(r => ({ key: r.key, plan: r[planKey] || 0, actual: r[valueKey] || 0,
-                 ratio: r[planKey] > 0 ? r[valueKey] / r[planKey] : null }))
-    .filter(d => d.plan > 0 || d.actual > 0)
-    .sort((a, b) => b.plan - a.plan);
-  if (!data.length) return null;
-  const max = Math.max(...data.map(d => Math.max(d.plan, d.actual))) || 1;
-  const rowH = 26, labelW = 190, barW = 420, pad = 8;
-  const h = data.length * rowH + 34;
-  const fmt = v => money ? fmtGBP(v) : fmtInt(v);
-
-  return (
-    <div className="chart-wrap">
-      <div className="chart-head">
-        <strong>{title}</strong> <span>{sub}</span>
-        <span className="chart-key">
-          <i className="k-plan" /> plan for the month <i className="k-actual" /> actual so far
-        </span>
-      </div>
-      <svg viewBox={'0 0 ' + (labelW + barW + 90) + ' ' + h} style={{ width: '100%', height: 'auto' }}>
-        {data.map((d, i) => {
-          const y = 20 + i * rowH;
-          const on = hover === d.key;
-          return (
-            <g key={d.key} onMouseEnter={() => setHover(d.key)} onMouseLeave={() => setHover(null)}>
-              <rect x="0" y={y - 4} width={labelW + barW + 90} height={rowH - 2}
-                fill={on ? 'var(--ink-04)' : 'transparent'} />
-              <text x={labelW - 8} y={y + 11} textAnchor="end" className="cb-label">
-                {d.key.split('|').map(x => PLATFORMS.includes(x) ? PLATFORM_LABELS[x] : x).join(' \u00B7 ')}
-              </text>
-              <rect x={labelW} y={y} width={Math.max(1, (d.plan / max) * barW)} height={7} rx="2" className="b-plan" />
-              <rect x={labelW} y={y + 9} width={Math.max(1, (d.actual / max) * barW)} height={7} rx="2"
-                className={'b-actual' + (d.ratio == null ? '' : d.ratio < 0.9 ? ' low' : d.ratio > 1.1 ? ' high' : '')} />
-              <text x={labelW + barW + 8} y={y + 12} className="cb-val">
-                {fmt(d.actual)}{d.ratio != null ? '  ' + Math.round(d.ratio * 100) + '%' : ''}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-      {hover && (() => {
-        const d = data.find(x => x.key === hover);
-        return (
-          <div className="chart-note">
-            {d.key.split('|').map(x => PLATFORMS.includes(x) ? PLATFORM_LABELS[x] : x).join(' \u00B7 ')}:
-            {' '}{fmt(d.actual)} so far against {fmt(d.plan)} planned for the whole month.
-          </div>
-        );
-      })()}
-    </div>
-  );
-}
-
-// Plan share against actual share, which is the shape of the mix.
-function ShareBars({ rows, planBlended }) {
-  const data = rows
-    .filter(r => (r.planShare > 0.001 || r.actualShare > 0.001))
-    .sort((a, b) => a.mixContrib - b.mixContrib);
-  if (!data.length) return null;
-  const max = Math.max(...data.map(d => Math.max(d.planShare, d.actualShare))) || 0.01;
-  const rowH = 26, labelW = 170, barW = 360;
-  const h = data.length * rowH + 34;
-  return (
-    <div className="chart-wrap">
-      <div className="chart-head">
-        <strong>Share of spend</strong> <span>plan against now, worst shift first</span>
-        <span className="chart-key"><i className="k-plan" /> plan <i className="k-actual" /> now</span>
-      </div>
-      <svg viewBox={'0 0 ' + (labelW + barW + 130) + ' ' + h} style={{ width: '100%', height: 'auto' }}>
-        {data.map((d, i) => {
-          const y = 20 + i * rowH;
-          const dear = planBlended && d.planCpa > planBlended;
-          return (
-            <g key={d.region + i}>
-              <text x={labelW - 8} y={y + 11} textAnchor="end" className="cb-label">{d.region}</text>
-              <rect x={labelW} y={y} width={Math.max(1, (d.planShare / max) * barW)} height={7} rx="2" className="b-plan" />
-              <rect x={labelW} y={y + 9} width={Math.max(1, (d.actualShare / max) * barW)} height={7} rx="2"
-                className={'b-actual' + (dear ? ' high' : '')} />
-              <text x={labelW + barW + 8} y={y + 12} className="cb-val">
-                {fmtGBP(d.planCpa || 0)}  {d.mixContrib >= 0 ? '+' : ''}{Math.round(d.mixContrib)}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-      <div className="chart-note">
-        Orange means the location costs more per application than the plan's blended rate, so a longer
-        second bar there is money going somewhere expensive. The figure on the right is what the shift is
-        worth in applications.
-      </div>
-    </div>
-  );
-}
-
 function PaceCell({ ratio, kind }) {
   const s = paceStatus(ratio, kind);
   return (
@@ -4854,13 +4926,40 @@ function explainGap(rows) {
     r.gap = r.actualApps - r.expApps;
   });
 
+  // Where the rate miss sits. Only what the numbers support: which platform
+  // and which locations, and whether it is one platform misbehaving or all
+  // of them. Nothing about why.
+  const byPlat = {};
+  out.forEach(r => {
+    if (!r.planCpa || (!r.actualSpend && !r.actualApps)) return;
+    const o = byPlat[r.platform] = byPlat[r.platform] ||
+      { platform: r.platform, effect: 0, spend: 0, apps: 0, atRate: 0, worse: 0, cells: 0 };
+    o.effect += r.effEffect; o.spend += r.actualSpend; o.apps += r.actualApps;
+    o.atRate += r.actualSpend / r.planCpa;
+    if (r.actualSpend > 0) {
+      o.cells += 1;
+      const actual = r.actualApps > 0 ? r.actualSpend / r.actualApps : Infinity;
+      if (actual > r.planCpa) o.worse += 1;
+    }
+  });
+  t.rateByPlatform = Object.values(byPlat).map(o => ({
+    ...o,
+    actualCpa: o.apps > 0 ? o.spend / o.apps : null,
+    planCpa: o.atRate > 0 ? o.spend / o.atRate : null,
+  })).sort((a, b) => a.effect - b.effect);
+
+  // One platform carrying most of it, or spread across the board.
+  const losers = t.rateByPlatform.filter(x => x.effect < 0);
+  const totalLoss = losers.reduce((a, x) => a + x.effect, 0);
+  t.rateConcentrated = losers.length && totalLoss < 0 && (losers[0].effect / totalLoss) > 0.6
+    ? losers[0] : null;
+
   return { rows: out, totals: t };
 }
 
 function WhyView({ pacing, planDemand, liveDemand }) {
   const [role, setRole] = useState('SMR');
   const [grain, setGrain] = useState('region');
-  const [mixShape, setMixShape] = useState('chart');
   const rows = pacing.rows.filter(r => r.role === role);
   const ex = useMemo(() => explainGap(rows), [rows]);
   const t = ex.totals;
@@ -4950,6 +5049,54 @@ function WhyView({ pacing, planDemand, liveDemand }) {
           : rolesThen != null ? ', unchanged since the plan was saved' : ''}.
       </div>
 
+      {t.rateEffect <= -1 && t.rateByPlatform.length > 0 && (
+        <div className="card">
+          <div className="card-head">
+            <div className="card-title">Where the cost per application is going wrong</div>
+            <div className="card-sub">
+              {t.rateConcentrated
+                ? 'Mostly ' + PLATFORM_LABELS[t.rateConcentrated.platform] + ', above its planned rate in '
+                  + t.rateConcentrated.worse + ' of ' + t.rateConcentrated.cells + ' locations'
+                : 'Spread across the platforms rather than one of them'}
+            </div>
+          </div>
+          <div className="card-body" style={{ padding: 0 }}>
+            <table className="alloc-table rv">
+              <thead>
+                <tr>
+                  <th>Platform</th><th>Planned CPA</th><th>Actual CPA</th><th>Difference</th>
+                  <th>Locations above plan</th><th>Applications</th>
+                </tr>
+              </thead>
+              <tbody>
+                {t.rateByPlatform.map(o => (
+                  <tr key={o.platform}>
+                    <td>{PLATFORM_LABELS[o.platform]}</td>
+                    <td className="mono">{o.planCpa ? fmtGBP(o.planCpa) : '-'}</td>
+                    <td className="mono" style={{ color: (o.actualCpa && o.planCpa && o.actualCpa > o.planCpa) ? 'var(--bad)' : 'var(--good)' }}>
+                      {o.actualCpa ? fmtGBP(o.actualCpa) : '-'}
+                    </td>
+                    <td className="mono">
+                      {(o.actualCpa && o.planCpa) ? (o.actualCpa > o.planCpa ? '+' : '') + Math.round((o.actualCpa / o.planCpa - 1) * 100) + '%' : '-'}
+                    </td>
+                    <td className="mono">{o.worse} of {o.cells}</td>
+                    <td className="mono" style={{ color: o.effect < 0 ? 'var(--bad)' : 'var(--good)' }}>
+                      {o.effect >= 0 ? '+' : ''}{Math.round(o.effect)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="help-text" style={{ padding: '10px 16px' }}>
+              This says where the miss is, not why. A platform above its planned rate in nearly every
+              location is a platform-wide thing, which usually means the auction rather than anything in
+              the account. One or two locations out of many points the other way. Planned CPA here is what
+              this month's spread of spend was costed at.
+            </div>
+          </div>
+        </div>
+      )}
+
       {Math.abs(t.mixEffect) >= 1 && (
         <div className="card">
           <div className="card-head">
@@ -4957,33 +5104,9 @@ function WhyView({ pacing, planDemand, liveDemand }) {
             <div className="card-sub">
               Share of spend, plan against actual, priced at historic rates
             </div>
-            <div style={{ flex: 1 }} />
-            <div className="role-switch">
-              {[['table', 'Table'], ['chart', 'Chart']].map(([id, l]) => (
-                <button key={id} className={id === mixShape ? 'active' : ''} onClick={() => setMixShape(id)}>{l}</button>
-              ))}
-            </div>
           </div>
           <div className="card-body" style={{ padding: 0 }}>
-            {mixShape === 'chart' && (() => {
-              const byLoc = {};
-              ex.rows.forEach(r => {
-                const o = byLoc[r.region] = byLoc[r.region] ||
-                  { region: r.region, planSpend: 0, actualSpend: 0, atRate: 0, mixContrib: 0 };
-                o.planSpend += r.planSpend; o.actualSpend += r.actualSpend;
-                o.atRate += r.planCpa ? r.actualSpend / r.planCpa : 0;
-                o.mixContrib += r.mixContrib;
-              });
-              const rows2 = Object.values(byLoc).map(o => ({
-                region: o.region,
-                planShare: t.planSpend > 0 ? o.planSpend / t.planSpend : 0,
-                actualShare: t.actualSpend > 0 ? o.actualSpend / t.actualSpend : 0,
-                planCpa: o.atRate > 0 ? o.actualSpend / o.atRate : null,
-                mixContrib: o.mixContrib,
-              }));
-              return <ShareBars rows={rows2} planBlended={t.planBlendedCpa} />;
-            })()}
-            <table className="alloc-table rv" style={{ display: mixShape === 'chart' ? 'none' : 'table' }}>
+            <table className="alloc-table rv">
               <thead>
                 <tr>
                   <th>Location</th><th>Historic CPA</th>
@@ -5232,6 +5355,7 @@ function splitByPlatform(parsed) {
 
 function PacingTool({ month, container, patchMonth }) {
   const [view, setView] = useState('pacing');
+  const [dataOpen, setDataOpen] = useState(true);
   // Pasted and loaded actuals live in the month, not in this component, so
   // they survive moving between tabs.
   const baseActuals = container.actuals || null;
@@ -5249,7 +5373,6 @@ function PacingTool({ month, container, patchMonth }) {
   const [fRole, setFRole] = useState('All');
   const [fRegion, setFRegion] = useState('All');
   const [fPlat, setFPlat] = useState('All');
-  const [shape, setShape] = useState('table');
   const [sortBy, setSortBy] = useState('key');
   const [sortDir, setSortDir] = useState('asc');
   const sortOn = (k) => {
@@ -5420,17 +5543,14 @@ function PacingTool({ month, container, patchMonth }) {
             </div>
           )}
 
-          <div className="card">
-            <div className="card-head">
-              <div className="card-title">This month's actuals</div>
-              <div className="card-sub">
-                {(DATA.month_labels && DATA.month_labels[month]) || month}
-                {pacing ? ' \u00B7 day ' + pacing.elapsed + ' of ' + pacing.days : ''}
-                {baseActuals && baseActuals.loadedAt
-                  ? ' \u00B7 loaded ' + new Date(baseActuals.loadedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-                  : ''}
-              </div>
-            </div>
+          <Foldable
+            title="In platform data"
+            open={dataOpen}
+            onToggle={() => setDataOpen(o => !o)}
+            sub={((DATA.month_labels && DATA.month_labels[month]) || month)
+              + (pacing ? ' \u00B7 day ' + pacing.elapsed + ' of ' + pacing.days : '')
+              + (Object.keys(pastes).length ? ' \u00B7 ' + Object.keys(pastes).map(x => PLATFORM_LABELS[x]).join(', ') + ' loaded' : '')
+              + (baseActuals && baseActuals.loadedAt ? ' \u00B7 master sheet loaded' : '')}>
             <div className="card-body">
               <input ref={fileRef} type="file" accept=".xlsx,.xlsm,.csv" style={{ display: 'none' }}
                 onChange={e => { const f = e.target.files[0]; if (f) readFile(f); e.target.value = ''; }} />
@@ -5476,7 +5596,7 @@ function PacingTool({ month, container, patchMonth }) {
                 )}
               </div>
             </div>
-          </div>
+          </Foldable>
 
           {baseActuals && !baseActuals.error && Object.keys(pastes).length > 0 && (
             <div className="card">
@@ -5655,11 +5775,6 @@ function PacingTool({ month, container, patchMonth }) {
                       <button key={id} className={id === grain ? 'active' : ''} onClick={() => setGrain(id)}>{l}</button>
                     ))}
                   </div>
-                  <div className="role-switch" style={{ marginLeft: 8 }}>
-                    {[['table', 'Table'], ['chart', 'Chart']].map(([id, l]) => (
-                      <button key={id} className={id === shape ? 'active' : ''} onClick={() => setShape(id)}>{l}</button>
-                    ))}
-                  </div>
                 </div>
                 <div className="card-body" style={{ paddingBottom: 0 }}>
                   <div className="month-bar" style={{ padding: 0, border: 'none', background: 'none' }}>
@@ -5693,15 +5808,7 @@ function PacingTool({ month, container, patchMonth }) {
                     </span>
                   </div>
                 </div>
-                {shape === 'chart' && (
-                  <div className="card-body" style={{ padding: 0 }}>
-                    <PaceBars rows={detailSorted} valueKey="actualSpend" planKey="planSpend" money
-                      title="Spend" sub={'against the whole month\u2019s plan'} />
-                    <PaceBars rows={detailSorted} valueKey="actualApps" planKey="planApps"
-                      title="Applications" sub={'against the whole month\u2019s plan'} />
-                  </div>
-                )}
-                <div className="card-body" style={{ padding: 0, display: shape === 'chart' ? 'none' : 'block' }}>
+                <div className="card-body" style={{ padding: 0 }}>
                   <div className="grid-scroll">
                     <table className="alloc-table rv sortable">
                       <thead>
@@ -6658,7 +6765,7 @@ function App() {
               </>
             )}
             {tool === 'priorities' && (
-              <PrioritiesTool container={container} patchMonth={patchMonth} month={month} />
+              <PrioritiesTool container={container} patchMonth={patchMonth} month={month} ws={ws} />
             )}
             {tool === 'pacing' && <PacingTool month={month} container={container} patchMonth={patchMonth} />}
             {tool === 'data' && <DataTool />}
