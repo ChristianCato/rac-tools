@@ -3279,6 +3279,7 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Fixed saved plans disappearing. Saving opened a box asking for a note, and closing it counted as coming back to the tab, which reloaded the shared copy over the top of the save before it had gone up. The reload now waits for anything unsaved to finish, and saving no longer asks anything. Use Rename to add a name and a note once it is saved.',
     'Windsor now brings applications as well as spend for Google and Meta, so the master sheet is no longer needed for those two. Set up the same way the Excel pacing doc pulls them: for Google, the conversion action named exactly "Application Submitted"; for Meta, its own applications field on the same row as spend.',
     'Google and Meta spend now comes straight from Windsor with a button, for the same days the master sheet covers. The Windsor key sits on the server and never reaches the browser. Pasting an export still works if the button will not play.',
     'Shared saving now needs a sign in, using a link sent to your work email. Anyone on an enhancemedia.co.uk address is allowed, others can be added to a list. Without signing in the tool still works, it just keeps everything on that browser and the header says so.',
@@ -6021,9 +6022,13 @@ function App() {
   });
   const [sync, setSync] = useState('loading');
   const pushRef = useRef(null);
+  // True between a change and its push landing. A pull during that window
+  // would fetch the older shared copy and wipe the change.
+  const pendingRef = useRef(false);
 
   const pull = React.useCallback(async () => {
     if (!sbSignedIn()) { setSync('signedout'); return; }
+    if (pendingRef.current) return;   // our own change has not gone up yet
     try {
       const remote = await sbGet('workspace');
       if (remote && remote.months && remote.current) {
@@ -6050,10 +6055,13 @@ function App() {
       lsSet('v3-workspace', next);
       // Local first so typing stays instant, shared a moment later.
       if (!sbSignedIn()) return next;
+      pendingRef.current = true;
       clearTimeout(pushRef.current);
       pushRef.current = setTimeout(() => {
         setSync('saving');
-        sbSet('workspace', next).then(() => setSync('ok')).catch(() => setSync('offline'));
+        sbSet('workspace', next)
+          .then(() => { pendingRef.current = false; setSync('ok'); })
+          .catch(() => { pendingRef.current = false; setSync('offline'); });
       }, 800);
       return next;
     });
@@ -6099,7 +6107,6 @@ function App() {
     : (container.versions || []).length > 0;
 
   const saveVersion = () => {
-    const note = window.prompt('A short note on what this plan is (optional)') || '';
     const versions = container.versions || [];
     const id = 'v' + Date.now();
     const monthName = (DATA.month_labels && DATA.month_labels[month]) || month;
@@ -6107,7 +6114,7 @@ function App() {
     // Freeze the open-role counts too. A plan is a statement made on a day,
     // and pacing against one whose demand keeps moving would mean the plan
     // quietly follows reality and can never be missed.
-    const entry = { id, name, note, saved: new Date().toISOString(),
+    const entry = { id, name, note: '', saved: new Date().toISOString(),
       planner: JSON.parse(JSON.stringify(container.working)),
       demand: JSON.parse(JSON.stringify((container.working && container.working.demandOverride) || container.demand || {})) };
     patchMonth({ versions: [...versions, entry], loaded: id });
@@ -6118,7 +6125,9 @@ function App() {
     if (!v) return;
     const name = window.prompt('Name for this plan', v.name);
     if (!name || !name.trim()) return;
-    patchMonth({ versions: container.versions.map(x => x.id === id ? { ...x, name: name.trim() } : x) });
+    const note = window.prompt('A short note on what this plan is (optional)', v.note || '');
+    patchMonth({ versions: container.versions.map(x =>
+      x.id === id ? { ...x, name: name.trim(), note: note == null ? (x.note || '') : note } : x) });
   };
 
   const deleteVersion = (id) => {
