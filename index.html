@@ -409,6 +409,13 @@ input[type=range]::-moz-range-thumb {
   background: var(--ink-04); border: 1px solid var(--line-c);
   border-radius: 6px; padding: 5px 8px;
 }
+.sync {
+  font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+  background: rgba(255,255,255,0.12); color: #9DB0CC; margin-right: 10px;
+}
+.sync-ok { color: #8FD3AE; }
+.sync-signedout { color: #E8C68A; }
+.sync-offline { color: #F0A9A0; background: rgba(192,57,43,0.25); }
 .month-bar .dirty-dot {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--warn); display: inline-block;
@@ -1549,6 +1556,62 @@ function deriveAppTarget(role, hireTarget, s) {
 // ====================================================================
 // PERSISTENCE
 // ====================================================================
+// ponytail: PostgREST over plain fetch. The Supabase SDK is a lot of
+// JavaScript for two HTTP calls. Swap it in if auth or realtime is ever
+// needed; neither is today.
+const SB_PROJECT = 'https://xtyqmqjgvsynoeswtkpv.supabase.co';
+const SB_URL = SB_PROJECT + '/rest/v1/rac_state';
+const SB_KEY = 'sb_publishable_lcxts4vXscQ6UIP4saTplA_OwlnG-c6';
+let SB_TOKEN = null;
+try { SB_TOKEN = JSON.parse(localStorage.getItem('rac-session') || 'null'); } catch (e) {}
+const sbHead = () => ({
+  apikey: SB_KEY,
+  Authorization: 'Bearer ' + ((SB_TOKEN && SB_TOKEN.access_token) || SB_KEY),
+  'Content-Type': 'application/json',
+});
+
+// Magic link, so there is no password to hold anywhere.
+async function sbSendLink(email) {
+  const r = await fetch(SB_PROJECT + '/auth/v1/otp', {
+    method: 'POST',
+    headers: { apikey: SB_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, create_user: true,
+      options: { email_redirect_to: window.location.origin + window.location.pathname } }),
+  });
+  if (!r.ok) throw new Error((await r.json()).msg || 'Could not send the link.');
+}
+// Supabase returns the session in the URL fragment after the link is clicked.
+function sbCatchSession() {
+  const h = window.location.hash || '';
+  if (!h.includes('access_token')) return false;
+  const p = new URLSearchParams(h.slice(1));
+  const tok = { access_token: p.get('access_token'), refresh_token: p.get('refresh_token') };
+  if (!tok.access_token) return false;
+  SB_TOKEN = tok;
+  localStorage.setItem('rac-session', JSON.stringify(tok));
+  history.replaceState(null, '', window.location.pathname);
+  return true;
+}
+function sbSignOut() { SB_TOKEN = null; localStorage.removeItem('rac-session'); }
+const sbSignedIn = () => !!(SB_TOKEN && SB_TOKEN.access_token);
+
+async function sbGet(key) {
+  const r = await fetch(SB_URL + '?k=eq.' + key + '&select=v', { headers: sbHead() });
+  if (!r.ok) throw new Error('read failed: ' + r.status);
+  const rows = await r.json();
+  return rows.length ? rows[0].v : null;
+}
+// ponytail: last write wins. Two people editing the same month at the same
+// minute will clobber each other. Add a version column if that ever happens.
+async function sbSet(key, value) {
+  const r = await fetch(SB_URL + '?on_conflict=k', {
+    method: 'POST',
+    headers: { ...sbHead(), Prefer: 'resolution=merge-duplicates' },
+    body: JSON.stringify({ k: key, v: value, updated_at: new Date().toISOString() }),
+  });
+  if (!r.ok) throw new Error('write failed: ' + r.status);
+}
+
 function lsGet(key, fallback) {
   try {
     const v = localStorage.getItem('avp-' + key);
@@ -3216,6 +3279,10 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Shared saving now needs a sign in, using a link sent to your work email. Anyone on an enhancemedia.co.uk address is allowed, others can be added to a list. Without signing in the tool still works, it just keeps everything on that browser and the header says so.',
+    'Moved to its own database rather than sharing one with another tool.',
+    'Plans, priorities and pacing are now saved to a shared copy instead of just this browser. Anyone opening the tool sees the same numbers, and it reloads when you come back to the tab. A label in the header says Shared, Saving or Offline. If it says Offline, changes are still being kept on that browser but nobody else can see them.',
+    'Google and Meta can be pasted from a Windsor export. Platform is read from each campaign name, so Search goes into the plan and Demand Gen and display are left out on their own. Windsor rows carry dates, unlike the Appcast and Indeed exports.',
     'Added a Why tab to Performance Pacing. It splits a gap in applications into the two things that cause it: spending more or less than planned, and each application costing more or less than planned. The two add up to the gap exactly, and it shows which locations or platforms are driving it.',
     'Removed the strapline from the bottom of the page.',
     'Status labels no longer wrap onto two lines and overflow their column.',
@@ -4038,41 +4105,62 @@ function parsePlatformPaste(text, priRows) {
   const iTotalCost = find('Total cost');
   const iSpend = find('Spend');
   const iApplies = find('Total Applies', 'Paid Applies');
-  let platform, iMoney, iApps;
+  const iDate = find('Date');
+  let platform, iMoney, iApps, fromCampaign = false;
   if (iTotalCost >= 0) {
     platform = 'indeed'; iMoney = iTotalCost; iApps = -1;   // Indeed apps come from Eploy
+  } else if (iDate >= 0 && iSpend >= 0) {
+    // A Windsor export: one row per campaign per day. Which platform each
+    // row belongs to is in the campaign name, not the file, so it is read
+    // per row rather than set once.
+    platform = null; iMoney = iSpend; iApps = -1; fromCampaign = true;
   } else if (iSpend >= 0) {
     platform = 'appcast'; iMoney = iSpend; iApps = iApplies;
   } else {
-    return { error: 'I could not tell which platform this is. I look for a Total cost column for Indeed, or Spend for Appcast.' };
+    return { error: 'I could not tell which platform this is. I look for a Total cost column for Indeed, Spend for Appcast, or Date plus Spend for a Windsor export.' };
   }
 
-  const cells = {}, unmatched = [];
+  const cells = {}, unmatched = [], platforms = {};
   let matchedSpend = 0, unmatchedSpend = 0, matchedApps = 0, n = 0;
-  for (let i = 1; i < rows.length; i++) {
+  const each = (i) => {
     const r = rows[i];
-    const camp = r[iCamp]; if (!camp) continue;
+    const camp = r[iCamp]; if (!camp) return;
     const spend = toNum(r[iMoney]);
     const apps = iApps >= 0 ? toNum(r[iApps]) : 0;
-    if (!spend && !apps) continue;
+    if (!spend && !apps) return;
     n++;
     const parts = camp.split('|').map(x => x.trim());
     const role = campaignRole(parts[2]);
     const region = campaignRegion(parts[3], priRows);
+    let plat = platform;
+    if (fromCampaign) {
+      plat = CAMPAIGN_PLATFORM[String(parts[4] || '').trim().toLowerCase()] || null;
+      if (!plat) {
+        // Demand Gen, display remarketing and anything else unrecognised are
+        // non-standard, so they stay out of the plan comparison.
+        unmatchedSpend += spend;
+        unmatched.push({ campaign: camp.slice(0, 78), spend, why: 'not a planned platform (' + (parts[4] || 'no platform in the name') + ')' });
+        return;
+      }
+    }
     if (!role || !region) {
       unmatchedSpend += spend;
       unmatched.push({ campaign: camp.slice(0, 78), spend,
         why: !role ? 'role not SMR or Patrol' : 'location not recognised' });
-      continue;
+      return;
     }
-    const key = role + '|' + region + '|' + platform;
-    cells[key] = cells[key] || { role, region, platform, spend: 0, apps: 0 };
+    const key = role + '|' + region + '|' + plat;
+    cells[key] = cells[key] || { role, region, platform: plat, spend: 0, apps: 0 };
+    platforms[plat] = true;
     cells[key].spend += spend; cells[key].apps += apps;
     matchedSpend += spend; matchedApps += apps;
-  }
+  };
+  for (let i = 1; i < rows.length; i++) each(i);
   if (!n) return { error: 'No rows with any spend in that paste.' };
-  return { platform, cells, unmatched, matchedSpend, unmatchedSpend, matchedApps,
-           rows: n, appsIncluded: iApps >= 0 };
+  const found = Object.keys(platforms);
+  return { platform: fromCampaign ? found : platform, cells, unmatched,
+           matchedSpend, unmatchedSpend, matchedApps, rows: n,
+           appsIncluded: iApps >= 0, multi: fromCampaign };
 }
 
 // ---- pacing maths ----
@@ -4718,7 +4806,9 @@ function PlatformPasteBox({ label, hint, priRows, onApply, applied, range }) {
       {parsed && !parsed.error && (
         <div className="parse-report">
           <div className="parse-line">
-            Read as <strong>{PLATFORM_LABELS[parsed.platform]}</strong>
+            Read as <strong>{Array.isArray(parsed.platform)
+              ? parsed.platform.map(p => PLATFORM_LABELS[p]).join(' and ')
+              : PLATFORM_LABELS[parsed.platform]}</strong>
             {' \u00B7 '}<strong>{fmtGBP(parsed.matchedSpend)}</strong> matched across {Object.keys(parsed.cells).length} location rows
             {parsed.appsIncluded ? ' \u00B7 ' + fmtInt(parsed.matchedApps) + ' applications' : ' \u00B7 spend only, applications come from Eploy'}
           </div>
@@ -4734,12 +4824,30 @@ function PlatformPasteBox({ label, hint, priRows, onApply, applied, range }) {
           )}
           <button className="btn btn-sm btn-primary" style={{ marginTop: 8 }}
             onClick={() => { onApply(parsed.platform, parsed); setText(''); }}>
-            Use this for {PLATFORM_LABELS[parsed.platform]}
+            Use this for {Array.isArray(parsed.platform)
+              ? parsed.platform.map(p => PLATFORM_LABELS[p]).join(' and ')
+              : PLATFORM_LABELS[parsed.platform]}
           </button>
         </div>
       )}
     </div>
   );
+}
+
+function splitByPlatform(parsed) {
+  if (!parsed.multi) return { [parsed.platform]: parsed };
+  const out = {};
+  parsed.platform.forEach(plat => {
+    const cells = {};
+    Object.keys(parsed.cells).forEach(k => { if (parsed.cells[k].platform === plat) cells[k] = parsed.cells[k]; });
+    const matchedSpend = Object.values(cells).reduce((a, c) => a + c.spend, 0);
+    out[plat] = { platform: plat, cells, unmatched: [], matchedSpend,
+      // The unplaceable spend belongs to the file, not to any one platform,
+      // so it is only counted once.
+      unmatchedSpend: plat === parsed.platform[0] ? parsed.unmatchedSpend : 0,
+      matchedApps: 0, appsIncluded: false, rows: Object.keys(cells).length };
+  });
+  return out;
 }
 
 function PacingTool({ month, container, patchMonth }) {
@@ -4958,10 +5066,14 @@ function PacingTool({ month, container, patchMonth }) {
                 </div>
                 <PlatformPasteBox label="Appcast" priRows={priRows} range={exportRange}
                   hint="The by-campaign export. Carries spend and applications."
-                  applied={!!pastes.appcast} onApply={(p, r) => setPastes(x => ({ ...x, [p]: r }))} />
+                  applied={!!pastes.appcast} onApply={(p, r) => setPastes(x => ({ ...x, ...splitByPlatform(r) }))} />
                 <PlatformPasteBox label="Indeed" priRows={priRows} range={exportRange}
                   hint="The advanced campaign report. Spend only, from Total cost; applications keep coming from Eploy."
-                  applied={!!pastes.indeed} onApply={(p, r) => setPastes(x => ({ ...x, [p]: r }))} />
+                  applied={!!pastes.indeed} onApply={(p, r) => setPastes(x => ({ ...x, ...splitByPlatform(r) }))} />
+                <PlatformPasteBox label="Google and Meta, from Windsor" priRows={priRows} range={exportRange}
+                  hint="A Windsor export with date, campaign and spend columns. Platform is read from each campaign name, so Search, Demand Gen and display sort themselves out."
+                  applied={!!pastes.google || !!pastes.meta}
+                  onApply={(p, r) => setPastes(x => ({ ...x, ...splitByPlatform(r) }))} />
                 {Object.keys(pastes).length > 0 && (
                   <div className="help-text">
                     Using pasted figures for {Object.keys(pastes).map(p => PLATFORM_LABELS[p]).join(' and ')}.
@@ -5255,6 +5367,13 @@ const UPDATE_PLATMAP = {
   'appcast': 'appcast',
 };
 // Everything else is non-standard and never reaches the allocation engine.
+// Which platform a campaign belongs to, read from its name. Anything not
+// here is non-standard and never reaches the plan comparison.
+const CAMPAIGN_PLATFORM = {
+  'gs': 'google', 'google search': 'google',
+  'indeed': 'indeed', 'appcast': 'appcast',
+  'fb': 'meta', 'meta': 'meta', 'facebook': 'meta', 'fb ig': 'meta', 'social': 'meta',
+};
 const NON_STANDARD = ['google ads demandgen', 'google demand gen', 'demandgen', 'acast', 'linkedin', 'placed'];
 
 // A month is foldable once it has closed and its conversions have settled.
@@ -5829,10 +5948,42 @@ function App() {
     if (saved && saved.months && saved.current && saved.months[saved.current]) return saved;
     return defaultWorkspace();
   });
+  const [sync, setSync] = useState('loading');
+  const pushRef = useRef(null);
+
+  const pull = React.useCallback(async () => {
+    if (!sbSignedIn()) { setSync('signedout'); return; }
+    try {
+      const remote = await sbGet('workspace');
+      if (remote && remote.months && remote.current) {
+        setWsRaw(remote);
+        lsSet('v3-workspace', remote);
+      }
+      setSync('ok');
+    } catch (e) { setSync('offline'); }
+  }, []);
+
+  // Load shared state on open, and again when the tab is looked at, so
+  // someone else's saved plan turns up without a refresh.
+  useEffect(() => {
+    if (sbCatchSession()) setSync('loading');
+    pull();
+    const onFocus = () => pull();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [pull]);
+
   const setWs = (updater) => {
     setWsRaw(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       lsSet('v3-workspace', next);
+      // Local first so typing stays instant, shared a moment later.
+      if (!sbSignedIn()) return next;
+      clearTimeout(pushRef.current);
+      pushRef.current = setTimeout(() => {
+        setSync('saving');
+        sbSet('workspace', next).then(() => setSync('ok')).catch(() => setSync('offline'));
+      }, 800);
       return next;
     });
   };
@@ -5936,6 +6087,22 @@ function App() {
           <div className="sub">Enhance Media &middot; {monthLabel}</div>
         </div>
         <div className="spacer" />
+        <span className={'sync sync-' + sync} title={
+          sync === 'ok' ? 'Everyone sees the same numbers'
+            : sync === 'saving' ? 'Saving'
+            : sync === 'signedout' ? 'Working on this browser only. Sign in to share.'
+            : sync === 'offline' ? 'Could not reach the shared copy. Changes are on this browser only.'
+            : 'Loading the shared copy'}>
+          {sync === 'ok' ? 'Shared' : sync === 'saving' ? 'Saving'
+            : sync === 'signedout' ? 'This browser only' : sync === 'offline' ? 'Offline' : 'Loading'}
+        </span>
+        <button className="btn btn-sm" style={{ marginRight: 10 }} onClick={async () => {
+          if (sbSignedIn()) { sbSignOut(); setSync('signedout'); return; }
+          const email = window.prompt('Work email address for the sign-in link');
+          if (!email) return;
+          try { await sbSendLink(email.trim()); window.alert('Link sent. Open it on this device.'); }
+          catch (e) { window.alert(e.message); }
+        }}>{sbSignedIn() ? 'Sign out' : 'Sign in'}</button>
         {tool === 'planner' && (
           <button className="btn btn-sm btn-primary" onClick={() => exportPDF(plannerState)}>
             Export PDF
