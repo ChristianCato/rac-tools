@@ -12,6 +12,7 @@
 // back and the tool parses them exactly as it parses a pasted export.
 //
 // GET /api/windsor-spend?from=2026-07-01&to=2026-07-25
+// Returns one row per campaign per day: { date, campaign, spend, apps }
 //
 // Env vars (Vercel, never the frontend):
 //   WINDSOR_API_KEY            - from onboard.windsor.ai
@@ -26,22 +27,57 @@ const ENHANCE_DOMAIN = "@enhancemedia.co.uk";
 
 // RAC's accounts. Only these two: Indeed and Appcast are not Windsor
 // connectors and keep coming in by paste.
+// The two connectors RAC runs. Indeed and Appcast are not Windsor sources
+// and keep coming in by paste.
+//
+// They are asked for different things, matching how the Excel pacing doc
+// pulls them, which is the setup that has been trusted to date:
+//   Google - conversions come out per conversion action, so applications are
+//            the rows named exactly "Application Submitted".
+//   Meta   - has a dedicated applications field, so spend and applications
+//            come back on the same row.
 const CONNECTORS = [
-  { id: "google_ads", account: "904-497-1739" },
-  { id: "facebook", account: "652299511175883" },
+  { id: "google_ads", apps: "conversion_action" },
+  { id: "facebook", apps: "actions_application_submitted" },
 ];
 
-async function pull(connector, account, apiKey, from, to) {
-  const url = `${WINDSOR_BASE}/${connector}?api_key=${encodeURIComponent(apiKey)}` +
-    `&date_from=${from}&date_to=${to}` +
-    `&fields=date,campaign,spend&_renderer=json`;
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`Windsor ${connector} returned ${r.status}`);
-  const j = await r.json();
-  const rows = Array.isArray(j) ? j : (j.data || []);
-  return rows
-    .filter((x) => x.campaign)
-    .map((x) => ({ date: x.date, campaign: x.campaign, spend: Number(x.spend) || 0 }));
+const APP_ACTION = "application submitted";
+
+async function pull(c, apiKey, from, to) {
+  const out = new Map();
+  const add = (date, campaign, spend, apps) => {
+    if (!campaign) return;
+    const k = date + "|" + campaign;
+    const e = out.get(k) || { date, campaign, spend: 0, apps: 0 };
+    e.spend += spend; e.apps += apps;
+    out.set(k, e);
+  };
+
+  if (c.apps === "actions_application_submitted") {
+    // One call: Meta reports both on the same row.
+    const rows = await windsor(c.id, apiKey, from, to, ["date", "campaign", "spend", c.apps]);
+    for (const x of rows) add(x.date, x.campaign, Number(x.spend) || 0, Number(x[c.apps]) || 0);
+    return { rows: [...out.values()], appsError: null };
+  }
+
+  // Google: spend first, then applications separately. Asking for both at
+  // once repeats the spend against every conversion action on that campaign.
+  const spendRows = await windsor(c.id, apiKey, from, to, ["date", "campaign", "spend"]);
+  for (const x of spendRows) add(x.date, x.campaign, Number(x.spend) || 0, 0);
+  try {
+    const convRows = await windsor(c.id, apiKey, from, to,
+      ["date", "campaign", "conversion_action_name", "all_conversions"]);
+    for (const x of convRows) {
+      // Exactly "Application Submitted". The role-specific actions sit
+      // alongside it and are not added in, matching the Excel doc.
+      if (String(x.conversion_action_name || "").trim().toLowerCase() !== APP_ACTION) continue;
+      add(x.date, x.campaign, 0, Number(x.all_conversions) || 0);
+    }
+  } catch (e) {
+    // Spend is the important half. Hand back what we have and say so.
+    return { rows: [...out.values()], appsError: String(e.message || e) };
+  }
+  return { rows: [...out.values()], appsError: null };
 }
 
 export default async function handler(req, res) {
@@ -78,8 +114,11 @@ export default async function handler(req, res) {
     const rows = [];
     const errors = [];
     for (const c of CONNECTORS) {
-      try { rows.push(...await pull(c.id, c.account, WINDSOR_API_KEY, from, to)); }
-      catch (e) { errors.push({ connector: c.id, error: String(e.message || e) }); }
+      try {
+        const got = await pull(c, WINDSOR_API_KEY, from, to);
+        rows.push(...got.rows);
+        if (got.appsError) errors.push({ connector: c.id, error: "Spend came through, applications did not: " + got.appsError });
+      } catch (e) { errors.push({ connector: c.id, error: String(e.message || e) }); }
     }
     if (!rows.length && errors.length) return res.status(502).json({ error: errors[0].error, errors });
 
@@ -88,6 +127,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       from, to, rows,
       spend: Math.round(rows.reduce((s, r) => s + r.spend, 0) * 100) / 100,
+      apps: Math.round(rows.reduce((s, r) => s + r.apps, 0) * 10) / 10,
       errors,
     });
   } catch (e) {
