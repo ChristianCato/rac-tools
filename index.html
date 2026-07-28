@@ -3179,6 +3179,10 @@ function exportPlanPDF(state, roleFilter) {
 const CHANGELOG = [
   {
     date: '2026-07-28',
+    body: 'Location priorities now takes the whole tab rather than a single day. Paste the full SMR or Patrol table, header row of dates and all, and it replaces the month outright. That way anything RAC have sent or gone back and revised gets picked up, and the trends always line up with the source instead of drifting from it. Locations are still matched by name, so the order makes no difference, and it tells you before applying which locations are new, which have disappeared from the paste, and which days it has not seen before.',
+  },
+  {
+    date: '2026-07-28',
     body: 'Added a Data tab so the benchmarks can be brought up to date without me. Drop the master sheet in, pick the months, and it applies the same rules the dataset was built on: SMR and Patrol only, the four modelled platforms, untagged rows left out rather than spread. It counts everything it excludes instead of dropping it quietly, shows what each cost per application would move to before anything is applied, and hands back a new data file to put in the repository. A month is only offered once it has closed and had three weeks to settle, because applications keep arriving after the spend does.',
   },
   {
@@ -3368,85 +3372,122 @@ function priorityRegion(raw) {
   const direct = DATA.regions_ordered.find(r => r.toLowerCase().replace(/[^a-z]/g, '') === k);
   return direct || (DATA.region_aliases || {})[k] || null;
 }
-
 const locKey = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9 ]/g, '').trim();
 
-// Pull a pasted table apart. Tab separated, since that is what a copy out
-// of a sheet gives. Each row needs a region and a number; the location is
-// what is left. Rows that do not resolve are handed back, never dropped.
-function parsePriorityPaste(text) {
+const pad2 = n => String(n).padStart(2, '0');
+const MONTH_NAMES = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+// Read a date out of a header cell. Copying out of a sheet gives text, and
+// UK format, so 01/07/2026 is the first of July and never the seventh of
+// January.
+function parseDateCell(v, fallbackYear) {
+  if (v instanceof Date && !isNaN(v)) return v.toISOString().slice(0, 10);
+  const t = String(v == null ? '' : v).trim();
+  if (!t) return null;
+  let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return m[1] + '-' + pad2(m[2]) + '-' + pad2(m[3]);
+  m = t.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/);
+  if (m) {
+    let y = m[3]; if (y.length === 2) y = '20' + y;
+    return y + '-' + pad2(m[2]) + '-' + pad2(m[1]);
+  }
+  m = t.match(/^(\d{1,2})[\s\-]([A-Za-z]{3,})[\s\-]?(\d{2,4})?$/);
+  if (m) {
+    const mi = MONTH_NAMES.indexOf(m[2].slice(0, 3).toLowerCase());
+    if (mi >= 0) {
+      let y = m[3] || fallbackYear; if (String(y).length === 2) y = '20' + y;
+      return y + '-' + pad2(mi + 1) + '-' + pad2(m[1]);
+    }
+  }
+  return null;
+}
+
+// Pull the whole tab apart: the header row of dates, then a row per
+// location. The full month is repasted every time, so this reads the lot
+// rather than merging a single day in.
+function parseMonthPaste(text, fallbackYear) {
+  const lines = String(text || '').split(/\r?\n/).filter(l => l.trim());
+  if (!lines.length) return { error: 'Nothing pasted.' };
+  const grid = lines.map(l => (l.includes('\t') ? l.split('\t') : l.split(/\s{2,}/)).map(c => String(c).replace(/^"|"$/g, '').trim()));
+
+  // The header is whichever row carries the most dates.
+  let hdr = -1, best = 0, dateCols = [];
+  grid.forEach((cells, i) => {
+    const found = [];
+    cells.forEach((c, j) => { const d = parseDateCell(c, fallbackYear); if (d) found.push([j, d]); });
+    if (found.length > best) { best = found.length; hdr = i; dateCols = found; }
+  });
+  if (hdr < 0 || dateCols.length === 0) {
+    return { error: 'I could not find a row of dates. Paste the whole tab including the header row with the date columns across the top.' };
+  }
+
+  const head = grid[hdr].map(c => c.toLowerCase());
+  const findCol = (...words) => head.findIndex(h => words.some(w => h.includes(w)));
+  let iLoc = findCol('location', 'role and'), iReg = findCol('region'), iPlan = findCol('plan');
+  const dateIdx = dateCols.map(d => d[0]);
+  if (iPlan >= 0 && dateIdx.includes(iPlan)) iPlan = -1;
+
   const rows = [], unmatched = [];
-  String(text || '').split(/\r?\n/).forEach((line, i) => {
-    if (!line.trim()) return;
-    let cells = line.includes('\t') ? line.split('\t') : line.split(/\s{2,}/);
-    cells = cells.map(c => String(c).replace(/^"|"$/g, '').trim());
-    if (cells.length < 2) return;
-    const joined = cells.join(' ').toLowerCase();
-    if (/^(role and location|location|total live|total vac)/.test(joined)) return;
+  for (let i = hdr + 1; i < grid.length; i++) {
+    const cells = grid[i];
+    const first = (cells[0] || cells[1] || '').toLowerCase();
+    if (/^(total live|total vac|total\b)/.test(first)) continue;
 
-    let region = null, regionIdx = -1;
-    cells.forEach((c, idx) => {
-      if (region) return;
-      const m = priorityRegion(c);
-      if (m) { region = m; regionIdx = idx; }
+    let region = iReg >= 0 ? priorityRegion(cells[iReg]) : null;
+    if (!region) cells.forEach((c, j) => { if (!region && !dateIdx.includes(j)) { const m = priorityRegion(c); if (m) region = m; } });
+
+    let location = iLoc >= 0 ? cells[iLoc] : '';
+    if (!location) {
+      location = cells.find((c, j) => !dateIdx.includes(j) && j !== iReg && j !== iPlan && c && !/^\d+$/.test(c)) || '';
+    }
+    if (!location && !region) continue;                       // blank spacer row
+    if (!location || !region) {
+      unmatched.push({ line: i + 1, text: cells.join(' ').trim().slice(0, 90),
+                       why: !location ? 'no location name' : 'region not recognised' });
+      continue;
+    }
+    const v = {};
+    let any = false;
+    dateCols.forEach(([j, iso]) => {
+      const raw = (cells[j] == null ? '' : String(cells[j])).trim();
+      if (raw === '') return;                                 // blank means it did not exist yet
+      const n = parseInt(raw.replace(/[^0-9-]/g, ''), 10);
+      if (!isNaN(n)) { v[iso] = Math.max(0, n); any = true; }
     });
-    let count = null, countIdx = -1;
-    for (let idx = cells.length - 1; idx >= 0; idx--) {
-      if (idx === regionIdx) continue;
-      if (/^\d+$/.test(cells[idx])) { count = parseInt(cells[idx], 10); countIdx = idx; break; }
-    }
-    const location = cells.find((c, idx) => idx !== regionIdx && idx !== countIdx && c && !/^\d+$/.test(c)) || '';
-    if (!region || count === null || !location) {
-      unmatched.push({ line: i + 1, text: line.trim().slice(0, 90),
-        why: !region ? 'no region matched' : count === null ? 'no number found' : 'no location name' });
-      return;
-    }
-    rows.push({ location, region, count });
-  });
-  return { rows, unmatched };
+    const plan = iPlan >= 0 ? (parseInt(String(cells[iPlan] || '').replace(/[^0-9]/g, ''), 10) || 0) : 0;
+    if (!any && !plan) continue;
+    rows.push({ location, region, plan, v });
+  }
+
+  if (!rows.length) return { error: 'I found the date row but no location rows under it.' };
+  return { rows, dates: dateCols.map(d => d[1]).sort(), unmatched, hadPlan: iPlan >= 0 };
 }
 
-// Fold one day's paste into the grid. Returns the new grid plus a plain
-// account of what it did, so nothing lands silently.
-function applyPaste(pri, role, date, parsed) {
+// The paste is the whole month, so it replaces the role's grid outright.
+// No merging, no inferring what a missing row means.
+function applyMonthPaste(pri, role, parsed) {
   const next = JSON.parse(JSON.stringify(pri));
-  if (!next.dates.includes(date)) { next.dates.push(date); next.dates.sort(); }
-  const rows = next.roles[role].rows;
-  const byKey = {};
-  rows.forEach((r, i) => { byKey[locKey(r.location)] = i; });
+  const oldRows = (next.roles[role] || {}).rows || [];
+  const oldByKey = {}; oldRows.forEach(r => { oldByKey[locKey(r.location)] = r; });
 
-  const seen = {}, added = [], moved = [], closed = [];
-  parsed.forEach(p => {
-    const k = locKey(p.location);
-    seen[k] = true;
-    if (byKey[k] === undefined) {
-      // Never seen before, so it joins the grid with earlier dates left
-      // blank rather than zero: it did not exist, it was not closed.
-      rows.push({ location: p.location, region: p.region, plan: 0, v: { [date]: p.count } });
-      byKey[k] = rows.length - 1;
-      added.push(p);
-    } else {
-      const row = rows[byKey[k]];
-      const before = row.v[date === next.dates[0] ? date : prevDate(next.dates, date)];
-      row.region = p.region;           // RAC's region wins if it has been recut
-      row.v[date] = p.count;
-      if (before != null && before !== p.count) moved.push({ ...p, was: before });
-    }
-  });
-  // A location on the grid but absent from today's list reads as zero.
-  rows.forEach(r => {
-    const k = locKey(r.location);
-    if (seen[k]) return;
-    const before = r.v[prevDate(next.dates, date)];
-    if (before != null) { r.v[date] = 0; if (before > 0) closed.push(r); }
-  });
-  return { next, report: { added, moved, closed, matched: parsed.length - added.length } };
+  const rows = parsed.rows.map(p => ({
+    location: p.location, region: p.region,
+    plan: parsed.hadPlan ? p.plan : ((oldByKey[locKey(p.location)] || {}).plan || 0),
+    v: p.v,
+  }));
+  next.roles[role] = { rows };
+  const all = new Set([...(next.dates || []), ...parsed.dates]);
+  // Only keep dates that some role still carries.
+  next.dates = [...all].sort().filter(d =>
+    ROLES.some(r => ((next.roles[r] || {}).rows || []).some(x => x.v[d] != null)));
+
+  const newKeys = new Set(rows.map(r => locKey(r.location)));
+  const added = rows.filter(r => !oldByKey[locKey(r.location)]);
+  const gone = oldRows.filter(r => !newKeys.has(locKey(r.location)));
+  const newDates = parsed.dates.filter(d => !(pri.dates || []).includes(d));
+  return { next, report: { total: rows.length, added, gone, newDates, dates: parsed.dates.length } };
 }
 
-function prevDate(dates, date) {
-  const i = dates.indexOf(date);
-  return i > 0 ? dates[i - 1] : null;
-}
 
 function seedPriorities() {
   const s = DATA.priorities_seed;
@@ -3493,47 +3534,58 @@ function riskOf(chg, th) {
 }
 
 // ---- paste one day of RAC's list ----
-function DayPaste({ role, pri, onApply }) {
+function MonthPaste({ role, pri, onApply, month }) {
   const [text, setText] = useState('');
-  const suggested = nextWeekday((pri.dates || [])[(pri.dates || []).length - 1]);
-  const [date, setDate] = useState(suggested);
-  const parsed = useMemo(() => parsePriorityPaste(text), [text]);
+  const year = (month || '2026-07').slice(0, 4);
+  const parsed = useMemo(() => (text.trim() ? parseMonthPaste(text, year) : null), [text, year]);
 
   const preview = useMemo(() => {
-    if (!parsed.rows.length) return null;
-    const rows = (pri.roles[role] || {}).rows || [];
-    const known = {}; rows.forEach(r => { known[locKey(r.location)] = r; });
-    const fresh = parsed.rows.filter(p => !known[locKey(p.location)]);
-    const seen = {}; parsed.rows.forEach(p => { seen[locKey(p.location)] = true; });
-    const last = (pri.dates || [])[(pri.dates || []).length - 1];
-    const absent = rows.filter(r => !seen[locKey(r.location)] && (r.v[last] || 0) > 0);
-    return { fresh, absent, live: parsed.rows.filter(p => p.count > 0).length,
-             vac: parsed.rows.reduce((s, p) => s + p.count, 0) };
+    if (!parsed || parsed.error) return null;
+    const old = (pri.roles[role] || {}).rows || [];
+    const oldKeys = new Set(old.map(r => locKey(r.location)));
+    const newKeys = new Set(parsed.rows.map(r => locKey(r.location)));
+    const last = parsed.dates[parsed.dates.length - 1];
+    return {
+      added: parsed.rows.filter(r => !oldKeys.has(locKey(r.location))),
+      gone: old.filter(r => !newKeys.has(locKey(r.location))),
+      newDates: parsed.dates.filter(d => !(pri.dates || []).includes(d)),
+      live: parsed.rows.filter(r => (r.v[last] || 0) > 0).length,
+      vac: parsed.rows.reduce((s, r) => s + (r.v[last] || 0), 0),
+      last,
+    };
   }, [parsed, pri, role]);
 
   return (
     <div className="card">
       <div className="card-head">
-        <div className="card-title">Paste today's {role} list</div>
-        <div className="card-sub">Straight from what RAC send, in whatever order it arrives</div>
+        <div className="card-title">Paste the whole {role} tab</div>
+        <div className="card-sub">Header row of dates and every location under it</div>
       </div>
       <div className="card-body">
-        <textarea className="paste-box" rows={6} value={text}
-          placeholder={'Mobile Vehicle Technician - Leicester\tEast Midlands\t4'}
+        <div className="help-text" style={{ marginBottom: 10 }}>
+          Copy the {role} tab from the sheet RAC send, header row included, and paste it here. It replaces
+          the month outright rather than merging a day in, so whatever they have sent is what you get and
+          the trends always line up with the source.
+        </div>
+        <textarea className="paste-box" rows={7} value={text}
+          placeholder={'Role and Location\tRegion\tJuly Plan\t01/07/2026\t02/07/2026 ...'}
           onChange={e => setText(e.target.value)} />
+
+        {parsed && parsed.error && (
+          <div className="parse-bad" style={{ marginTop: 10 }}>{parsed.error}</div>
+        )}
 
         {preview && (
           <div className="parse-report">
             <div className="parse-line">
-              <strong>{parsed.rows.length}</strong> rows read
-              {' \u00B7 '}<strong>{preview.live}</strong> live locations
-              {' \u00B7 '}<strong>{preview.vac}</strong> vacancies
-              {' \u00B7 '}<strong>{parsed.rows.length - preview.fresh.length}</strong> matched to the grid
+              <strong>{parsed.rows.length}</strong> locations
+              {' \u00B7 '}<strong>{parsed.dates.length}</strong> days, {fmtDay(parsed.dates[0])} to {fmtDay(preview.last)}
+              {' \u00B7 '}<strong>{preview.live}</strong> live and <strong>{preview.vac}</strong> vacancies on the last day
             </div>
             {parsed.unmatched.length > 0 && (
               <div className="parse-bad">
                 <strong>{parsed.unmatched.length} row{parsed.unmatched.length === 1 ? '' : 's'} I could not read.</strong>
-                {' '}Nothing is taken from these.
+                {' '}Nothing is taken from these, so check them before applying.
                 <ul style={{ margin: '6px 0 0 18px' }}>
                   {parsed.unmatched.slice(0, 5).map((u, i) => (
                     <li key={i}>Line {u.line}: {u.text} <span className="text-muted">({u.why})</span></li>
@@ -3542,23 +3594,29 @@ function DayPaste({ role, pri, onApply }) {
                 </ul>
               </div>
             )}
-            {preview.fresh.length > 0 && (
+            {preview.newDates.length > 0 && (
               <div className="parse-new">
-                <strong>{preview.fresh.length} location{preview.fresh.length === 1 ? '' : 's'} new to the grid.</strong>
-                {' '}They join with earlier dates left blank.
+                <strong>{preview.newDates.length} new day{preview.newDates.length === 1 ? '' : 's'}:</strong>
+                {' '}{preview.newDates.map(fmtDay).join(', ')}
+              </div>
+            )}
+            {preview.added.length > 0 && (
+              <div className="parse-new">
+                <strong>{preview.added.length} location{preview.added.length === 1 ? '' : 's'} new to the grid.</strong>
                 <ul style={{ margin: '6px 0 0 18px' }}>
-                  {preview.fresh.slice(0, 5).map((p, i) => <li key={i}>{p.location} ({p.region}, {p.count})</li>)}
-                  {preview.fresh.length > 5 && <li className="text-muted">and {preview.fresh.length - 5} more</li>}
+                  {preview.added.slice(0, 5).map((p, i) => <li key={i}>{p.location} ({p.region})</li>)}
+                  {preview.added.length > 5 && <li className="text-muted">and {preview.added.length - 5} more</li>}
                 </ul>
               </div>
             )}
-            {preview.absent.length > 0 && (
+            {preview.gone.length > 0 && (
               <div className="parse-bad">
-                <strong>{preview.absent.length} live location{preview.absent.length === 1 ? '' : 's'} missing from this list.</strong>
-                {' '}They will be recorded as zero for {fmtDay(date)}.
+                <strong>{preview.gone.length} location{preview.gone.length === 1 ? '' : 's'} on the grid but not in this paste.</strong>
+                {' '}They will be dropped, along with their history. If that is unexpected, the paste may be
+                short of some rows.
                 <ul style={{ margin: '6px 0 0 18px' }}>
-                  {preview.absent.slice(0, 5).map((r, i) => <li key={i}>{r.location}</li>)}
-                  {preview.absent.length > 5 && <li className="text-muted">and {preview.absent.length - 5} more</li>}
+                  {preview.gone.slice(0, 5).map((r, i) => <li key={i}>{r.location}</li>)}
+                  {preview.gone.length > 5 && <li className="text-muted">and {preview.gone.length - 5} more</li>}
                 </ul>
               </div>
             )}
@@ -3566,15 +3624,12 @@ function DayPaste({ role, pri, onApply }) {
         )}
 
         <div className="dial-row" style={{ marginTop: 12 }}>
-          <label className="field-label" style={{ flex: 'none' }}>Date</label>
-          <input className="text-input" style={{ width: 150, flex: 'none' }} type="date"
-            value={date} onChange={e => setDate(e.target.value)} />
-          <button className="btn btn-sm btn-primary" disabled={!parsed.rows.length}
-            onClick={() => { onApply(date, parsed.rows); setText(''); setDate(nextWeekday(date)); }}>
-            Add this day
+          <button className="btn btn-sm btn-primary" disabled={!preview}
+            onClick={() => { onApply(parsed); setText(''); }}>
+            Replace the {role} month
           </button>
           <span className="help-text" style={{ flex: 1 }}>
-            Matched on location name, so the order RAC send makes no difference.
+            Locations are matched by name, so the order RAC send them in makes no difference.
           </span>
         </div>
       </div>
@@ -3583,15 +3638,15 @@ function DayPaste({ role, pri, onApply }) {
 }
 
 // ---- the SMR / Patrol grid ----
-function PriorityGrid({ role, pri, setPri }) {
+function PriorityGrid({ role, pri, setPri, month }) {
   const rows = (pri.roles[role] || {}).rows || [];
   const dates = pri.dates || [];
   const shown = dates.slice(-8);
   const latest = dates[dates.length - 1];
   const [note, setNote] = useState(null);
 
-  const onApply = (date, parsed) => {
-    const { next, report } = applyPaste(pri, role, date, parsed);
+  const onApply = (parsed) => {
+    const { next, report } = applyMonthPaste(pri, role, parsed);
     setPri(next);
     setNote(report);
   };
@@ -3606,13 +3661,15 @@ function PriorityGrid({ role, pri, setPri }) {
 
   return (
     <div>
-      <DayPaste role={role} pri={pri} onApply={onApply} />
+      <MonthPaste role={role} pri={pri} onApply={onApply} month={month} />
       {note && (
         <div className="banner banner-good">
           <div className="banner-icon">✓</div>
           <div>
-            Added. {note.matched} matched, {note.added.length} new, {note.moved.length} changed count,
-            {' '}{note.closed.length} went to zero.
+            Replaced. {note.total} locations across {note.dates} days.
+            {note.added.length > 0 ? ' ' + note.added.length + ' new to the grid.' : ''}
+            {note.gone.length > 0 ? ' ' + note.gone.length + ' dropped.' : ''}
+            {note.newDates.length > 0 ? ' ' + note.newDates.length + ' new day' + (note.newDates.length === 1 ? '' : 's') + '.' : ''}
           </div>
         </div>
       )}
@@ -3815,10 +3872,10 @@ function PrioritiesTool({ container, patchMonth, month }) {
       <div className="banner banner-info">
         <div className="banner-icon">i</div>
         <div>
-          <strong>Daily routine.</strong> Paste RAC's SMR and Patrol lists as they come in each weekday.
-          The paste matches on location name, so the order they arrive in makes no difference and new
-          locations join on their own. Then check What changed for the locations to pause or launch.
-          These two grids are the source of truth and everything else is worked out from them.
+          <strong>Daily routine.</strong> Paste the whole SMR and Patrol tabs back in each day. Repasting
+          the full month rather than a single day means anything RAC have sent or revised gets picked up,
+          and the trends always line up with the source. Locations are matched by name, so the order makes
+          no difference. Then check What changed for the locations to pause or launch.
         </div>
       </div>
 
@@ -3842,7 +3899,7 @@ function PrioritiesTool({ container, patchMonth, month }) {
         )}
       </div>
 
-      {(view === 'SMR' || view === 'Patrol') && <PriorityGrid role={view} pri={pri} setPri={setPri} />}
+      {(view === 'SMR' || view === 'Patrol') && <PriorityGrid role={view} pri={pri} setPri={setPri} month={month} />}
       {view === 'changed' && <WhatChanged pri={pri} from={from} to={to} />}
       {view === 'trends' && <TrendsView pri={pri} />}
     </div>
