@@ -3216,6 +3216,7 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Added a Why tab to Performance Pacing. It splits a gap in applications into the two things that cause it: spending more or less than planned, and each application costing more or less than planned. The two add up to the gap exactly, and it shows which locations or platforms are driving it.',
     'Removed the strapline from the bottom of the page.',
     'Status labels no longer wrap onto two lines and overflow their column.',
     'Added plan CPA next to actual CPA everywhere, with actual shown green when it is at or under plan.',
@@ -4529,6 +4530,175 @@ function exportPacingXLSX(month, pacing, actuals, planName) {
 }
 
 
+// ====================================================================
+// WHY
+// A gap in applications has two causes and they can be told apart.
+// Applications are spend divided by cost per application, so:
+//
+//   short because we spent less than planned  = (actual spend - expected
+//                                                spend) / plan CPA
+//   short because each one cost more          = actual apps - actual spend
+//                                                / plan CPA
+//
+// The two add up to the gap exactly, no residual and nothing hand-waved.
+// Worked out per location and platform then rolled up, so the answer holds
+// at whatever level it is read.
+// ====================================================================
+function explainGap(rows) {
+  const out = rows.map(r => {
+    const planCpa = r.planApps > 0 ? r.planSpend / r.planApps : null;
+    if (!planCpa) {
+      // Nothing was planned here, so every application is a bonus and none
+      // of it can be split into spending or efficiency against a plan.
+      return { ...r, planCpa: null, spendEffect: 0, effEffect: 0, unplanned: r.actualApps, gap: r.actualApps };
+    }
+    const spendEffect = (r.actualSpend - r.expSpend) / planCpa;
+    const effEffect = r.actualApps - (r.actualSpend / planCpa);
+    return { ...r, planCpa, spendEffect, effEffect, unplanned: 0, gap: r.actualApps - r.expApps };
+  });
+  const t = { gap: 0, spendEffect: 0, effEffect: 0, unplanned: 0, expApps: 0, actualApps: 0, expSpend: 0, actualSpend: 0 };
+  out.forEach(r => {
+    t.gap += r.gap; t.spendEffect += r.spendEffect; t.effEffect += r.effEffect;
+    t.unplanned += r.unplanned; t.expApps += r.expApps; t.actualApps += r.actualApps;
+    t.expSpend += r.expSpend; t.actualSpend += r.actualSpend;
+  });
+  return { rows: out, totals: t };
+}
+
+function WhyView({ pacing, planDemand, liveDemand }) {
+  const [role, setRole] = useState('SMR');
+  const [grain, setGrain] = useState('region');
+  const rows = pacing.rows.filter(r => r.role === role);
+  const ex = useMemo(() => explainGap(rows), [rows]);
+  const t = ex.totals;
+
+  // Group the causes up for reading.
+  const grouped = useMemo(() => {
+    const key = r => grain === 'region' ? r.region : grain === 'platform' ? PLATFORM_LABELS[r.platform]
+      : r.region + ' \u00B7 ' + PLATFORM_LABELS[r.platform];
+    const m = {};
+    ex.rows.forEach(r => {
+      const k = key(r);
+      const o = m[k] = m[k] || { key: k, gap: 0, spendEffect: 0, effEffect: 0, unplanned: 0, expApps: 0, actualApps: 0, expSpend: 0, actualSpend: 0 };
+      ['gap', 'spendEffect', 'effEffect', 'unplanned', 'expApps', 'actualApps', 'expSpend', 'actualSpend']
+        .forEach(f => { o[f] += r[f]; });
+    });
+    return Object.values(m).sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap));
+  }, [ex, grain]);
+
+  // Roles closed since the plan was frozen: part of why a plan is missed.
+  const rolesThen = planDemand ? DATA.regions_ordered.reduce((s, r) => s + ((planDemand[role] || {})[r] || 0), 0) : null;
+  const rolesNow = liveDemand ? DATA.regions_ordered.reduce((s, r) => s + ((liveDemand[role] || {})[r] || 0), 0) : null;
+
+  const behind = t.gap < 0;
+  const n = x => (x >= 0 ? '+' : '') + Math.round(x);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div className="role-switch">
+          {ROLES.map(r => (
+            <button key={r} className={r === role ? 'active' : ''} onClick={() => setRole(r)}>{r}</button>
+          ))}
+        </div>
+        <div className="role-switch">
+          {[['region', 'By location'], ['platform', 'By platform'], ['full', 'Location and platform']].map(([id, l]) => (
+            <button key={id} className={id === grain ? 'active' : ''} onClick={() => setGrain(id)}>{l}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className={'banner ' + (behind ? 'banner-bad' : 'banner-good')}>
+        <div className="banner-icon">{behind ? '!' : '\u2713'}</div>
+        <div>
+          <strong>{role} is {behind ? 'behind by' : 'ahead by'} {Math.abs(Math.round(t.gap))} applications.</strong>
+          {' '}{fmtInt(t.actualApps)} in against {fmtInt(t.expApps)} expected by now. Split two ways below:
+          how much of it is spending, and how much is each application costing more or less than planned.
+        </div>
+      </div>
+
+      <div className="kpi-row" style={{ marginBottom: 18 }}>
+        <div className={'kpi kpi-accent-' + (t.spendEffect < 0 ? 'orange' : 'good')}>
+          <div className="kpi-label">Because of spend</div>
+          <div className="kpi-value mono">{n(t.spendEffect)}</div>
+          <div className="kpi-sub">
+            {fmtGBP(t.actualSpend)} spent against {fmtGBP(t.expSpend)} expected.
+            {' '}{t.spendEffect < 0 ? 'Underspending costs applications.' : 'The extra spend bought applications.'}
+          </div>
+        </div>
+        <div className={'kpi kpi-accent-' + (t.effEffect < 0 ? 'orange' : 'good')}>
+          <div className="kpi-label">Because of cost per application</div>
+          <div className="kpi-value mono">{n(t.effEffect)}</div>
+          <div className="kpi-sub">
+            {t.actualApps > 0 ? fmtGBP(t.actualSpend / t.actualApps) : '-'} each against
+            {' '}{t.expApps > 0 ? fmtGBP(t.expSpend / t.expApps) : '-'} planned.
+            {' '}{t.effEffect < 0 ? 'Dearer than planned, so the money went less far.' : 'Cheaper than planned, so it went further.'}
+          </div>
+        </div>
+        <div className="kpi kpi-accent-navy">
+          <div className="kpi-label">Open roles</div>
+          <div className="kpi-value mono">{rolesNow == null ? '-' : rolesNow}</div>
+          <div className="kpi-sub">
+            {rolesThen == null ? 'No plan snapshot'
+              : rolesThen === rolesNow ? 'Unchanged since the plan was saved'
+              : rolesThen + ' when the plan was saved, ' + (rolesNow < rolesThen ? 'so fewer roles to advertise now' : 'so more roles than planned for')}
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <div className="card-title">Where the gap comes from</div>
+          <div className="card-sub">Biggest movers first, in applications</div>
+        </div>
+        <div className="card-body" style={{ padding: 0 }}>
+          <div className="grid-scroll">
+            <table className="alloc-table rv">
+              <thead>
+                <tr>
+                  <th>{grain === 'platform' ? 'Platform' : 'Location'}</th>
+                  <th>Expected apps</th><th>Actual</th><th>Gap</th>
+                  <th>Of which spend</th><th>Of which cost per app</th>
+                  <th>Plan CPA</th><th>Actual CPA</th><th>Reading</th>
+                </tr>
+              </thead>
+              <tbody>
+                {grouped.map(r => {
+                  const planCpa = r.expApps > 0 ? r.expSpend / r.expApps : null;
+                  const actCpa = r.actualApps > 0 ? r.actualSpend / r.actualApps : null;
+                  const big = Math.abs(r.spendEffect) >= Math.abs(r.effEffect) ? 'spend' : 'cost';
+                  const reading = Math.abs(r.gap) < 1 ? 'On plan'
+                    : r.gap > 0 ? (big === 'spend' ? 'Ahead, spending more' : 'Ahead, cheaper than planned')
+                    : (big === 'spend' ? 'Behind, spending less' : 'Behind, dearer than planned');
+                  return (
+                    <tr key={r.key}>
+                      <td>{r.key}</td>
+                      <td className="mono">{fmtInt(r.expApps)}</td>
+                      <td className="mono">{fmtInt(r.actualApps)}</td>
+                      <td className="mono" style={{ fontWeight: 700, color: r.gap < 0 ? 'var(--bad)' : 'var(--good)' }}>{n(r.gap)}</td>
+                      <td className="mono" style={{ color: r.spendEffect < 0 ? 'var(--bad)' : 'var(--good)' }}>{n(r.spendEffect)}</td>
+                      <td className="mono" style={{ color: r.effEffect < 0 ? 'var(--bad)' : 'var(--good)' }}>{n(r.effEffect)}</td>
+                      <td className="mono">{planCpa ? fmtGBP(planCpa) : '-'}</td>
+                      <td className="mono">{actCpa ? fmtGBP(actCpa) : '-'}</td>
+                      <td style={{ fontSize: 11.5, color: 'var(--ink-55)' }}>{reading}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="help-text" style={{ padding: '10px 16px' }}>
+            The two causes add up to the gap exactly. Spend is what the difference in money bought or cost at
+            the planned rate. Cost per application is what the difference in rate bought or cost on the money
+            actually spent. A location with no planned applications shows its whole figure as a gain, since
+            there was no plan to measure it against.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PlatformPasteBox({ label, hint, priRows, onApply, applied, range }) {
   const [text, setText] = useState('');
   const parsed = useMemo(() => (text.trim() ? parsePlatformPaste(text, priRows) : null), [text, priRows]);
@@ -4681,7 +4851,7 @@ function PacingTool({ month, container, patchMonth }) {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         <div className="role-switch">
-          {[['pacing', 'Against plan'], ['total', 'Total spend'], ['region', 'Region view']].map(([id, label]) => (
+          {[['pacing', 'Against plan'], ['why', 'Why'], ['total', 'Total spend'], ['region', 'Region view']].map(([id, label]) => (
             <button key={id} className={id === view ? 'active' : ''} onClick={() => setView(id)}>{label}</button>
           ))}
         </div>
@@ -4703,7 +4873,7 @@ function PacingTool({ month, container, patchMonth }) {
         ? <RegionView pri={pri} from={from} to={to} month={month} container={container} setPri={setPri} />
         : <div className="card"><div className="card-body"><div className="help-text">No location data for this month yet.</div></div></div>)}
 
-      {(view === 'pacing' || view === 'total') && (
+      {(view === 'pacing' || view === 'total' || view === 'why') && (
         <>
           {versions.length === 0 && (
             <div className="banner banner-warn">
@@ -5018,6 +5188,12 @@ function PacingTool({ month, container, patchMonth }) {
                 </div>
               </div>
             </>
+          )}
+
+          {pacing && view === 'why' && (
+            <WhyView pacing={pacing}
+              planDemand={chosenPlan && chosenPlan.demand}
+              liveDemand={container.demand} />
           )}
 
           {pacing && view === 'total' && (
