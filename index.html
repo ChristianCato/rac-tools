@@ -3279,6 +3279,12 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Why now shows how the mix has moved: share of spend in the plan against share now, per location, priced at that location\u2019s historic cost per application. So if London was a tenth of the plan and is now nearly a third, that is on the page with what it has cost in applications. Rates used are the historic ones the plan was built on, never this month\u2019s, because the question is what moving the money is worth on known performance rather than how the month happens to be running.',
+    'Why now splits a gap three ways instead of two: how much was spent, where it went, and what each application cost. The middle one was missing, which is why it could say "underspending costs applications" while spend was actually up. Money moving off cheap locations onto dear ones loses applications without spend falling at all, and that now has its own number.',
+    'Where it went shows the rate the plan expected from the locations currently carrying the money, against the plan\u2019s blended rate. So you can say the mix has shifted to dearer locations and put a figure on it.',
+    'Spend on a different project is now dropped completely rather than sitting in the total. The four-digit code at the end of a campaign name says which project it belongs to, and any code that has no campaigns in the plan is somebody else\u2019s work. For July that takes out Geofencing and the OneRAC open day, about £4,200.',
+    'Non-standard is now its own line, separate from other projects. Brand, competitor, consideration and remarketing are RAC recruitment money so they stay in total spend, they just never count against plan. About £4,500 in July.',
+    'Fixed the not-placed figure being counted twice. A Windsor pull covers Google and Meta together but its leftovers are recorded once, and the table was adding them for both. It read £25,816 where the real figure is £8,642.',
     'Fixed the spend reconciliation showing Google at roughly twice its size. Spend the pull could not place, mostly Demand Gen and brand campaigns, was being shown against whichever platform came first in the list rather than on its own. It now has its own row and the per-platform figures show only what actually went into the plan comparison.',
     'Removed the second Google and Meta paste box. The button covers it.',
     'Fixed pacing showing nothing unless the master sheet was loaded. Windsor and the Indeed and Appcast pastes now stand on their own, which is what was intended when Windsor started carrying applications. The master sheet is only needed if you want Eploy applications for Indeed.',
@@ -4057,6 +4063,12 @@ const toNum = v => {
   return isFinite(n) ? n : 0;
 };
 
+// e.g. "... | Jul 26 | 3037" or "... | Aug 25 | 2936 | Leads" -> 3037, 2936
+function campaignProject(camp) {
+  const codes = String(camp || '').split('|').map(x => x.trim()).filter(x => /^\d{4}$/.test(x));
+  return codes.length ? codes[codes.length - 1] : null;
+}
+
 function campaignRole(seg) {
   const s = String(seg || '').toLowerCase();
   if (s.includes('smr')) return 'SMR';
@@ -4128,7 +4140,7 @@ function parsePlatformPaste(text, priRows) {
     return { error: 'I could not tell which platform this is. I look for a Total cost column for Indeed, Spend for Appcast, or Date plus Spend for a Windsor export.' };
   }
 
-  const cells = {}, unmatched = [], platforms = {};
+  const cells = {}, unmatched = [], platforms = {}, planProjects = {};
   let matchedSpend = 0, unmatchedSpend = 0, matchedApps = 0, n = 0;
   const each = (i) => {
     const r = rows[i];
@@ -4147,13 +4159,14 @@ function parsePlatformPaste(text, priRows) {
         // Demand Gen, display remarketing and anything else unrecognised are
         // non-standard, so they stay out of the plan comparison.
         unmatchedSpend += spend;
-        unmatched.push({ campaign: camp.slice(0, 78), spend, why: 'not a planned platform (' + (parts[4] || 'no platform in the name') + ')' });
+        unmatched.push({ campaign: camp.slice(0, 78), spend, project: campaignProject(camp),
+          why: 'not a planned platform (' + (parts[4] || 'no platform in the name') + ')' });
         return;
       }
     }
     if (!role || !region) {
       unmatchedSpend += spend;
-      unmatched.push({ campaign: camp.slice(0, 78), spend,
+      unmatched.push({ campaign: camp.slice(0, 78), spend, project: campaignProject(camp),
         why: !role ? 'role not SMR or Patrol' : 'location not recognised' });
       return;
     }
@@ -4162,12 +4175,22 @@ function parsePlatformPaste(text, priRows) {
     platforms[plat] = true;
     cells[key].spend += spend; cells[key].apps += apps;
     matchedSpend += spend; matchedApps += apps;
+    const proj = campaignProject(camp);
+    if (proj) planProjects[proj] = true;
   };
   for (let i = 1; i < rows.length; i++) each(i);
+  // Split what was left out: money on this plan's projects, against money on
+  // a different piece of work entirely.
+  let otherProjectSpend = 0, nonStandardSpend = 0;
+  unmatched.forEach(u => {
+    u.otherProject = !!(u.project && !planProjects[u.project]);
+    if (u.otherProject) otherProjectSpend += u.spend; else nonStandardSpend += u.spend;
+  });
   if (!n) return { error: 'No rows with any spend in that paste.' };
   const found = Object.keys(platforms);
   return { platform: fromCampaign ? found : platform, cells, unmatched,
            matchedSpend, unmatchedSpend, matchedApps, rows: n,
+           nonStandardSpend, otherProjectSpend, planProjects: Object.keys(planProjects),
            appsIncluded: iApps >= 0, multi: fromCampaign };
 }
 
@@ -4293,10 +4316,13 @@ function mergeActuals(base, pastes, asAtDay) {
       out.regional[k] = { role: c.role, region: c.region, platform: plat, spend: c.spend, apps: keepApps };
       addedSpend += c.spend; addedApps += keepApps;
     });
-    out.totalSpend = out.totalSpend - removedSpend + addedSpend + p.unmatchedSpend;
+    // Another project's spend is not RAC recruitment money and is dropped
+    // outright. Non-standard is this plan's money, so it stays in the total.
+    out.totalSpend = out.totalSpend - removedSpend + addedSpend + (p.nonStandardSpend || 0);
+    out.otherProjectSpend = (out.otherProjectSpend || 0) + (p.otherProjectSpend || 0);
     if (p.appsIncluded) out.totalApps = out.totalApps - removedApps + addedApps;
-    if (p.unmatchedSpend > 0) {
-      out.other[PLATFORM_LABELS[plat] + ' (campaign not recognised)'] = { spend: p.unmatchedSpend, apps: 0 };
+    if (p.nonStandardSpend > 0) {
+      out.other[PLATFORM_LABELS[plat] + ' non-standard'] = { spend: p.nonStandardSpend, apps: 0 };
     }
     out.sources[plat] = { matched: p.matchedSpend, unmatched: p.unmatchedSpend, cells: Object.keys(p.cells).length, appsIncluded: p.appsIncluded };
   });
@@ -4650,20 +4676,60 @@ function explainGap(rows) {
   const out = rows.map(r => {
     const planCpa = r.planApps > 0 ? r.planSpend / r.planApps : null;
     if (!planCpa) {
-      // Nothing was planned here, so every application is a bonus and none
-      // of it can be split into spending or efficiency against a plan.
       return { ...r, planCpa: null, spendEffect: 0, effEffect: 0, unplanned: r.actualApps, gap: r.actualApps };
     }
+    // Per location, valued at that location's own planned cost per
+    // application. These two are exact for the row.
     const spendEffect = (r.actualSpend - r.expSpend) / planCpa;
     const effEffect = r.actualApps - (r.actualSpend / planCpa);
     return { ...r, planCpa, spendEffect, effEffect, unplanned: 0, gap: r.actualApps - r.expApps };
   });
-  const t = { gap: 0, spendEffect: 0, effEffect: 0, unplanned: 0, expApps: 0, actualApps: 0, expSpend: 0, actualSpend: 0 };
+
+  const t = { gap: 0, spendEffect: 0, effEffect: 0, unplanned: 0, expApps: 0, actualApps: 0, expSpend: 0, actualSpend: 0, planSpend: 0, planApps: 0 };
   out.forEach(r => {
     t.gap += r.gap; t.spendEffect += r.spendEffect; t.effEffect += r.effEffect;
     t.unplanned += r.unplanned; t.expApps += r.expApps; t.actualApps += r.actualApps;
     t.expSpend += r.expSpend; t.actualSpend += r.actualSpend;
+    t.planSpend += r.planSpend; t.planApps += r.planApps;
   });
+
+  // Three causes rather than two, because summing the per-location spend
+  // effects can come out negative while total spend is UP: money moved off
+  // cheap locations onto dear ones. That movement is its own cause and
+  // deserves saying out loud.
+  //
+  //   money  - the change in total spend, at the plan's blended rate
+  //   mix    - the same money spread differently across locations
+  //   rate   - what each application actually cost against its plan
+  //
+  // money + mix is exactly the sum of the per-location spend effects, so
+  // nothing is invented and the three still add up to the gap.
+  const planBlended = t.planApps > 0 ? t.planSpend / t.planApps : null;
+  t.planBlendedCpa = planBlended;
+  t.moneyEffect = planBlended ? (t.actualSpend - t.expSpend) / planBlended : 0;
+  t.mixEffect = t.spendEffect - t.moneyEffect;
+  t.rateEffect = t.effEffect;
+  // The rate the current mix of locations was planned to deliver, against
+  // the plan's own blended rate. Above 1 means the money has moved to
+  // locations the plan expected to be dearer.
+  const actualAtPlanRates = out.reduce((a, r) => a + (r.planCpa ? r.actualSpend / r.planCpa : 0), 0);
+  t.mixCpa = actualAtPlanRates > 0 ? t.actualSpend / actualAtPlanRates : null;
+
+  // Where the mix moved, and what it cost. Rates here are the historic
+  // benchmark ones the plan was built on, never this month's actuals: the
+  // point is what the shift is worth on known performance, separate from
+  // how the month happens to be running.
+  out.forEach(r => {
+    r.planShare = t.planSpend > 0 ? r.planSpend / t.planSpend : 0;
+    r.actualShare = t.actualSpend > 0 ? r.actualSpend / t.actualSpend : 0;
+    r.shareShift = r.actualShare - r.planShare;
+    // What this location's share of the money buys at its own historic rate,
+    // against what that money would buy at the plan's blended historic rate.
+    r.mixContrib = (planBlended && r.planCpa)
+      ? (r.actualSpend / r.planCpa) - (r.actualSpend / planBlended)
+      : 0;
+  });
+
   return { rows: out, totals: t };
 }
 
@@ -4720,33 +4786,110 @@ function WhyView({ pacing, planDemand, liveDemand }) {
       </div>
 
       <div className="kpi-row" style={{ marginBottom: 18 }}>
-        <div className={'kpi kpi-accent-' + (t.spendEffect < 0 ? 'orange' : 'good')}>
-          <div className="kpi-label">Because of spend</div>
-          <div className="kpi-value mono">{n(t.spendEffect)}</div>
+        <div className={'kpi kpi-accent-' + (t.moneyEffect < 0 ? 'orange' : 'good')}>
+          <div className="kpi-label">Because of how much was spent</div>
+          <div className="kpi-value mono">{n(t.moneyEffect)}</div>
           <div className="kpi-sub">
-            {fmtGBP(t.actualSpend)} spent against {fmtGBP(t.expSpend)} expected.
-            {' '}{t.spendEffect < 0 ? 'Underspending costs applications.' : 'The extra spend bought applications.'}
+            {fmtGBP(t.actualSpend)} spent against {fmtGBP(t.expSpend)} expected by now.
+            {' '}{t.actualSpend < t.expSpend ? 'Spending behind plan costs applications.'
+                                             : 'The extra money bought applications.'}
           </div>
         </div>
-        <div className={'kpi kpi-accent-' + (t.effEffect < 0 ? 'orange' : 'good')}>
-          <div className="kpi-label">Because of cost per application</div>
-          <div className="kpi-value mono">{n(t.effEffect)}</div>
+        <div className={'kpi kpi-accent-' + (t.mixEffect < 0 ? 'orange' : 'good')}>
+          <div className="kpi-label">Because of where it went</div>
+          <div className="kpi-value mono">{n(t.mixEffect)}</div>
+          <div className="kpi-sub">
+            {t.mixCpa && t.planBlendedCpa ? (
+              <>The locations carrying the money were planned at {fmtGBP(t.mixCpa)} each against
+              {' '}{fmtGBP(t.planBlendedCpa)} across the plan.
+              {' '}{t.mixEffect < 0 ? ' The mix has shifted to dearer locations.'
+                                    : ' The mix has shifted to cheaper locations.'}</>
+            ) : 'Not enough of the plan has a rate to compare.'}
+          </div>
+        </div>
+        <div className={'kpi kpi-accent-' + (t.rateEffect < 0 ? 'orange' : 'good')}>
+          <div className="kpi-label">Because of what each one cost</div>
+          <div className="kpi-value mono">{n(t.rateEffect)}</div>
           <div className="kpi-sub">
             {t.actualApps > 0 ? fmtGBP(t.actualSpend / t.actualApps) : '-'} each against
             {' '}{t.expApps > 0 ? fmtGBP(t.expSpend / t.expApps) : '-'} planned.
-            {' '}{t.effEffect < 0 ? 'Dearer than planned, so the money went less far.' : 'Cheaper than planned, so it went further.'}
-          </div>
-        </div>
-        <div className="kpi kpi-accent-navy">
-          <div className="kpi-label">Open roles</div>
-          <div className="kpi-value mono">{rolesNow == null ? '-' : rolesNow}</div>
-          <div className="kpi-sub">
-            {rolesThen == null ? 'No plan snapshot'
-              : rolesThen === rolesNow ? 'Unchanged since the plan was saved'
-              : rolesThen + ' when the plan was saved, ' + (rolesNow < rolesThen ? 'so fewer roles to advertise now' : 'so more roles than planned for')}
+            {' '}{t.rateEffect < 0 ? 'Dearer than planned, so the money went less far.'
+                                   : 'Cheaper than planned, so it went further.'}
           </div>
         </div>
       </div>
+
+      <div className="help-text" style={{ marginBottom: 18 }}>
+        Open roles: {rolesNow == null ? 'no plan snapshot' : rolesNow + ' now'}
+        {rolesThen != null && rolesThen !== rolesNow
+          ? ', ' + rolesThen + ' when the plan was saved, so ' + (rolesNow < rolesThen ? 'fewer' : 'more') + ' to advertise than planned for'
+          : rolesThen != null ? ', unchanged since the plan was saved' : ''}.
+      </div>
+
+      {Math.abs(t.mixEffect) >= 1 && (
+        <div className="card">
+          <div className="card-head">
+            <div className="card-title">How the mix has moved</div>
+            <div className="card-sub">
+              Share of spend, plan against actual, priced at historic rates
+            </div>
+          </div>
+          <div className="card-body" style={{ padding: 0 }}>
+            <table className="alloc-table rv">
+              <thead>
+                <tr>
+                  <th>Location</th><th>Historic CPA</th>
+                  <th>Share of plan</th><th>Share now</th><th>Shift</th><th>Worth</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
+                  const byLoc = {};
+                  ex.rows.forEach(r => {
+                    const o = byLoc[r.region] = byLoc[r.region] ||
+                      { region: r.region, planSpend: 0, actualSpend: 0, atRate: 0, mixContrib: 0 };
+                    o.planSpend += r.planSpend; o.actualSpend += r.actualSpend;
+                    o.atRate += r.planCpa ? r.actualSpend / r.planCpa : 0;
+                    o.mixContrib += r.mixContrib;
+                  });
+                  return Object.values(byLoc)
+                    .filter(o => o.planSpend > 0 || o.actualSpend > 0)
+                    .sort((a, b) => a.mixContrib - b.mixContrib)
+                    .map(o => {
+                      const ps = t.planSpend > 0 ? o.planSpend / t.planSpend : 0;
+                      const as = t.actualSpend > 0 ? o.actualSpend / t.actualSpend : 0;
+                      const shift = as - ps;
+                      const cpa = o.atRate > 0 ? o.actualSpend / o.atRate : null;
+                      return (
+                        <tr key={o.region}>
+                          <td>{o.region}</td>
+                          <td className="mono" style={{ color: (cpa && t.planBlendedCpa && cpa > t.planBlendedCpa) ? 'var(--bad)' : 'var(--ink)' }}>
+                            {cpa ? fmtGBP(cpa) : '-'}
+                          </td>
+                          <td className="mono">{Math.round(ps * 1000) / 10}%</td>
+                          <td className="mono">{Math.round(as * 1000) / 10}%</td>
+                          <td className="mono" style={{ fontWeight: 600, color: Math.abs(shift) < 0.005 ? 'var(--ink-35)' : shift > 0 ? 'var(--ink)' : 'var(--ink-55)' }}>
+                            {Math.abs(shift) < 0.005 ? '-' : (shift > 0 ? '+' : '') + (Math.round(shift * 1000) / 10) + '%'}
+                          </td>
+                          <td className="mono" style={{ color: o.mixContrib < 0 ? 'var(--bad)' : 'var(--good)' }}>
+                            {n(o.mixContrib)}
+                          </td>
+                        </tr>
+                      );
+                    });
+                })()}
+              </tbody>
+            </table>
+            <div className="help-text" style={{ padding: '10px 16px' }}>
+              Historic CPA is what that location has cost per application across the whole dataset, which is
+              what the plan was built on. This month's actual rate is deliberately not used here: the
+              question is what moving the money is worth on known performance, not how the month is going.
+              Worth is the applications gained or lost by that location holding a bigger or smaller share
+              than the plan gave it. They add up to the mix figure above.
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <div className="card-head">
@@ -4790,10 +4933,11 @@ function WhyView({ pacing, planDemand, liveDemand }) {
             </table>
           </div>
           <div className="help-text" style={{ padding: '10px 16px' }}>
-            The two causes add up to the gap exactly. Spend is what the difference in money bought or cost at
-            the planned rate. Cost per application is what the difference in rate bought or cost on the money
-            actually spent. A location with no planned applications shows its whole figure as a gain, since
-            there was no plan to measure it against.
+            The three causes add up to the gap exactly. How much was spent is the change in total money at
+            the plan's blended rate. Where it went is that same money spread differently across locations,
+            which moves the total even when spend does not. What each one cost is the actual rate against
+            the planned one. In the table below, the two columns are per location and use that location's
+            own planned rate, so the mix effect shows in the totals rather than on any single row.
           </div>
         </div>
       </div>
@@ -4921,11 +5065,15 @@ function splitByPlatform(parsed) {
     const cells = {};
     Object.keys(parsed.cells).forEach(k => { if (parsed.cells[k].platform === plat) cells[k] = parsed.cells[k]; });
     const matchedSpend = Object.values(cells).reduce((a, c) => a + c.spend, 0);
-    out[plat] = { platform: plat, cells, unmatched: [], matchedSpend,
+    const p = parsed;
+    out[plat] = { platform: plat, cells, matchedSpend,
       // The unplaceable spend belongs to the file, not to any one platform,
       // so it is only counted once.
       unmatchedSpend: plat === parsed.platform[0] ? parsed.unmatchedSpend : 0,
-      matchedApps: 0, appsIncluded: false, rows: Object.keys(cells).length };
+      nonStandardSpend: plat === parsed.platform[0] ? (parsed.nonStandardSpend || 0) : 0,
+      otherProjectSpend: plat === parsed.platform[0] ? (parsed.otherProjectSpend || 0) : 0,
+      unmatched: plat === parsed.platform[0] ? parsed.unmatched : [],
+      matchedApps: 0, appsIncluded: p.appsIncluded, rows: Object.keys(cells).length };
   });
   return out;
 }
@@ -5214,19 +5362,47 @@ function PacingTool({ month, container, patchMonth }) {
                       );
                     })}
                     {(() => {
-                      const spare = PLATFORMS.reduce((a, pl) => a + ((pastes[pl] || {}).unmatchedSpend || 0), 0);
-                      if (!spare) return null;
+                      const seen = {};
+                      let ns = 0, other = 0;
+                      PLATFORMS.forEach(pl => {
+                        const p = pastes[pl];
+                        // A Windsor pull covers two platforms but its
+                        // leftovers are recorded once, on the first. Only
+                        // count each set of leftovers a single time.
+                        if (!p || !p.unmatched || !p.unmatched.length) return;
+                        const sig = p.unmatched.length + ':' + Math.round(p.unmatchedSpend);
+                        if (seen[sig]) return;
+                        seen[sig] = true;
+                        ns += p.nonStandardSpend || 0;
+                        other += p.otherProjectSpend || 0;
+                      });
                       return (
-                        <tr>
-                          <td>Not placed</td>
-                          <td className="mono">-</td>
-                          <td className="mono">{fmtGBP(spare)}</td>
-                          <td className="mono">-</td>
-                          <td style={{ fontSize: 12, color: 'var(--ink-55)' }}>
-                            Non-standard campaigns and anything the campaign name did not resolve.
-                            Counted in total spend, never against plan.
-                          </td>
-                        </tr>
+                        <>
+                          {ns > 0 && (
+                            <tr>
+                              <td>Non-standard</td>
+                              <td className="mono">-</td>
+                              <td className="mono">{fmtGBP(ns)}</td>
+                              <td className="mono">-</td>
+                              <td style={{ fontSize: 12, color: 'var(--ink-55)' }}>
+                                Brand, competitor, consideration and remarketing. RAC recruitment money,
+                                counted in total spend, never against plan.
+                              </td>
+                            </tr>
+                          )}
+                          {other > 0 && (
+                            <tr>
+                              <td>Another project</td>
+                              <td className="mono">-</td>
+                              <td className="mono">{fmtGBP(other)}</td>
+                              <td className="mono">-</td>
+                              <td style={{ fontSize: 12, color: 'var(--ink-55)' }}>
+                                A different campaign code from anything in this plan, so a separate piece
+                                of work. Left out completely.
+                              </td>
+                            </tr>
+                          )}
+                        </>
                       );
                     })()}
                   </tbody>
