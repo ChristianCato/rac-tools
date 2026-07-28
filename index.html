@@ -3279,7 +3279,7 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
-    'Why now shows a fourth figure for locations the plan never funded. Their applications were always in the maths but never on screen, so the three figures on the page did not add up to the gap. It names the locations and says how much went to them.',
+    'Locations the plan never funded are now part of where it went, rather than being counted as free applications on their own. Money going to them came out of the funded locations, so it is priced the same way, at that location\u2019s own historic cost per application. The three figures on the page now add up to the gap with nothing left over.',
     'Fixed the mix table counting locations the plan never funded. Spend somewhere with no planned share was still diluting everyone else\u2019s share, so every funded location looked like it had lost ground to nobody and London losing share read as a loss when it should have been a gain. The mix now only covers locations the plan funded, and off-plan spend is called out separately.',
     'Plainer wording across the banners and help text.',
     'Plainer wording throughout Why. The callouts now just say the numbers, for example "the live mix now has a blended CPA of £60 compared to £54 in the plan", instead of explaining what that means about the mix.',
@@ -4676,71 +4676,67 @@ function exportPacingXLSX(month, pacing, actuals, planName) {
 // Worked out per location and platform then rolled up, so the answer holds
 // at whatever level it is read.
 // ====================================================================
-function explainGap(rows) {
-  const out = rows.map(r => {
-    const planCpa = r.planApps > 0 ? r.planSpend / r.planApps : null;
-    if (!planCpa) {
-      return { ...r, planCpa: null, spendEffect: 0, effEffect: 0, unplanned: r.actualApps, gap: r.actualApps };
-    }
-    // Per location, valued at that location's own planned cost per
-    // application. These two are exact for the row.
-    const spendEffect = (r.actualSpend - r.expSpend) / planCpa;
-    const effEffect = r.actualApps - (r.actualSpend / planCpa);
-    return { ...r, planCpa, spendEffect, effEffect, unplanned: 0, gap: r.actualApps - r.expApps };
-  });
+// Historic cost per application for a cell, from the benchmark dataset.
+// Used for every location including ones the plan never funded, so a
+// location that only exists in the actuals still has a rate to be priced at.
+// The plan's own rate wherever the plan funded a location: that is what it
+// was costed at, and using anything else stops the three causes adding up to
+// the gap. The benchmark is only needed for locations the plan never funded,
+// which have no rate of their own.
+function historicCpa(r, fallback) {
+  if (r.planApps > 0 && r.planSpend > 0) return r.planSpend / r.planApps;
+  try {
+    const c = regionPlatformCPA(r.platform, r.region, r.role);
+    if (c && c.cpa > 0) return c.cpa;
+  } catch (e) { /* fall through */ }
+  return fallback || null;
+}
 
-  const t = { gap: 0, spendEffect: 0, effEffect: 0, unplanned: 0, expApps: 0, actualApps: 0, expSpend: 0, actualSpend: 0, planSpend: 0, planApps: 0 };
-  out.forEach(r => {
-    t.gap += r.gap; t.spendEffect += r.spendEffect; t.effEffect += r.effEffect;
-    t.unplanned += r.unplanned; t.expApps += r.expApps; t.actualApps += r.actualApps;
+function explainGap(rows) {
+  const t = { gap: 0, expApps: 0, actualApps: 0, expSpend: 0, actualSpend: 0, planSpend: 0, planApps: 0 };
+  rows.forEach(r => {
+    t.expApps += r.expApps; t.actualApps += r.actualApps;
     t.expSpend += r.expSpend; t.actualSpend += r.actualSpend;
     t.planSpend += r.planSpend; t.planApps += r.planApps;
   });
+  t.gap = t.actualApps - t.expApps;
 
-  // Three causes rather than two, because summing the per-location spend
-  // effects can come out negative while total spend is UP: money moved off
-  // cheap locations onto dear ones. That movement is its own cause and
-  // deserves saying out loud.
-  //
-  //   money  - the change in total spend, at the plan's blended rate
-  //   mix    - the same money spread differently across locations
-  //   rate   - what each application actually cost against its plan
-  //
-  // money + mix is exactly the sum of the per-location spend effects, so
-  // nothing is invented and the three still add up to the gap.
+  // The plan's blended rate. Everything is priced against this.
   const planBlended = t.planApps > 0 ? t.planSpend / t.planApps : null;
   t.planBlendedCpa = planBlended;
 
-  // Only locations the plan actually funded can be part of a mix comparison.
-  // Spend somewhere the plan gave nothing has no planned share to move away
-  // from, and counting it as part of the total made every funded location
-  // look like it had lost share to nobody.
-  const funded = out.filter(r => r.planCpa);
-  const fundedSpend = funded.reduce((a, r) => a + r.actualSpend, 0);
-  t.fundedSpend = fundedSpend;
-  t.unplannedSpend = t.actualSpend - fundedSpend;
+  const out = rows.map(r => {
+    const h = historicCpa(r, planBlended);
+    return { ...r, planCpa: h, offPlan: !(r.planSpend > 0) && (r.actualSpend > 0 || r.actualApps > 0) };
+  });
 
-  t.moneyEffect = planBlended ? (fundedSpend - t.expSpend) / planBlended : 0;
-  const atOwnRates = funded.reduce((a, r) => a + r.actualSpend / r.planCpa, 0);
-  t.mixEffect = planBlended ? atOwnRates - (fundedSpend / planBlended) : 0;
-  t.rateEffect = funded.reduce((a, r) => a + r.actualApps, 0) - atOwnRates;
-  t.mixCpa = atOwnRates > 0 ? fundedSpend / atOwnRates : null;
+  // Three causes, no fourth. Money that went somewhere the plan gave nothing
+  // is a shift in the mix like any other: it came out of the locations the
+  // plan did fund, so it is priced the same way rather than counted as free.
+  const atOwnRates = out.reduce((a, r) => a + (r.planCpa ? r.actualSpend / r.planCpa : 0), 0);
+  t.moneyEffect = planBlended ? (t.actualSpend - t.expSpend) / planBlended : 0;
+  t.mixEffect = planBlended ? atOwnRates - (t.actualSpend / planBlended) : 0;
+  t.rateEffect = t.actualApps - atOwnRates;
+  t.mixCpa = atOwnRates > 0 ? t.actualSpend / atOwnRates : null;
+  t.unplanned = 0;
+  t.unplannedSpend = out.filter(r => r.offPlan).reduce((a, r) => a + r.actualSpend, 0);
+  t.offPlanRegions = [...new Set(out.filter(r => r.offPlan).map(r => r.region))];
 
   out.forEach(r => {
     r.planShare = t.planSpend > 0 ? r.planSpend / t.planSpend : 0;
-    // Share of the money that went to locations the plan funded, so the
-    // shares are comparable with the plan's own.
-    r.actualShare = r.planCpa && fundedSpend > 0 ? r.actualSpend / fundedSpend : 0;
-    r.shareShift = r.planCpa ? r.actualShare - r.planShare : 0;
-    // Price only the shift: the money held over or under the planned share,
-    // at this location's own historic rate against the plan's blended one.
-    const wouldHave = fundedSpend * r.planShare;
+    r.actualShare = t.actualSpend > 0 ? r.actualSpend / t.actualSpend : 0;
+    r.shareShift = r.actualShare - r.planShare;
+    // Price only the shift: money held over or under the planned share, at
+    // this location's own historic rate against the plan's blended one.
+    const wouldHave = t.actualSpend * r.planShare;
     r.mixContrib = (planBlended && r.planCpa)
       ? (r.actualSpend - wouldHave) * (1 / r.planCpa - 1 / planBlended)
       : 0;
-    r.offPlan = !r.planCpa && (r.actualSpend > 0 || r.actualApps > 0);
+    // Kept for the per-location table below.
+    r.spendEffect = r.planCpa ? (r.actualSpend - r.expSpend) / r.planCpa : 0;
+    r.effEffect = r.planCpa ? r.actualApps - (r.actualSpend / r.planCpa) : 0;
+    r.gap = r.actualApps - r.expApps;
   });
-  t.offPlanRegions = [...new Set(out.filter(r => r.offPlan).map(r => r.region))];
 
   return { rows: out, totals: t };
 }
@@ -4792,9 +4788,8 @@ function WhyView({ pacing, planDemand, liveDemand }) {
         <div className="banner-icon">{behind ? '!' : '\u2713'}</div>
         <div>
           <strong>{role} is {behind ? 'behind by' : 'ahead by'} {Math.abs(Math.round(t.gap))} applications.</strong>
-          {' '}{fmtInt(t.actualApps)} in against {fmtInt(t.expApps)} expected by now. The figures below
-          split that up{t.unplanned !== 0 ? ', including what came from locations the plan never funded' : ''}.
-          They add up to the {behind ? 'shortfall' : 'gain'}.
+          {' '}{fmtInt(t.actualApps)} in against {fmtInt(t.expApps)} expected by now. The three figures
+          below add up to that.
         </div>
       </div>
 
@@ -4812,22 +4807,15 @@ function WhyView({ pacing, planDemand, liveDemand }) {
           <div className="kpi-sub">
             {t.mixCpa && t.planBlendedCpa ? (
               <>The live mix now has a blended CPA of {fmtGBP(t.mixCpa)} compared to
-              {' '}{fmtGBP(t.planBlendedCpa)} in the plan.</>
+              {' '}{fmtGBP(t.planBlendedCpa)} in the plan.
+              {t.offPlanRegions.length > 0 && (
+                <> {fmtGBP(t.unplannedSpend)} of it went to {t.offPlanRegions.slice(0, 3).join(', ')}
+                {t.offPlanRegions.length > 3 ? ' and ' + (t.offPlanRegions.length - 3) + ' more' : ''},
+                which the plan gave nothing to.</>
+              )}</>
             ) : 'Not enough of the plan has a rate to compare.'}
           </div>
         </div>
-        {t.unplanned !== 0 && (
-          <div className={'kpi kpi-accent-' + (t.unplanned < 0 ? 'orange' : 'good')}>
-            <div className="kpi-label">Locations not in the plan</div>
-            <div className="kpi-value mono">{n(t.unplanned)}</div>
-            <div className="kpi-sub">
-              {fmtGBP(t.unplannedSpend)} in {t.offPlanRegions.length} location{t.offPlanRegions.length === 1 ? '' : 's'} the
-              plan gave nothing to: {t.offPlanRegions.slice(0, 4).join(', ')}
-              {t.offPlanRegions.length > 4 ? ' and ' + (t.offPlanRegions.length - 4) + ' more' : ''}.
-              There was no target for these, so everything they bring in counts as a gain.
-            </div>
-          </div>
-        )}
         <div className={'kpi kpi-accent-' + (t.rateEffect < 0 ? 'orange' : 'good')}>
           <div className="kpi-label">Cost per application</div>
           <div className="kpi-value mono">{n(t.rateEffect)}</div>
@@ -4867,17 +4855,16 @@ function WhyView({ pacing, planDemand, liveDemand }) {
                   ex.rows.forEach(r => {
                     const o = byLoc[r.region] = byLoc[r.region] ||
                       { region: r.region, planSpend: 0, actualSpend: 0, atRate: 0, mixContrib: 0 };
-                    o.planSpend += r.planSpend;
-                    if (r.planCpa) o.actualSpend += r.actualSpend;
+                    o.planSpend += r.planSpend; o.actualSpend += r.actualSpend;
                     o.atRate += r.planCpa ? r.actualSpend / r.planCpa : 0;
                     o.mixContrib += r.mixContrib;
                   });
                   return Object.values(byLoc)
-                    .filter(o => o.planSpend > 0)
+                    .filter(o => o.planSpend > 0 || o.actualSpend > 0)
                     .sort((a, b) => a.mixContrib - b.mixContrib)
                     .map(o => {
                       const ps = t.planSpend > 0 ? o.planSpend / t.planSpend : 0;
-                      const as = t.fundedSpend > 0 ? o.actualSpend / t.fundedSpend : 0;
+                      const as = t.actualSpend > 0 ? o.actualSpend / t.actualSpend : 0;
                       const shift = as - ps;
                       const cpa = o.atRate > 0 ? o.actualSpend / o.atRate : null;
                       return (
@@ -4901,8 +4888,8 @@ function WhyView({ pacing, planDemand, liveDemand }) {
               </tbody>
             </table>
             <div className="help-text" style={{ padding: '10px 16px' }}>
-              Only locations the plan funded are in here. Spend somewhere the plan gave nothing has no
-              planned share to move away from{t.unplannedSpend > 1 ? ', and there is ' + fmtGBP(t.unplannedSpend) + ' of that this month' : ''}.
+              Locations the plan gave nothing to are in here too, at 0% of plan. Money going to them came
+              out of the funded locations, so it is priced the same way rather than treated as free.
               Historic CPA is what that location has cost per application across the whole dataset. That's
               what the plan was built on. This month's own rate isn't used here, because the question is
               what moving the money is worth on what we already know, not how the month is going.
