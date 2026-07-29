@@ -1942,10 +1942,8 @@ function SetupTab({ state, setState, onOpenPriorities }) {
       <div className="banner banner-info">
         <div className="banner-icon">i</div>
         <div>
-          <strong>Start here.</strong> Set the budget, the hold-backs and RAC's hire target for each role.
-          The application target comes off the hire target, worked back through the blended hire rate for
-          whichever locations are live this month. Open roles come from Location priorities. Plan then
-          predicts applications against that target, by location.
+          Set the budget, hold-backs and hire target. The application target comes off the hire target.
+          Open roles come from Location priorities.
         </div>
       </div>
 
@@ -1953,7 +1951,7 @@ function SetupTab({ state, setState, onOpenPriorities }) {
       <div className="card">
         <div className="card-head">
           <div className="card-title">Funding assumptions</div>
-          <div className="card-sub">How the budget is split across locations, applies to both roles</div>
+          
         </div>
         <div className="card-body">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
@@ -1962,9 +1960,7 @@ function SetupTab({ state, setState, onOpenPriorities }) {
               <div className="text-input" style={{ background: 'var(--ink-04)', color: 'var(--ink-70)' }}>
                 {(DATA.month_labels && DATA.month_labels[state.planMonth]) || state.planMonth}
               </div>
-              <div className="help-text" style={{ marginTop: 4 }}>
-                {days} days, sets the Indeed Premium cost. Change the month at the top of the page.
-              </div>
+              <div className="help-text" style={{ marginTop: 4 }}>{days} days</div>
             </div>
             <div>
               <label className="field-label">Coverage reserve</label>
@@ -1988,7 +1984,7 @@ function SetupTab({ state, setState, onOpenPriorities }) {
             }}>{role}</div>
             <div>
               <div className="card-title">{role}: {ROLE_FULL[role]}</div>
-              <div className="card-sub">Budget, hold-backs and live locations for this role</div>
+              
             </div>
           </div>
           <div className="card-body">
@@ -2014,7 +2010,7 @@ function SetupTab({ state, setState, onOpenPriorities }) {
                 <input className="text-input"
                   value={'\u00A3' + (((state.acReserve && state.acReserve[role]) || 0)).toLocaleString('en-GB')}
                   onChange={e => setRoleField(role, 'acReserve', parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0)} />
-                <div className="help-text" style={{ marginTop: 4 }}>Non-standard / brand hold-back, off the top.</div>
+                
               </div>
               <div>
                 <label className="field-label">Hire target <span style={{ fontWeight: 400, textTransform: 'none' }}>&middot; from RAC</span></label>
@@ -2184,7 +2180,7 @@ function PlanTab({ state, setState }) {
       {liveCount === 0 && (
         <div className="banner banner-warn">
           <div className="banner-icon">!</div>
-          <div>No live locations with open roles for {role}. Set the live locations and vacancy counts on the Setup tab.</div>
+          <div>No open roles for {role}. Set them in Location priorities.</div>
         </div>
       )}
 
@@ -2310,7 +2306,7 @@ function PlanTab({ state, setState }) {
         <div className="card">
           <div className="card-head">
             <div className="card-title">Where the budget goes</div>
-            <div className="card-sub">Hold-backs first, then we split what is left across your locations</div>
+            
           </div>
           <div className="card-body" style={{ padding: 0 }}>
             <table className="alloc-table">
@@ -2457,9 +2453,8 @@ function PlatformsTab({ state }) {
       <div className="banner banner-info">
         <div className="banner-icon">i</div>
         <div>
-          Each location&rsquo;s budget is split across the four platforms in proportion to how spend has
-          historically been deployed in that exact location. We put money where it has been working. The
-          totals below add up to your deployable budget to the pound.
+          Each location's budget is split across platforms the way it has been historically. The totals
+          below add up to your deployable budget to the pound.
         </div>
       </div>
 
@@ -2491,7 +2486,7 @@ function PlatformsTab({ state }) {
           <div className="card">
             <div className="card-head">
               <div className="card-title">By location and platform</div>
-              <div className="card-sub">How each location&rsquo;s budget is shared across the four platforms</div>
+              
             </div>
             <div className="card-body" style={{ padding: 0 }}>
               <table className="alloc-table">
@@ -3559,6 +3554,7 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Cut a lot of text out. Headings that repeated themselves, help under fields that explained the obvious, and banners that said the same thing three ways. About a quarter of the written copy has gone and nothing works differently.',
     'The benchmark window now drives the plan. Pick May to June in Benchmarks and the planner, the channel tables and the PDF all work on those rates. The window is shown next to the month at the top, and a saved plan records which window it was built on.',
     'Every benchmark table now leads with the same four columns: cost per application, cost per hire, hire rate and apply rate. Anything else comes after.',
     'Clicks are now kept month by month, so apply rate moves with the chosen window instead of being stuck on the all-time figure. Months before 2026 have no clicks on record and fall back to the all-time rate, marked with a star. The Data tab keeps clicks from now on, so this fills in as months are added.',
@@ -3995,7 +3991,7 @@ function MonthPaste({ role, pri, onApply, month }) {
     <div className="card">
       <div className="card-head">
         <div className="card-title">Paste the whole {role} tab</div>
-        <div className="card-sub">Header row of dates and every location under it</div>
+        
       </div>
       <div className="card-body">
         <div className="help-text" style={{ marginBottom: 10 }}>
@@ -4125,8 +4121,7 @@ function PriorityGrid({ role, pri, setPri, month }) {
         </div>
         <div className="card-body" style={{ padding: 0 }}>
           <div className="help-text" style={{ padding: '10px 16px' }}>
-            Colour is against the day before: green up, red closed, amber down but still live. Showing the
-            last {shown.length} days. Cells are editable if something needs correcting between lists.
+            Green up, red closed, amber down. Last {shown.length} days. Cells are editable.
           </div>
           <div className="grid-scroll">
             <table className="pri-grid">
@@ -4235,7 +4230,7 @@ function TrendsView({ pri, role }) {
           <div className="card" key={role + b.key}>
             <div className="card-head">
               <div className="card-title">{role}: {b.title}</div>
-              <div className="card-sub">Every day recorded this month</div>
+              
             </div>
             <div className="card-body" style={{ padding: 0 }}>
               <div className="grid-scroll">
@@ -4472,9 +4467,8 @@ function PrioritiesTool({ container, patchMonth, month, ws }) {
       <div className="banner banner-info">
         <div className="banner-icon">i</div>
         <div>
-          <strong>Each day.</strong> Paste the whole tab back in on Vacancies, for each role. The whole
-          month, not just the new day, so anything RAC have changed since gets picked up. Locations match
-          on name so the order doesn't matter. What changed gives you the pause and launch list.
+          Paste the whole tab back in each day, for each role. The whole month, not just the new day.
+          Locations match on name, so the order doesn't matter.
         </div>
       </div>
 
@@ -4988,7 +4982,7 @@ function PriorityInputs({ pri, setPri }) {
     <div>
       <div className="banner banner-info">
         <div className="banner-icon">i</div>
-        <div>Plan budget per region. Update it when a new monthly plan is signed off. Region view reads these.</div>
+        <div>Plan budget per region, read by Region view.</div>
       </div>
       {ROLES.map(role => (
         <div className="card" key={role}>
@@ -5015,7 +5009,7 @@ function PriorityInputs({ pri, setPri }) {
       <div className="card">
         <div className="card-head">
           <div className="card-title">Risk thresholds</div>
-          <div className="card-sub">When each flag fires on Region view</div>
+          
         </div>
         <div className="card-body">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
@@ -5467,7 +5461,7 @@ function WhyView({ pacing, planDemand, liveDemand }) {
       <div className="card">
         <div className="card-head">
           <div className="card-title">Where the gap comes from</div>
-          <div className="card-sub">Biggest movers first, in applications</div>
+          
         </div>
         <div className="card-body" style={{ padding: 0 }}>
           <div className="grid-scroll">
@@ -5796,9 +5790,7 @@ function PacingTool({ month, container, patchMonth }) {
             <div className="banner banner-warn">
               <div className="banner-icon">!</div>
               <div>
-                <strong>No saved plan for this month.</strong> Save one in the planner first. Pacing can't
-                measure against the working plan, because that reads open roles as they are today and moves
-                every time a list is pasted.
+                <strong>No saved plan for this month.</strong> Save one in the planner first.
               </div>
             </div>
           )}
@@ -5875,8 +5867,7 @@ function PacingTool({ month, container, patchMonth }) {
 
               <div style={{ marginTop: 18, borderTop: '1px solid var(--line-c)', paddingTop: 14 }}>
                 <div className="help-text" style={{ marginBottom: 12 }}>
-                  Appcast and Indeed go in straight off the platform. Role and location come out of the
-                  campaign name. What you paste replaces that platform's figures.
+                  Straight off the platform. Paste replaces that platform's figures.
                 </div>
                 <WindsorPull month={month} lastDay={baseActuals && !baseActuals.error ? baseActuals.lastDay : null}
                   priRows={priRows}
@@ -5901,7 +5892,7 @@ function PacingTool({ month, container, patchMonth }) {
             <div className="card">
               <div className="card-head">
                 <div className="card-title">Where the spend came from</div>
-                <div className="card-sub">Master sheet against the pasted exports</div>
+                
               </div>
               <div className="card-body" style={{ padding: 0 }}>
                 <table className="alloc-table rv">
@@ -6172,7 +6163,7 @@ function PacingTool({ month, container, patchMonth }) {
             <div className="card">
               <div className="card-head">
                 <div className="card-title">Total spend this month</div>
-                <div className="card-sub">Everything, including what the plan does not cover</div>
+                
               </div>
               <div className="card-body" style={{ padding: 0 }}>
                 <table className="alloc-table rv">
@@ -6478,9 +6469,8 @@ function DataTool() {
       <div className="banner banner-info">
         <div className="banner-icon">i</div>
         <div>
-          <strong>Updating the benchmarks.</strong> Drop the master sheet in and pick the months you want.
-          Same rules the dataset was built on. It shows you what would change before anything changes, then
-          gives you a new data file to publish.
+          Drop the master sheet in and pick the months you want. It shows what would change before
+          anything does, then gives you a file to publish.
         </div>
       </div>
 
@@ -6488,9 +6478,8 @@ function DataTool() {
         <div className="banner banner-warn">
           <div className="banner-icon">!</div>
           <div>
-            <strong>Your copy is ahead of the published one.</strong> You folded in
-            {' '}{applied.months.join(', ')} on {applied.at}. Until the downloaded file is published, only
-            this browser sees it and anyone else will plan on the older numbers.
+            <strong>Not published yet.</strong> {applied.months.join(', ')} folded in on {applied.at}.
+            Until the file is published, everyone else is on the old numbers.
             {' '}<a href="#" className="link-inline" onClick={e => { e.preventDefault(); download(); }}>Download it again</a>
             {' '}or <a href="#" className="link-inline" onClick={e => { e.preventDefault(); revert(); }}>go back to the published data</a>.
           </div>
@@ -6557,7 +6546,7 @@ function DataTool() {
           <div className="card">
             <div className="card-head">
               <div className="card-title">What it left out</div>
-              <div className="card-sub">Everything the rules exclude, counted rather than dropped quietly</div>
+              
             </div>
             <div className="card-body">
               <div className="brief-row"><span>Not tagged to a location</span>
@@ -6581,7 +6570,7 @@ function DataTool() {
             <div className="card">
               <div className="card-head">
                 <div className="card-title">What it would move</div>
-                <div className="card-sub">Blended cost per application, the figure the plan allocates on</div>
+                
               </div>
               <div className="card-body" style={{ padding: 0 }}>
                 <table className="alloc-table">
@@ -6626,7 +6615,7 @@ function DataTool() {
       <div className="card">
         <div className="card-head">
           <div className="card-title">Publish it</div>
-          <div className="card-sub">How everyone else gets the new numbers</div>
+          
         </div>
         <div className="card-body">
           <div className="help-text" style={{ marginBottom: 12 }}>
@@ -6651,7 +6640,7 @@ function ChangelogTool() {
       <div className="card">
         <div className="card-head">
           <div className="card-title">What has changed</div>
-          <div className="card-sub">Newest first</div>
+          
         </div>
         <div className="card-body">
           {CHANGELOG.map((g, i) => (
@@ -6743,7 +6732,6 @@ function CompareView({ month, container, onClose }) {
         <div className="banner-icon">i</div>
         <div>
           Two saved plans for {(DATA.month_labels && DATA.month_labels[month]) || month}, side by side.
-          Anything different is a planning choice.
         </div>
       </div>
       <div className="card">
