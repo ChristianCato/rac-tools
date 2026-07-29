@@ -3332,7 +3332,9 @@ function exportPlanPDF(state, roleFilter) {
       pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9);
       pdf.setTextColor(180, 195, 220);
       if (subtitle) pdf.text(subtitle, margin, 17);
-      pdf.text('Prepared by Enhance Media  \u00B7  ' + monthLabel, pageW - margin, 17, { align: 'right' });
+      pdf.text('Prepared by Enhance Media  \u00B7  ' + monthLabel, pageW - margin, 13, { align: 'right' });
+      pdf.setFontSize(7.5); setColor(MUTED);
+      pdf.text('Based on performance data: ' + benchLabel(), pageW - margin, 18.5, { align: 'right' });
     }
 
     function footer(pageNum, pageTotal) {
@@ -3368,8 +3370,8 @@ function exportPlanPDF(state, roleFilter) {
 
     // Glossary terms (defined here so we can pre-measure how many pages they need)
     const terms = [
-      ['Application', 'A completed application from a candidate. We use a blended count: applications recorded by the ad platform plus applications recorded in RAC\u2019s Eploy ATS, so credit is captured wherever it lands.'],
-      ['Open roles', 'The vacancies RAC has live for this role in each location, this month. Demand drives how the budget is shared between locations.'],
+      ['Application', 'A completed application from a candidate. Counted as applications recorded by the ad platform plus applications recorded in RAC\u2019s Eploy ATS, so credit is captured wherever it lands.'],
+      ['Open roles', 'The roles RAC has live for this role in each location this month. It sets each location\u2019s share of the budget.'],
       ['Monthly budget', 'The total monthly spend RAC has set for this role.'],
       ['Indeed Premium', 'A fixed daily cost for Indeed\u2019s premium campaigns, held back off the top. Calculated as campaigns \u00D7 days in the month \u00D7 \u00A344 per day per campaign.'],
       ['Combined Activity', 'A flat amount held back for brand-level activity not tied to a specific location.'],
@@ -3379,15 +3381,15 @@ function exportPlanPDF(state, roleFilter) {
       ['Spend ceiling', 'The most a location and platform can be given: the biggest month it has already spent. Nothing in the plan rests on a spend level that has never been run.'],
       ['Split by open roles', 'The deployable budget divided between locations by their share of open roles: more roles means a bigger share.'],
       ['App target', 'RAC\u2019s application goal for the role; the number the plan is judged against. In the table, each row\u2019s App target is that location\u2019s share, allocated by demand: a location with 22 of 79 open roles is responsible for 22/79 of the total.'],
-      ['Predicted applications', 'How many applications we expect from each location\u2019s budget. Calculated as the location\u2019s budget divided by its blended cost-per-application from history.'],
-      ['Cost-per-application', 'What it has cost on average to generate one application in that location, blended across all four platforms. For locations with thin data, the figure is pulled toward the role-wide average so predictions stay grounded.'],
-      ['Likely range', 'A high-low range around the predicted number, built from how that location\u2019s cost-per-application has moved month-to-month. Wide range means volatile history, narrow means steady.'],
-      ['Hire CVR', 'The share of applications that go on to be hired, using the SMR historical rates from the May plan. It is fixed per region and platform, not recalculated from the plan. Patrol is assumed to convert at 0.933 of the SMR rate. Three regions (North East, Wales, Northern Ireland) have no data and show as such.'],
-      ['Predicted hires', 'Predicted applications multiplied by the Hire CVR. Hire numbers are small in many regions, so single-figure predictions are indicative rather than precise.'],
-      ['Cost per hire', 'Spend divided by predicted hires, using the SMR historical hire rates from the May plan. Shown as n/a where there is no hire data for the region.'],
+      ['Predicted applications', 'The applications each location\u2019s budget should produce. Calculated as the location\u2019s budget divided by its blended cost-per-application from history.'],
+      ['Cost per application', 'What one application has cost in that location, blended across the four platforms. Where a location has thin data the figure is pulled toward the role-wide average.'],
+      ['Likely range', 'A high and low around the predicted number, from how much cost per application has moved month to month over the period this plan is based on.'],
+      ['Hire CVR', 'The share of applications that go on to be hired, from RAC\u2019s own historic data. It is fixed per location and platform rather than recalculated from the plan, because hires lag by several weeks. Locations with no hire data show as such.'],
+      ['Predicted hires', 'Predicted applications multiplied by the location\u2019s hire rate, carrying the same range as applications.'],
+      ['Cost per hire', 'Spend divided by predicted hires. Hire rates are taken from RAC\u2019s own historic data and are not windowed, because hires lag by several weeks. Shown as n/a where a location has no hire data.'],
       ['Budget to hit target', 'The total spend it would take for the central prediction to land on the application target. Includes the two hold-backs.'],
       ['Platforms', 'The four conversion channels the plan distributes across: Indeed, Meta, Google (Search) and Appcast. Each location\u2019s budget is split between them in proportion to how it has been spent there historically.'],
-      ['On track / Close / Short', 'A traffic-light judgement. On track: predicted apps meet or exceed target. Close: target sits inside the likely range, just not the central estimate. Short: even the top of the likely range is below target.'],
+      ['On track / Close / Short', 'On track: predicted apps meet or exceed target. Close: target sits inside the likely range, just not the central estimate. Short: even the top of the likely range is below target.'],
     ];
     const gColW = (pageW - margin * 2 - 6) / 2;
     // Pre-measure glossary: walk the same column/page flow used to render it,
@@ -3456,7 +3458,7 @@ function exportPlanPDF(state, roleFilter) {
       setColor(NAVY); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(10);
       pdf.text('How your budget breaks down', leftX + 5, y + 6.5);
       setColor(MID); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8);
-      pdf.text('Hold-backs come off the top, then we split what is left', leftX + 5, y + 10.5);
+      pdf.text('Hold-backs come off the top, then the rest is split by open roles', leftX + 5, y + 10.5);
 
       function row(label, math, value, opts) {
         opts = opts || {};
@@ -3537,7 +3539,7 @@ function exportPlanPDF(state, roleFilter) {
       pdf.text('Where the budget goes: by location and platform', margin, y);
       pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8);
       setColor(MID);
-      pdf.text('Budget split is based on each location\u2019s historic platform mix. We put money where it has been working.',
+      pdf.text('Each location\u2019s budget goes to the platforms where hires cost the least, capped at the biggest month that location and platform has already spent.',
         margin, y + 4);
       y += 7;
 
@@ -3637,7 +3639,7 @@ function exportPlanPDF(state, roleFilter) {
       setColor(NAVY); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11);
       pdf.text(role + ': ' + ROLE_FULL[role], margin, cy);
       pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5); setColor(MID);
-      pdf.text('Spend across the four conversion platforms, with predicted applications and cost-per-application using each platform\u2019s historic rate for this role.',
+      pdf.text('Spend by platform, with predicted applications and cost per application at each platform\u2019s historic rate for this role.',
         margin, cy + 4.5);
       cy += 9;
 
@@ -3759,7 +3761,7 @@ function exportPlanPDF(state, roleFilter) {
       setColor(NAVY); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12);
       pdf.text(role + ' \u00B7 ' + PLATFORM_LABELS[plat], margin, ry);
       pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5); setColor(MID);
-      pdf.text('Every region for this role and platform. Regions with no live vacancy show zero spend but keep their historic rates. Three regions have no hire data.',
+      pdf.text('Every location for this role and platform. Locations with no open roles show zero spend and keep their historic rates.',
         margin, ry + 5);
       ry += 10;
       // Header
@@ -3876,6 +3878,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'The PDF says at the top of every page which data the plan is built on, all time or whichever window is picked.',
+    'Copy pass on the PDF. The budget-split note still described the old method of copying the historic platform mix. The glossary still said hire rates came from the May plan and still mentioned three locations with no hire data, both out of date. Took out the softer wording and the first-person phrasing.',
     'Fixed how the range on the whole plan is worked out. It was the average of each location\u2019s own range, which is the wrong measure: a single location swings more than the whole plan does. It is now measured on the role\u2019s own cost per application month by month, over whichever benchmark window is picked.',
     'That makes a real difference. SMR on all time reads 12.8 to 31.3 hires, which is not much use to anyone. On January to June it reads 14.5 to 20.9. Patrol stays wide at 5.6 to 14.3 on the same window, because Patrol genuinely is that volatile month to month.',
     'The prediction range now follows the benchmark window. It used to read every month on record whatever window was picked, so choosing recent months changed the cost per application but not how certain it was. On the last three months the range comes down from 39% to 29% for SMR and 43% to 35% for Patrol.',
