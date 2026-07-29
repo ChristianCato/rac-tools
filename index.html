@@ -1488,7 +1488,26 @@ function buildFundingPlan(role, p) {
       room.forEach(plat => { l.platSpend[plat] += give * ((capOf(plat) - l.platSpend[plat]) / headroom); });
       spare -= give;
     }
-    l.overCap = Math.max(0, spare);
+    // Whatever is still left goes out anyway, spread across the platforms in
+    // proportion to what they already hold. RAC have committed the budget, so
+    // the plan spends it. What it does not do is pretend that part is as well
+    // evidenced: every pound above a proven month is recorded per platform and
+    // reported, so the uncertain portion can be pointed at.
+    l.beyondProven = {};
+    PLATFORMS.forEach(plat => { l.beyondProven[plat] = 0; });
+    if (spare > 0.5) {
+      const on = PLATFORMS.filter(plat => l.onPlat[plat]);
+      const base = on.reduce((a, plat) => a + (l.platSpend[plat] || 0), 0);
+      on.forEach(plat => {
+        const share = base > 0 ? (l.platSpend[plat] || 0) / base : 1 / on.length;
+        const extra = spare * share;
+        l.platSpend[plat] = (l.platSpend[plat] || 0) + extra;
+        l.beyondProven[plat] = extra;
+      });
+      spare = 0;
+    }
+    l.beyondProvenTotal = PLATFORMS.reduce((a, plat) => a + l.beyondProven[plat], 0);
+    l.overCap = 0;
     l.spend = PLATFORMS.reduce((a, plat) => a + (l.platSpend[plat] || 0), 0);
     // Per-platform predicted apps
     l.platApps = {};
@@ -1713,7 +1732,8 @@ function buildFundingPlan(role, p) {
     });
   });
 
-  const unplaceable = locs.reduce((a, l) => a + (l.overCap || 0), 0);
+  const beyondProven = locs.reduce((a, l) => a + (l.beyondProvenTotal || 0), 0);
+  const unplaceable = 0;
   const predictedApps = locs.reduce((s, l) => s + l.predApps, 0);
   const predictedHires = locs.reduce((s, l) => s + l.predHires, 0);
   let bw = 0, bd = 0;
@@ -1728,7 +1748,7 @@ function buildFundingPlan(role, p) {
     : 0;
 
   return {
-    unplaceable,
+    unplaceable, beyondProven,
     role, daysInMonth, coverageRate,
     premiumHoldback, acHoldback, deployable,
     coverageReserve, demandPool,
@@ -2247,14 +2267,18 @@ function SetupTab({ state, setState, onOpenPriorities }) {
 
             {(() => {
               const pl = buildFundingPlan(role, { ...planParams(role, state), appTarget: state.appTarget[role] || 0 });
-              if (!(pl.unplaceable > 1)) return null;
+              if (!(pl.beyondProven > 1)) return null;
+              const pct = pl.deployable > 0 ? (pl.beyondProven / pl.deployable) * 100 : 0;
               return (
                 <div className="banner banner-warn" style={{ marginBottom: 14 }}>
                   <div className="banner-icon">!</div>
                   <div>
-                    <strong>{fmtGBP(pl.unplaceable)} will not fit.</strong> Every location and platform is at
-                    its ceiling, so there is nowhere left to put it without spending above a month that has
-                    already been run. Raise the ceiling, add locations, or lower the budget.
+                    <strong>{fmtGBP(pl.beyondProven)} of the {fmtGBP(pl.deployable)} deployable
+                    ({pct.toFixed(1)}%) sits above spend levels already run.</strong> It is still in the plan,
+                    because that is what the target needs on our estimate. It is worth saying plainly that
+                    this portion has not been tested at these levels, so its share of the prediction is less
+                    certain than the rest. Raising the ceiling on Setup moves money to wherever the estimate
+                    says it goes furthest; it does not make it any more proven.
                   </div>
                 </div>
               );
@@ -2549,6 +2573,12 @@ function PlanTab({ state, setState }) {
                   <td>Split across {liveCount} locations by open roles</td>
                   <td style={{ textAlign: 'right' }}>{fmtGBP(plan.demandPool)}</td>
                 </tr>
+                {plan.beyondProven > 1 && (
+                  <tr>
+                    <td>Of which above spend levels already run</td>
+                    <td style={{ textAlign: 'right', color: 'var(--warn)' }}>{fmtGBP(plan.beyondProven)}</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -3400,6 +3430,12 @@ function exportPlanPDF(state, roleFilter) {
       row('Split across ' + plan.totalCount + ' locations',
         'By each location\u2019s share of open roles',
         fmtGBP(plan.demandPool));
+      if (plan.beyondProven > 1) {
+        by += lineGap;
+        row('Of which above proven spend',
+          'No month at this level has been run in these locations, so this part is less certain',
+          fmtGBP(plan.beyondProven));
+      }
 
       // -- KPI tiles (right) --
       const tileW = (colW - colGap) / 2;
@@ -3772,7 +3808,7 @@ const CHANGELOG = [
     'Nothing is ever planned above what a location and platform has already spent in a month. That is now the default and it applies whichever way the budget is split, not just the new way. The old split had no ceiling at all and was putting money into cells above anything measured.',
     'Added a spend ceiling on Setup, set as a percentage of the biggest month each location and platform has already run. 100% means never above a proven figure. Raise it to 110% to stretch a little, and the number is on the page rather than buried in the model.',
     'Where a location has never run a platform, the ceiling is that platform\u2019s typical month across the locations that have. Still a figure that has been spent somewhere, rather than a number picked out of the air.',
-    'If the budget cannot fit under the ceilings, Setup says how much will not fit instead of quietly spending it anyway. On July SMR at 70,000 pounds, about 3,200 has nowhere to go.',
+    'When the budget goes past what has already been spent, it is still spent, because that is what the target needs on our estimate. What changes is that the plan says how much of it sits above proven levels and shows it as its own line on Setup, in the workings and in the PDF. On July SMR that is 3,212 pounds of 62,908, so 5.1%. Patrol fits inside proven spend entirely.',
     'Added a second way of splitting a location\u2019s budget across platforms, on Setup. The old way copies whatever the split has historically been. The new one sends money wherever the next application is cheapest, using a spend response curve fitted per platform from every location month on record. On July SMR at 70,000 pounds it moves about 12,000 off Indeed onto Google and Appcast and predicts 196 more applications, 45 pounds each instead of 52. Default is still the old way so nothing changes on its own.',
     'The curve shape is fitted per platform, not per location. A single location has six or eight months and fits to nonsense: Google London came out saying more spend buys fewer applications. Each location sets its own scale from its own cost per application, so local knowledge is kept without inventing a curve from noise.',
     'Every location and platform is capped at 1.75 times the biggest month it has actually done. Appcast is cheapest at the margin by a distance but has never taken more than 1,640 pounds in a month, and without the cap the curve would happily send it 20,000.',
