@@ -1554,6 +1554,9 @@ function buildFundingPlan(role, p) {
     });
     l.predHires = totHires;
     l.hireCvr = l.predApps > 0 ? l.predHires / l.predApps : 0;
+    // Fewer applications means fewer hires. Same rate, same band.
+    l.predHiresLow = l.predHires * (1 - l.bandPct / 100);
+    l.predHiresHigh = l.predHires * (1 + l.bandPct / 100);
     l.cph = l.predHires > 0 ? l.spend / l.predHires : null;
   });
 
@@ -1664,6 +1667,8 @@ function buildFundingPlan(role, p) {
       });
       l.predHires = totHires;
       l.hireCvr = l.predApps > 0 ? l.predHires / l.predApps : 0;
+      l.predHiresLow = l.predHires * (1 - l.bandPct / 100);
+      l.predHiresHigh = l.predHires * (1 + l.bandPct / 100);
       l.cph = l.predHires > 0 ? l.spend / l.predHires : null;
     });
   }
@@ -1702,6 +1707,8 @@ function buildFundingPlan(role, p) {
       cvr: platformBlendedCVR(plat, role, locs),
       hireCvr: apps > 0 ? hires / apps : 0,
       predHires: hires,
+      predHiresLow: locs.reduce((a, l) => a + (l.predHiresLow || 0), 0),
+      predHiresHigh: locs.reduce((a, l) => a + (l.predHiresHigh || 0), 0),
       cph: hires > 0 ? spend / hires : null,
       cpa: apps > 0 ? spend / apps : 0,
       predApps: apps,
@@ -1761,6 +1768,8 @@ function buildFundingPlan(role, p) {
   locs.forEach(l => { if (l.predApps > 0) { bw += l.bandPct * l.predApps; bd += l.predApps; } });
   const aggBandPct = bd > 0 ? bw / bd : 35;
   const predLow = predictedApps * (1 - aggBandPct / 100);
+  const predictedHiresLow = predictedHires * (1 - aggBandPct / 100);
+  const predictedHiresHigh = predictedHires * (1 + aggBandPct / 100);
   const predHigh = predictedApps * (1 + aggBandPct / 100);
 
   const appsPerPound = deployable > 0 ? predictedApps / deployable : 0;
@@ -1777,6 +1786,7 @@ function buildFundingPlan(role, p) {
     platBreaches, platClamped: clamped, platMin, platMax,
     regionMin, regionMax, regionClamped, unplacedBudget,
     appTarget, predictedApps, predLow, predHigh, aggBandPct, predictedHires,
+    predictedHiresLow, predictedHiresHigh,
     onTarget: appTarget > 0 && predictedApps >= appTarget,
     pctOfTarget: appTarget > 0 ? predictedApps / appTarget : (predictedApps > 0 ? 1 : 0),
     budgetForTarget, budget: p.budget || 0,
@@ -2293,22 +2303,15 @@ function SetupTab({ state, setState, onOpenPriorities }) {
                 <div className="banner banner-warn" style={{ marginBottom: 14 }}>
                   <div className="banner-icon">!</div>
                   <div>
-                    <strong>{fmtGBP(pl.beyondProven)} of the {fmtGBP(pl.deployable)} deployable
-                    ({pct.toFixed(1)}%) sits above spend levels already run.</strong> It is still in the plan,
-                    because that is what the target needs on our estimate. It is worth saying plainly that
-                    this portion has not been tested at these levels, so its share of the prediction is less
-                    certain than the rest. Raising the ceiling on Setup moves money to wherever the estimate
-                    says it goes furthest; it does not make it any more proven.
+                    <strong>{fmtGBP(pl.beyondProven)} ({pct.toFixed(0)}%) is above spend levels already
+                    run.</strong> It is in the plan. That part is an estimate rather than something measured.
                   </div>
                 </div>
               );
             })()}
             <div className="section-label">How the budget splits across platforms</div>
             <div className="help-text" style={{ marginBottom: 10 }}>
-              Within each location, money goes wherever the next hire is cheapest. Every platform gets
-              dearer per application the more it takes, and they turn applications into hires at different
-              rates, so both are taken into account. A platform with no hire rate on record keeps its
-              historic share rather than being handed money on a guess.
+              Each location's budget goes to the platforms where hires cost the least.
             </div>
             <div className="dial-row" style={{ marginBottom: 8 }}>
               <label className="field-label" style={{ flex: 'none' }}>Spend ceiling</label>
@@ -2319,10 +2322,7 @@ function SetupTab({ state, setState, onOpenPriorities }) {
                   update({ capMultiple: isFinite(n) ? Math.min(3, Math.max(1, n / 100)) : 1 });
                 }} />
               <span className="help-text" style={{ flex: 1 }}>
-                Of the biggest month each location and platform has already run.
-                {(state.capMultiple || 1) > 1
-                  ? ' Above 100%, so some of the plan sits past anything measured.'
-                  : ' At 100% nothing is planned above a spend level already proven.'}
+                Of the biggest month each location and platform has already spent.
               </span>
             </div>
 
@@ -2521,7 +2521,10 @@ function PlanTab({ state, setState }) {
           <div className="kpi kpi-accent-blue">
             <div className="kpi-label">Predicted hires</div>
             <div className="kpi-value mono">{plan.predictedHires.toFixed(1)}</div>
-            <div className="kpi-sub">{plan.predictedHires > 0 ? fmtGBP(plan.deployable / plan.predictedHires) + ' per hire' : 'from RAC hire rates'}</div>
+            <div className="kpi-sub">
+              likely {plan.predictedHiresLow.toFixed(1)}&ndash;{plan.predictedHiresHigh.toFixed(1)}
+              {plan.predictedHires > 0 ? ' \u00B7 ' + fmtGBP(plan.deployable / plan.predictedHires) + ' per hire' : ''}
+            </div>
           </div>
           <div className="kpi kpi-accent-navy">
             <div className="kpi-label">Application target</div>
@@ -3330,6 +3333,7 @@ function exportPlanPDF(state, roleFilter) {
       ['Indeed Premium', 'A fixed daily cost for Indeed\u2019s premium campaigns, held back off the top. Calculated as campaigns \u00D7 days in the month \u00D7 \u00A344 per day per campaign.'],
       ['Combined Activity', 'A flat amount held back for brand-level activity not tied to a specific location.'],
       ['Deployable budget', 'What is left after the two hold-backs. This is the money actually distributed across locations.'],
+      ['Predicted hires', 'Predicted applications multiplied by the location\u2019s historic hire rate. It carries the same range as applications: fewer applications means fewer hires at the same rate.'],
       ['Spend ceiling', 'The most a location and platform can be given: the biggest month it has already spent. Nothing in the plan rests on a spend level that has never been run.'],
       ['Split by open roles', 'The deployable budget divided between locations by their share of open roles: more roles means a bigger share.'],
       ['App target', 'RAC\u2019s application goal for the role; the number the plan is judged against. In the table, each row\u2019s App target is that location\u2019s share, allocated by demand: a location with 22 of 79 open roles is responsible for 22/79 of the total.'],
@@ -3473,7 +3477,9 @@ function exportPlanPDF(state, roleFilter) {
         plan.appTarget > 0 ? fmtInt(plan.appTarget) : 'Not set',
         plan.appTarget > 0 ? 'plan delivers ' + pct + '%' : 'not set', NAVY);
       tile(rightX, blockTop + tileH + colGap, 'Predicted hires', plan.predictedHires.toFixed(1),
-        plan.predictedHires > 0 ? fmtGBP(plan.deployable / plan.predictedHires) + ' per hire' : 'from RAC hire rates', BLUE);
+        plan.predictedHires > 0
+          ? 'likely ' + plan.predictedHiresLow.toFixed(1) + '\u2013' + plan.predictedHiresHigh.toFixed(1)
+          : 'from RAC hire rates', BLUE);
       const gap = plan.budgetForTarget - plan.budget;
       tile(rightX + tileW + colGap, blockTop + tileH + colGap, 'Budget to hit target',
         plan.budgetForTarget > 0 ? fmtGBP(plan.budgetForTarget) : '-',
@@ -3641,6 +3647,11 @@ function exportPlanPDF(state, roleFilter) {
         if (ch.cvr > 0) pdf.text((ch.cvrLow * 100).toFixed(1) + '\u2013' + (ch.cvrHigh * 100).toFixed(1) + '%', cc.share, cy + 8.4);
         if (ch.predApps > 0) pdf.text(fmtInt(ch.predLow) + '\u2013' + fmtInt(ch.predHigh), cc.apps, cy + 8.4);
         if (ch.cpa > 0) pdf.text(fmtGBP(ch.cpaLow) + '\u2013' + fmtGBP(ch.cpaHigh), cc.cpa, cy + 8.4);
+        if (ch.predHires > 0 && ch.predApps > 0) {
+          const band = ch.predLow / ch.predApps;
+          pdf.text((ch.predHires * band).toFixed(1) + '\u2013' + (ch.predHires * (2 - band)).toFixed(1),
+            cc.hires, cy + 8.4);
+        }
         setColor(INK); pdf.setFontSize(8.5);
         totalApps += ch.predApps; totalHires += ch.predHires;
         cy += CHROW;
@@ -3663,6 +3674,12 @@ function exportPlanPDF(state, roleFilter) {
       // Blended hire CVR and CPH from totals
       pdf.text(totalApps > 0 ? (totalHires / totalApps * 100).toFixed(2) + '%' : 'n/a', cc.hcvr, cy + 4.7);
       pdf.text(totalHires.toFixed(1), cc.hires, cy + 4.7);
+      if (totalApps > 0 && totalHires > 0) {
+        const b = plan.aggBandPct / 100;
+        pdf.setFontSize(6.6);
+        pdf.text((totalHires * (1 - b)).toFixed(1) + '\u2013' + (totalHires * (1 + b)).toFixed(1), cc.hires, cy + 8.4);
+        pdf.setFontSize(8.5);
+      }
       pdf.text(totalHires > 0 ? fmtGBP(plan.deployable / totalHires) : 'n/a', cc.cph, cy + 4.7);
       // Total range sub-lines
       const abp = plan.aggBandPct || 35;
@@ -3817,6 +3834,9 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Predicted hires now carries a range, on screen and in the PDF, alongside the headline number and on every line of the by-channel table. Applications had a range and hires did not, which made hires look like the more certain number when it is applications multiplied by a rate. Same rate across the range: fewer applications means fewer hires.',
+    'Folding months into the benchmarks now saves them for everyone straight away, the same as plans and priorities. Updating the master sheet no longer means downloading a file and putting it in the repository. The download is still there as a backstop, along with an undo that goes back to the numbers the tool starts from.',
+    'Plainer wording on Setup for how the split works and for the above-proven figure.',
     'Changed how a location\u2019s budget splits across platforms. It used to copy whatever the split had historically been, which took no account of what anything cost. It now goes wherever the next hire is cheapest, using a spend response curve fitted per platform and each location\u2019s own hire rate, held to spend levels already run. On July that is 22.0 SMR hires against 21.1 and 11.8 Patrol against 11.2, on the same budget.',
     'It works on the cost of the next hire rather than the next application. Working on applications made Patrol worse: it pushed money into Appcast, which converts to applications well and to hires badly, so applications went up and hires went down.',
     'No toggle for it. There is one method rather than a choice to make.',
@@ -6648,7 +6668,8 @@ function DataTool() {
   const [digest, setDigest] = useState(null);
   const [busy, setBusy] = useState('');
   const [chosen, setChosen] = useState({});
-  const [applied, setApplied] = useState(lsGet('data-updates', null));
+  const [applied, setApplied] = useState(window.__RAC_BENCH__ || null);
+  const [saving, setSaving] = useState('');
   const [, bump] = useState(0);
   const fileRef = useRef(null);
 
@@ -6705,8 +6726,9 @@ function DataTool() {
     return { incoming, after };
   }, [months.join(','), digest, before]);
 
-  const doApply = () => {
+  const doApply = async () => {
     applyMonths(months, digest.cells);
+    // Keep only the months being folded in, so the row stays small.
     const store = { at: todayISO(), months, cells: {} };
     PLATFORMS.forEach(p => {
       store.cells[p] = {};
@@ -6716,10 +6738,20 @@ function DataTool() {
         if (Object.keys(keep).length) store.cells[p][k] = keep;
       });
     });
-    lsSet('data-updates', store);
-    setApplied(store);
+    // Merge with anything folded in previously, so older months are not lost.
+    const merged = { at: store.at, months: [...new Set([...(applied ? applied.months : []), ...months])].sort(), cells: {} };
+    PLATFORMS.forEach(p => {
+      merged.cells[p] = { ...((applied && applied.cells && applied.cells[p]) || {}) };
+      Object.keys(store.cells[p]).forEach(k => {
+        merged.cells[p][k] = { ...(merged.cells[p][k] || {}), ...store.cells[p][k] };
+      });
+    });
     setDigest(null);
+    setApplied(merged);
     bump(x => x + 1);
+    setSaving('saving');
+    try { await sbSet('benchmarks', merged); setSaving('saved'); }
+    catch (e) { setSaving('failed'); }
   };
 
   const download = () => {
@@ -6732,10 +6764,6 @@ function DataTool() {
     URL.revokeObjectURL(a.href);
   };
 
-  const revert = () => {
-    lsSet('data-updates', null);
-    window.location.reload();
-  };
 
   const s = digest && digest.skipped;
 
@@ -6750,13 +6778,14 @@ function DataTool() {
       </div>
 
       {applied && (
-        <div className="banner banner-warn">
-          <div className="banner-icon">!</div>
+        <div className={'banner ' + (saving === 'failed' ? 'banner-bad' : 'banner-good')}>
+          <div className="banner-icon">{saving === 'failed' ? '!' : '\u2713'}</div>
           <div>
-            <strong>Not published yet.</strong> {applied.months.join(', ')} folded in on {applied.at}.
-            Until the file is published, everyone else is on the old numbers.
-            {' '}<a href="#" className="link-inline" onClick={e => { e.preventDefault(); download(); }}>Download it again</a>
-            {' '}or <a href="#" className="link-inline" onClick={e => { e.preventDefault(); revert(); }}>go back to the published data</a>.
+            {saving === 'failed'
+              ? <><strong>Saved here but not to the server.</strong> Everyone else is still on the old
+                  numbers. Try again, or download the file below as a backstop.</>
+              : <>{applied.months.join(', ')} folded in on {applied.at}. Everyone signed in sees these
+                  numbers.{saving === 'saving' ? ' Saving...' : ''}</>}
           </div>
         </div>
       )}
@@ -6889,17 +6918,24 @@ function DataTool() {
 
       <div className="card">
         <div className="card-head">
-          <div className="card-title">Publish it</div>
+          <div className="card-title">Keeping a copy</div>
           
         </div>
         <div className="card-body">
           <div className="help-text" style={{ marginBottom: 12 }}>
-            The tool reads its history from a single file, so updating it for everyone means replacing that
-            file. Download it here, then put it in the rac-tools repository, on main, replacing the existing
-            rac_data.js. Give the page a hard refresh a minute later and the new numbers are live for
-            everyone. Nothing else needs changing, and none of this needs me.
+            Folding months in saves them for everyone straight away. The download below is only a backstop,
+            for keeping a copy or for putting the numbers back into the file the tool starts from.
           </div>
           <button className="btn" onClick={download}>Download rac_data.js</button>
+          {applied && (
+            <a href="#" className="link-inline" style={{ marginLeft: 14 }}
+              onClick={async e => {
+                e.preventDefault();
+                if (!window.confirm('Undo the folded-in months and go back to the numbers the tool starts from?')) return;
+                try { await sbSet('benchmarks', null); } catch (err) { /* reload will show the truth */ }
+                window.location.reload();
+              }}>Undo and go back to the starting numbers</a>
+          )}
         </div>
       </div>
     </div>
@@ -7392,6 +7428,25 @@ function App() {
 
 function Root() {
   const [inSession, setInSession] = useState(() => { sbCatchSession(); return sbSignedIn(); });
+  // Folded-in months live on the server, so everyone gets them without anyone
+  // republishing a file. They have to be applied before a single figure is
+  // worked out, so nothing renders until this has been tried.
+  const [benchReady, setBenchReady] = useState(false);
+  useEffect(() => {
+    if (!inSession) { setBenchReady(false); return; }
+    let live = true;
+    (async () => {
+      try {
+        const b = await sbGet('benchmarks');
+        if (b && b.cells && b.months) {
+          window.__RAC_BENCH__ = b;
+          applyMonths(b.months, b.cells);
+        }
+      } catch (e) { /* fall back to the numbers the file ships with */ }
+      if (live) setBenchReady(true);
+    })();
+    return () => { live = false; };
+  }, [inSession]);
   useEffect(() => {
     // Any request that comes back unauthorised and cannot be refreshed drops
     // straight back here, so there is no need for a sign out button.
@@ -7399,6 +7454,7 @@ function Root() {
     return () => { onSignedOut = () => {}; };
   }, []);
   if (!inSession) return <SignIn onIn={() => setInSession(true)} />;
+  if (!benchReady) return <div className="signin-wrap"><div className="signin">Loading...</div></div>;
   return <App />;
 }
 
