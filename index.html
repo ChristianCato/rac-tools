@@ -4116,6 +4116,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Fixed the Windsor button failing with "sign-in could not be verified" about an hour after signing in. It was the one call that did not renew the session first, so it sent whatever token was sitting in the browser while everything else renewed and carried on working. It now renews before it asks, and retries once if it is still refused.',
+    'The Windsor button also says why a sign-in was refused rather than just that it was. If the function is pointed at a different Supabase project than the one you signed in to, it names both.',
     'Workings export rebuilt. Read me sheet gone and the notes under each table gone. Clicks and apply rate are now on the Workings sheet as well as the raw data, and where clicks were never recorded it says so rather than leaving a blank that looks like a nought.',
     'Every calculation in the workbook is a live Excel formula rather than a pasted number. Cost per application reads =D5/E5, predicted applications reads =J5/I5, the location totals are SUM ranges and the Summary points at the Workings total. Click any cell and the arithmetic is there.',
     'SMR or Patrol is picked in the header before exporting, and only that one comes out. Both buttons used to fire twice and produce a file you did not want.',
@@ -6128,11 +6130,25 @@ function WindsorPull({ month, lastDay, priRows, onApply }) {
     if (!sbSignedIn()) { setState({ status: 'error', msg: 'Sign in first, using the button at the top.' }); return; }
     setState({ status: 'busy' });
     try {
-      const r = await fetch('/api/windsor-spend?from=' + from + '&to=' + to, {
-        headers: { Authorization: 'Bearer ' + SB_TOKEN.access_token },
+      // Renew the session first. This is the one call that does not go
+      // through sbFetch, so without this it sends whatever token was in the
+      // browser and fails an hour after signing in.
+      await sbFresh();
+      let r = await fetch('/api/windsor-spend?from=' + from + '&to=' + to, {
+        headers: { Authorization: 'Bearer ' + (SB_TOKEN && SB_TOKEN.access_token) },
       });
+      if (r.status === 401 && await sbRefresh()) {
+        r = await fetch('/api/windsor-spend?from=' + from + '&to=' + to, {
+          headers: { Authorization: 'Bearer ' + (SB_TOKEN && SB_TOKEN.access_token) },
+        });
+      }
       const j = await r.json();
-      if (!r.ok) throw new Error(j.error || ('Request failed: ' + r.status));
+      if (!r.ok) {
+        const extra = [j.reason, j.signedInTo && ('signed in to ' + j.signedInTo),
+          j.serverConfiguredFor && ('server set to ' + j.serverConfiguredFor), j.fix, j.hint]
+          .filter(Boolean).join(' \u00B7 ');
+        throw new Error((j.error || ('Request failed: ' + r.status)) + (extra ? ' ' + extra : ''));
+      }
       if (!j.rows || !j.rows.length) throw new Error('Windsor returned nothing for ' + from + ' to ' + to + '.');
       const parsed = parsePlatformPaste(rowsToCsv(j.rows), priRows);
       if (parsed.error) throw new Error(parsed.error);
