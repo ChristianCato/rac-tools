@@ -416,7 +416,22 @@ input[type=range]::-moz-range-thumb {
   background: rgba(255,255,255,0.12); color: #9DB0CC; margin-right: 10px;
 }
 .sync-ok { color: #8FD3AE; }
-.sync-signedout { color: #E8C68A; }
+.signin-wrap {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: var(--rac-navy); padding: 20px;
+}
+.signin {
+  background: #fff; border-radius: 12px; padding: 34px 32px;
+  width: 100%; max-width: 380px; text-align: center;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+}
+.signin h1 { font-size: 19px; margin: 0 0 6px; color: var(--ink); }
+.signin-sub { font-size: 13px; color: var(--ink-55); margin: 0 0 18px; line-height: 1.5; }
+.signin .text-input { text-align: center; }
+.signin-note { font-size: 12px; color: var(--ink-55); margin-top: 8px; }
+.signin-err { font-size: 12.5px; color: var(--bad); margin-top: 8px; }
+.signin-done { font-size: 13.5px; color: var(--ink-70); line-height: 1.6; }
+.signin-done div { margin: 6px 0 10px; color: var(--ink-55); font-size: 12.5px; }
 .sync-offline { color: #F0A9A0; background: rgba(192,57,43,0.25); }
 .month-bar .dirty-dot {
   width: 7px; height: 7px; border-radius: 50%;
@@ -1575,13 +1590,49 @@ const SB_URL = SB_PROJECT + '/rest/v1/rac_state';
 const SB_KEY = 'sb_publishable_lcxts4vXscQ6UIP4saTplA_OwlnG-c6';
 let SB_TOKEN = null;
 try { SB_TOKEN = JSON.parse(localStorage.getItem('rac-session') || 'null'); } catch (e) {}
+const ALLOWED_DOMAIN = '@enhancemedia.co.uk';
+
+let onSignedOut = () => {};
+const sbSignedIn = () => !!(SB_TOKEN && SB_TOKEN.access_token);
+function sbClear() { SB_TOKEN = null; localStorage.removeItem('rac-session'); }
+function sbStore(tok) { SB_TOKEN = tok; localStorage.setItem('rac-session', JSON.stringify(tok)); }
+
+// Access tokens last about an hour. Without this the tool went Offline
+// mid-session for no reason anyone could see.
+async function sbRefresh() {
+  if (!SB_TOKEN || !SB_TOKEN.refresh_token) return false;
+  const r = await fetch(SB_PROJECT + '/auth/v1/token?grant_type=refresh_token', {
+    method: 'POST',
+    headers: { apikey: SB_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: SB_TOKEN.refresh_token }),
+  });
+  if (!r.ok) return false;
+  const j = await r.json();
+  if (!j.access_token) return false;
+  sbStore({ access_token: j.access_token, refresh_token: j.refresh_token || SB_TOKEN.refresh_token });
+  return true;
+}
+
 const sbHead = () => ({
   apikey: SB_KEY,
   Authorization: 'Bearer ' + ((SB_TOKEN && SB_TOKEN.access_token) || SB_KEY),
   'Content-Type': 'application/json',
 });
 
-// Magic link, so there is no password to hold anywhere.
+// One place every request goes through, so the refresh only has to exist once.
+async function sbFetch(url, opts, retry) {
+  const o = { ...(opts || {}) };
+  o.headers = { ...sbHead(), ...((opts || {}).headers || {}) };
+  const r = await fetch(url, o);
+  if ((r.status === 401 || r.status === 403) && !retry) {
+    if (await sbRefresh()) return sbFetch(url, opts, true);
+    sbClear();
+    onSignedOut();
+    throw new Error('Signed out');
+  }
+  return r;
+}
+
 async function sbSendLink(email) {
   const r = await fetch(SB_PROJECT + '/auth/v1/otp', {
     method: 'POST',
@@ -1589,38 +1640,22 @@ async function sbSendLink(email) {
     body: JSON.stringify({ email, create_user: true,
       options: { email_redirect_to: window.location.origin + window.location.pathname } }),
   });
-  if (!r.ok) throw new Error((await r.json()).msg || 'Could not send the link.');
+  if (!r.ok) {
+    let msg = 'Could not send the link.';
+    try { msg = (await r.json()).msg || msg; } catch (e) {}
+    throw new Error(msg);
+  }
 }
-// Supabase returns the session in the URL fragment after the link is clicked.
+
 function sbCatchSession() {
   const h = window.location.hash || '';
   if (!h.includes('access_token')) return false;
   const p = new URLSearchParams(h.slice(1));
   const tok = { access_token: p.get('access_token'), refresh_token: p.get('refresh_token') };
   if (!tok.access_token) return false;
-  SB_TOKEN = tok;
-  localStorage.setItem('rac-session', JSON.stringify(tok));
+  sbStore(tok);
   history.replaceState(null, '', window.location.pathname);
   return true;
-}
-function sbSignOut() { SB_TOKEN = null; localStorage.removeItem('rac-session'); }
-const sbSignedIn = () => !!(SB_TOKEN && SB_TOKEN.access_token);
-
-async function sbGet(key) {
-  const r = await fetch(SB_URL + '?k=eq.' + key + '&select=v', { headers: sbHead() });
-  if (!r.ok) throw new Error('read failed: ' + r.status);
-  const rows = await r.json();
-  return rows.length ? rows[0].v : null;
-}
-// ponytail: last write wins. Two people editing the same month at the same
-// minute will clobber each other. Add a version column if that ever happens.
-async function sbSet(key, value) {
-  const r = await fetch(SB_URL + '?on_conflict=k', {
-    method: 'POST',
-    headers: { ...sbHead(), Prefer: 'resolution=merge-duplicates' },
-    body: JSON.stringify({ k: key, v: value, updated_at: new Date().toISOString() }),
-  });
-  if (!r.ok) throw new Error('write failed: ' + r.status);
 }
 
 function lsGet(key, fallback) {
@@ -3427,6 +3462,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Sign in is now required. No local-only mode, no sign out button, and only enhancemedia.co.uk addresses. The address is checked in the page and again by the database, so a link sent anywhere else gets nowhere.',
+    'Fixed the tool dropping to Offline for no visible reason. Sessions expire after about an hour and were never being renewed. Requests now renew the session and retry, and a save that fails keeps retrying rather than being thrown away. If a session cannot be renewed you land back on the sign in screen instead of quietly working on your own copy.',
     'Benchmarks can be set to a date range. Presets for all time, last six months and last three, plus a from and to month picker for a specific window like May to June. It says how far off all time that window is, so the difference is on the page rather than something to work out.',
     'Benchmarks now shows cost per hire alongside cost per application. Hire rates stay on the whole history whatever window is picked, because hires lag by weeks and a short window never has enough of them, so cost per hire is the window\u2019s cost per application divided by the all-time hire rate.',
     'Months of data now says which months, not just how many. Nine months reads as "9, Oct 25 to Jun 26".',
@@ -6661,6 +6698,53 @@ function CompareView({ month, container, onClose }) {
   );
 }
 
+function SignIn({ onIn }) {
+  const [email, setEmail] = useState('');
+  const [state, setState] = useState({ status: 'idle' });
+  const ok = email.trim().toLowerCase().endsWith(ALLOWED_DOMAIN);
+
+  const send = async () => {
+    if (!ok) return;
+    setState({ status: 'sending' });
+    try { await sbSendLink(email.trim().toLowerCase()); setState({ status: 'sent' }); }
+    catch (e) { setState({ status: 'error', msg: e.message }); }
+  };
+
+  return (
+    <div className="signin-wrap">
+      <div className="signin">
+        <div className="logo-mark" style={{ marginBottom: 14 }}>R</div>
+        <h1>RAC Planning Tools</h1>
+        <p className="signin-sub">Enhance Media only. Sign in with your work email and we will send you a link.</p>
+        {state.status === 'sent' ? (
+          <div className="signin-done">
+            <strong>Link sent to {email.trim().toLowerCase()}.</strong>
+            <div>Open it on this device. It expires after an hour.</div>
+            <a href="#" className="link-inline" onClick={e => { e.preventDefault(); setState({ status: 'idle' }); }}>
+              Use a different address
+            </a>
+          </div>
+        ) : (
+          <>
+            <input className="text-input" type="email" placeholder="you@enhancemedia.co.uk"
+              value={email} autoFocus
+              onChange={e => setEmail(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') send(); }} />
+            {email.trim() && !ok && (
+              <div className="signin-note">Needs to be an {ALLOWED_DOMAIN} address.</div>
+            )}
+            {state.status === 'error' && <div className="signin-err">{state.msg}</div>}
+            <button className="btn btn-primary" style={{ width: '100%', marginTop: 10 }}
+              disabled={!ok || state.status === 'sending'} onClick={send}>
+              {state.status === 'sending' ? 'Sending...' : 'Send me a link'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ====================================================================
 // MAIN APP
 // ====================================================================
@@ -6677,7 +6761,6 @@ function App() {
   const pendingRef = useRef(false);
 
   const pull = React.useCallback(async () => {
-    if (!sbSignedIn()) { setSync('signedout'); return; }
     if (pendingRef.current) return;   // our own change has not gone up yet
     try {
       const remote = await sbGet('workspace');
@@ -6704,14 +6787,18 @@ function App() {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       lsSet('v3-workspace', next);
       // Local first so typing stays instant, shared a moment later.
-      if (!sbSignedIn()) return next;
       pendingRef.current = true;
       clearTimeout(pushRef.current);
       pushRef.current = setTimeout(() => {
         setSync('saving');
-        sbSet('workspace', next)
+        const attempt = (n) => sbSet('workspace', next)
           .then(() => { pendingRef.current = false; setSync('ok'); })
-          .catch(() => { pendingRef.current = false; setSync('offline'); });
+          .catch(() => {
+            setSync('offline');
+            if (n < 4) setTimeout(() => attempt(n + 1), 2000 * (n + 1));
+            else pendingRef.current = false;
+          });
+        attempt(0);
       }, 800);
       return next;
     });
@@ -6818,21 +6905,14 @@ function App() {
         </div>
         <div className="spacer" />
         <span className={'sync sync-' + sync} title={
-          sync === 'ok' ? 'Everyone sees the same numbers'
+          sync === 'ok' ? 'Saved for everyone'
             : sync === 'saving' ? 'Saving'
-            : sync === 'signedout' ? 'Working on this browser only. Sign in to share.'
-            : sync === 'offline' ? 'Could not reach the shared copy. Changes are on this browser only.'
-            : 'Loading the shared copy'}>
-          {sync === 'ok' ? 'Shared' : sync === 'saving' ? 'Saving'
-            : sync === 'signedout' ? 'This browser only' : sync === 'offline' ? 'Offline' : 'Loading'}
+            : sync === 'offline' ? 'Could not reach the server. Retrying.'
+            : 'Loading'}>
+          {sync === 'ok' ? 'Saved' : sync === 'saving' ? 'Saving'
+            : sync === 'offline' ? 'Reconnecting' : 'Loading'}
         </span>
-        <button className="btn btn-sm" style={{ marginRight: 10 }} onClick={async () => {
-          if (sbSignedIn()) { sbSignOut(); setSync('signedout'); return; }
-          const email = window.prompt('Work email address for the sign-in link');
-          if (!email) return;
-          try { await sbSendLink(email.trim()); window.alert('Link sent. Open it on this device.'); }
-          catch (e) { window.alert(e.message); }
-        }}>{sbSignedIn() ? 'Sign out' : 'Sign in'}</button>
+
         {tool === 'planner' && (
           <button className="btn btn-sm btn-primary" onClick={() => exportPDF(plannerState)}>
             Export PDF
@@ -6940,8 +7020,20 @@ function App() {
   );
 }
 
+function Root() {
+  const [inSession, setInSession] = useState(() => { sbCatchSession(); return sbSignedIn(); });
+  useEffect(() => {
+    // Any request that comes back unauthorised and cannot be refreshed drops
+    // straight back here, so there is no need for a sign out button.
+    onSignedOut = () => setInSession(false);
+    return () => { onSignedOut = () => {}; };
+  }, []);
+  if (!inSession) return <SignIn onIn={() => setInSession(true)} />;
+  return <App />;
+}
+
 const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(<App />);
+root.render(<Root />);
 </script>
 </body>
 </html>
