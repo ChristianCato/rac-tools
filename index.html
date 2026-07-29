@@ -967,7 +967,14 @@ function splitByResponse(budget, plats, curves, caps) {
   let lo = 1, hi = 1e7;
   const total = (lam) => usable.reduce((s, p) =>
     s + Math.min(caps[p], Math.max(0, spendForMarginal(curves[p], lam))), 0);
-  if (total(hi) < budget) return null;      // caps bind before the budget is spent
+  if (total(hi) < budget) {
+    // The ceilings bind before the budget is spent, so there is only one
+    // possible answer: every platform goes to its ceiling and the rest is
+    // handled as spend above proven levels further down.
+    const out = {};
+    usable.forEach(p => { out[p] = caps[p]; });
+    return { split: out, marginal: null, capped: true };
+  }
   for (let i = 0; i < 60; i++) {
     const mid = (lo + hi) / 2;
     if (total(mid) < budget) lo = mid; else hi = mid;
@@ -1461,7 +1468,7 @@ function buildFundingPlan(role, p) {
     // Marginal-cost split where the plan asks for it and there are curves to
     // use; historic share otherwise, and for any platform without a curve.
     let done = false;
-    if (p.splitMode === 'response') {
+    {
       const on = PLATFORMS.filter(plat => l.onPlat[plat] && l.curves[plat] && l.curves[plat].hireRate > 0);
       const off = PLATFORMS.filter(plat => l.onPlat[plat] && !(l.curves[plat] && l.curves[plat].hireRate > 0));
       // Platforms with no curve keep their historic share of the money first.
@@ -1486,7 +1493,10 @@ function buildFundingPlan(role, p) {
     // reported rather than quietly spent anyway.
     l.overCap = 0;
     const capOf = (plat) => (l.onPlat[plat] ? l.caps[plat] : 0);
-    let spare = 0;
+    // Where the ceilings could not take the whole of this location's budget,
+    // the split hands back what would not fit. Pick it up here so it is spent
+    // and flagged rather than quietly lost.
+    let spare = Math.max(0, l.spend - PLATFORMS.reduce((a, plat) => a + (l.platSpend[plat] || 0), 0));
     PLATFORMS.forEach(plat => {
       const c = capOf(plat);
       if (l.platSpend[plat] > c) { spare += l.platSpend[plat] - c; l.platSpend[plat] = c; }
@@ -1801,7 +1811,6 @@ function planParams(role, s) {
     regionMin: (s.regionMin && s.regionMin[role]) || {},
     regionMax: (s.regionMax && s.regionMax[role]) || {},
     daysInMonth: (DATA.days_in_month && DATA.days_in_month[s.planMonth]) || 30,
-    splitMode: s.splitMode || 'historic',
     capMultiple: s.capMultiple || 1.0,
   };
 }
@@ -2295,13 +2304,11 @@ function SetupTab({ state, setState, onOpenPriorities }) {
               );
             })()}
             <div className="section-label">How the budget splits across platforms</div>
-            <div className="dial-row" style={{ marginBottom: 8 }}>
-              <div className="role-switch">
-                {[['historic', 'As it has been'], ['response', 'By what the next hire costs']].map(([id, label]) => (
-                  <button key={id} className={(state.splitMode || 'historic') === id ? 'active' : ''}
-                    onClick={() => update({ splitMode: id })}>{label}</button>
-                ))}
-              </div>
+            <div className="help-text" style={{ marginBottom: 10 }}>
+              Within each location, money goes wherever the next hire is cheapest. Every platform gets
+              dearer per application the more it takes, and they turn applications into hires at different
+              rates, so both are taken into account. A platform with no hire rate on record keeps its
+              historic share rather than being handed money on a guess.
             </div>
             <div className="dial-row" style={{ marginBottom: 8 }}>
               <label className="field-label" style={{ flex: 'none' }}>Spend ceiling</label>
@@ -2312,16 +2319,11 @@ function SetupTab({ state, setState, onOpenPriorities }) {
                   update({ capMultiple: isFinite(n) ? Math.min(3, Math.max(1, n / 100)) : 1 });
                 }} />
               <span className="help-text" style={{ flex: 1 }}>
-                Of the biggest month each location and platform has already done.
+                Of the biggest month each location and platform has already run.
                 {(state.capMultiple || 1) > 1
-                  ? ' Above 100%, so some cells are planned past anything measured.'
+                  ? ' Above 100%, so some of the plan sits past anything measured.'
                   : ' At 100% nothing is planned above a spend level already proven.'}
               </span>
-            </div>
-            <div className="help-text" style={{ marginBottom: 16 }}>
-              {(state.splitMode || 'historic') === 'historic'
-                ? 'Each location splits its budget across platforms the way it has historically, whatever that has cost.'
-                : 'Money goes wherever the next hire is cheapest. Every platform gets dearer per application the more it takes, and they convert applications to hires at different rates, so both are taken into account. The ceiling above holds it to spend levels that have actually been run.'}
             </div>
 
             <div className="section-label">
@@ -3815,14 +3817,15 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Changed how a location\u2019s budget splits across platforms. It used to copy whatever the split had historically been, which took no account of what anything cost. It now goes wherever the next hire is cheapest, using a spend response curve fitted per platform and each location\u2019s own hire rate, held to spend levels already run. On July that is 22.0 SMR hires against 21.1 and 11.8 Patrol against 11.2, on the same budget.',
+    'It works on the cost of the next hire rather than the next application. Working on applications made Patrol worse: it pushed money into Appcast, which converts to applications well and to hires badly, so applications went up and hires went down.',
+    'No toggle for it. There is one method rather than a choice to make.',
     'Took the last coverage reserve wording out of the PDF glossary.',
     'Took the coverage reserve out. Stress tested across sixteen demand shapes, both ways of splitting, from two locations at 50 roles against 1 up to twelve locations on an 8,000 pound budget. It never moved the worst-off location by more than about thirty pounds and the predicted applications were identical every time. A location the demand split would starve has no spend history, and the spend ceiling will not let it take the extra anyway, so the two cancel each other out. Gone from Setup, from the workings and from the PDF.',
     'Nothing is ever planned above what a location and platform has already spent in a month. That is now the default and it applies whichever way the budget is split, not just the new way. The old split had no ceiling at all and was putting money into cells above anything measured.',
     'Added a spend ceiling on Setup, set as a percentage of the biggest month each location and platform has already run. 100% means never above a proven figure. Raise it to 110% to stretch a little, and the number is on the page rather than buried in the model.',
     'Where a location has never run a platform, the ceiling is that platform\u2019s typical month across the locations that have. Still a figure that has been spent somewhere, rather than a number picked out of the air.',
     'When the budget goes past what has already been spent, it is still spent, because that is what the target needs on our estimate. What changes is that the plan says how much of it sits above proven levels and shows it as its own line on Setup, in the workings and in the PDF. On July SMR that is 3,212 pounds of 62,908, so 5.1%. Patrol fits inside proven spend entirely.',
-    'Added a second way of splitting a location\u2019s budget across platforms, on Setup. The old way copies whatever the split has historically been. The new one sends money wherever the next hire is cheapest, using a spend response curve fitted per platform and each location\u2019s own hire rate. On July it gets 22.0 SMR hires against 21.1 and 11.8 Patrol against 11.2, on the same budget and without going above any spend level already run. Default is still the old way so nothing changes on its own.',
-    'The split equalises the cost of the next hire, not the next application. Equalising applications made Patrol worse: it pushed money into Appcast, which converts to applications well and to hires badly, so applications went up 123 while hires went down. The whole tool runs off a hire target, so the split does too.',
     'The curve shape is fitted per platform, not per location. A single location has six or eight months and fits to nonsense: Google London came out saying more spend buys fewer applications. Each location sets its own scale from its own cost per application, so local knowledge is kept without inventing a curve from noise.',
     'Every location and platform is capped at 1.75 times the biggest month it has actually done. Appcast is cheapest at the margin by a distance but has never taken more than 1,640 pounds in a month, and without the cap the curve would happily send it 20,000.',
     'Cut a lot of text out. Headings that repeated themselves, help under fields that explained the obvious, and banners that said the same thing three ways. About a quarter of the written copy has gone and nothing works differently.',
@@ -3948,7 +3951,6 @@ function defaultPlannerState() {
     budget: { SMR: 35000, Patrol: 28000 },
     hireTarget: { SMR: 26, Patrol: 26 },
     coverageFloor: 1000,
-    splitMode: 'historic',
     capMultiple: 1.0,
     coveragePct: 0,
     premiumCampaigns: { SMR: 3, Patrol: 3 },
