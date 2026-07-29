@@ -3310,14 +3310,6 @@ function xlBody(ws, cols, rows, opts) {
     }
   });
 }
-function xlNote(ws, lines) {
-  ws.addRow([]);
-  lines.forEach(t => {
-    const r = ws.addRow([t]);
-    r.font = { size: 10, color: { argb: XL_MUTED } };
-    r.alignment = { wrapText: true };
-  });
-}
 
 const GBP = '£#,##0', GBP2 = '£#,##0.00', PCT2 = '0.00%', N1 = '#,##0.0', N0 = '#,##0';
 
@@ -3332,181 +3324,190 @@ async function exportWorkings(state, role) {
   const monthLabel = (DATA.month_labels && DATA.month_labels[state.planMonth]) || state.planMonth;
   const win = BENCH_WINDOW;
   const winLabel = benchLabel();
-
-  // ---- 1. Read me ----
-  {
-    const ws = xlSheet(wb, 'Read me');
-    ws.columns = [{ width: 3 }, { width: 112 }];
-    const add = (t, style) => {
-      const r = ws.addRow(['', t]);
-      const c = r.getCell(2);
-      if (style === 'h') { c.font = { bold: true, size: 13, color: { argb: XL_NAVY } }; r.height = 24; }
-      else if (style === 'b') c.font = { bold: true, size: 10.5 };
-      else c.font = { size: 10.5, color: { argb: 'FF35415A' } };
-      c.alignment = { wrapText: true, vertical: 'top' };
-    };
-    add('RAC ' + monthLabel + ' plan, ' + role + ': working out', 'h');
-    add('Prepared by Enhance Media. Performance data: ' + winLabel + '.');
-    ws.addRow([]);
-    add('How to follow a number', 'b');
-    add('Start on Workings. Every location and platform is one row, and the row reads left to right from the raw performance behind it to the budget it gets and what that budget should produce. Nothing is calculated anywhere you cannot see.');
-    ws.addRow([]);
-    add('The four sheets', 'b');
-    [['Summary', 'The plan in one place: budget, hold-backs, applications, hires, and what it would take to hit the target.'],
-     ['Workings', 'The whole plan. One row per location and platform, with the data behind it, the rate used, the ceiling, the budget and the result.'],
-     ['Raw monthly data', 'Every month of spend, applications and clicks on record. The Workings sheet is built entirely from this.'],
-     ['How the range works', 'The month by month movement the predicted range is measured from.']]
-      .forEach(([n, d]) => add(n + ': ' + d));
-    ws.addRow([]);
-    add('Two things worth knowing', 'b');
-    add('Hire rates are taken from the whole history rather than the period above, because hires take several weeks to come through and a short period never holds enough of them to be meaningful.');
-    add('Nothing is planned above a monthly spend that a location and platform has already run. Where the budget goes beyond that, the amount is on both the Summary and the Workings sheet rather than folded into the totals.');
-  }
-
-  // ---- 2. Summary ----
-  {
-    const ws = xlSheet(wb, 'Summary');
-    xlTitle(ws, 'Summary', role + ' \u00B7 ' + monthLabel + ' \u00B7 performance data ' + winLabel);
-    const cols = [{ h: 'Figure', w: 42 }, { h: 'Value', w: 18, a: 'right' }, { h: 'How it is arrived at', w: 78 }];
-    xlHeader(ws, cols);
-    const pct = plan.deployable > 0 ? plan.beyondProven / plan.deployable : 0;
-    xlBody(ws, cols, [
-      ['Monthly budget', plan.budget, 'The budget this plan is built on'],
-      ['Indeed Premium hold-back', plan.premiumHoldback, params.premiumCampaigns + ' campaigns \u00D7 ' + params.daysInMonth + ' days \u00D7 \u00A3' + INDEED_PREMIUM_RATE + ' a day'],
-      ['Combined Activity hold-back', plan.acHoldback, 'Flat amount for brand-level activity not tied to a location'],
-      ['Deployable budget', plan.deployable, 'Monthly budget less the two hold-backs. Column H on Workings adds to this.'],
-      ['Of which above proven spend', plan.beyondProven, Math.round(pct * 100) + '% of the deployable budget. Column L on Workings adds to this.'],
-      ['', '', ''],
-      ['Hire target', params.appTarget > 0 ? plan.predictedHires : 0, 'Set by RAC'],
-      ['Application target', plan.appTarget, 'Hire target worked back through the blended hire rate for the live locations'],
-      ['Predicted applications', plan.predictedApps, 'Column J on Workings'],
-      ['Predicted applications, low', plan.predLow, 'Central figure less ' + Math.round(plan.aggBandPct) + '%'],
-      ['Predicted applications, high', plan.predHigh, 'Central figure plus ' + Math.round(plan.aggBandPct) + '%'],
-      ['', '', ''],
-      ['Predicted hires', plan.predictedHires, 'Column N on Workings'],
-      ['Predicted hires, low', plan.predictedHiresLow, 'Same range as applications'],
-      ['Predicted hires, high', plan.predictedHiresHigh, 'Same range as applications'],
-      ['Cost per hire', plan.predictedHires > 0 ? plan.deployable / plan.predictedHires : 0, 'Deployable budget \u00F7 predicted hires'],
-      ['', '', ''],
-      ['Range used', plan.aggBandPct / 100, 'How much ' + role + ' cost per application moved across ' + plan.aggBandMonths + ' months of ' + winLabel + '. See How the range works.'],
-      ['Budget to hit the application target', plan.budgetForTarget, 'Solved by running the whole plan at trial budgets until the central prediction lands on the target'],
-    ]);
-    ws.eachRow((row, n) => {
-      if (n < 5) return;
-      const c = row.getCell(2), label = String(row.getCell(1).value || '');
-      if (/budget|hold-back|proven|Cost per hire/i.test(label)) c.numFmt = GBP;
-      else if (/Range used/i.test(label)) c.numFmt = '0.0%';
-      else if (/hires/i.test(label)) c.numFmt = N1;
-      else if (/applications|target/i.test(label)) c.numFmt = N0;
+  const FX = f => ({ formula: f });
+  const style = (row, cols, opts) => {
+    const o = opts || {};
+    row.height = o.h || 16;
+    row.eachCell((cell, k) => {
+      const c = cols[k - 1] || {};
+      cell.font = { size: o.bold ? 10 : 10, bold: !!o.bold,
+        color: { argb: o.white ? 'FFFFFFFF' : (o.muted ? XL_MUTED : 'FF000000') } };
+      cell.alignment = { vertical: 'middle', horizontal: c.a || 'left' };
+      if (c.f) cell.numFmt = c.f;
+      if (o.fill) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: o.fill } };
+      cell.border = o.strong
+        ? { top: { style: 'thin', color: { argb: XL_LINE } }, bottom: { style: 'thin', color: { argb: XL_LINE } } }
+        : { bottom: { style: 'hair', color: { argb: XL_LINE } } };
     });
-  }
+  };
 
-  // ---- 3. Workings: the whole plan, one row per location and platform ----
+  // Raw monthly data first, so the sheets above it can point at its rows.
+  const rawRows = [];
+  const wsRaw = xlSheet(wb, 'Raw monthly data');
   {
-    const ws = xlSheet(wb, 'Workings');
-    xlTitle(ws, 'Workings', 'One row per location and platform. Reads left to right: the data behind it, the rate used, the ceiling, the budget, the result.');
-    const cols = [
-      { h: 'A\nLocation', w: 20 },
-      { h: 'B\nPlatform', w: 13 },
-      { h: 'C\nOpen roles', w: 10, a: 'right', f: N0 },
-      { h: 'D\nSpend in period', w: 15, a: 'right', f: GBP },
-      { h: 'E\nApplications in period', w: 15, a: 'right', f: N1 },
-      { h: 'F\nMonths of data', w: 18 },
-      { h: 'G\nCost per application used', w: 18, a: 'right', f: GBP2 },
-      { h: 'H\nBudget this month', w: 16, a: 'right', f: GBP },
-      { h: 'I\nShare of location budget', w: 15, a: 'right', f: '0.0%' },
-      { h: 'J\nPredicted applications\nH \u00F7 G', w: 17, a: 'right', f: N1 },
-      { h: 'K\nBiggest month already run', w: 17, a: 'right', f: GBP },
-      { h: 'L\nAbove proven spend', w: 15, a: 'right', f: GBP },
-      { h: 'M\nHire rate', w: 11, a: 'right', f: PCT2 },
-      { h: 'N\nPredicted hires\nJ \u00D7 M', w: 14, a: 'right', f: N1 },
-      { h: 'O\nCost per hire\nH \u00F7 N', w: 14, a: 'right', f: GBP },
-    ];
-    const hr = xlHeader(ws, cols);
-    ws.getRow(hr).height = 42;
-    const rows = [];
-    plan.locations.forEach(l => {
-      PLATFORMS.forEach(p => {
-        const sp = l.platSpend[p] || 0;
-        if (!sp) return;
-        const w = windowStats(p, l.region, role, win && win.from, win && win.to);
-        const hire = regionPlatformHireCVR(p, l.region, role);
-        const apps = l.platApps ? (l.platApps[p] || 0) : 0;
-        rows.push([l.region, PLATFORM_LABELS[p], l.vacancies, w.spend, w.completes,
-          w.months ? w.months + ', ' + monthShort(w.first) + ' to ' + monthShort(w.last) : 'none',
-          l.platCpa ? l.platCpa[p] : null, sp, l.spend > 0 ? sp / l.spend : 0, apps,
-          l.peaks ? l.peaks[p] : null, (l.beyondProven && l.beyondProven[p]) || 0,
-          hire, apps * hire, (apps * hire) > 0 ? sp / (apps * hire) : null]);
-      });
-      // A subtotal line for the location.
-      rows.push([l.region + ' total', '', l.vacancies, null, null, '', l.cpa, l.spend, 1,
-        l.predApps, null, l.beyondProvenTotal || 0, null, l.predHires,
-        l.predHires > 0 ? l.spend / l.predHires : null]);
-    });
-    rows.push(['Plan total', '', plan.locations.reduce((a, l) => a + l.vacancies, 0), null, null, '',
-      plan.predictedApps > 0 ? plan.deployable / plan.predictedApps : null, plan.deployable, null,
-      plan.predictedApps, null, plan.beyondProven, null, plan.predictedHires,
-      plan.predictedHires > 0 ? plan.deployable / plan.predictedHires : null]);
-    xlBody(ws, cols, rows, { totalRow: true });
-    // Mark every location subtotal so the eye can find them.
-    ws.eachRow((row, n) => {
-      const a = String(row.getCell(1).value || '');
-      if (/ total$/.test(a)) {
-        row.eachCell(cell => {
-          cell.font = { size: 10, bold: true };
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: XL_HEAD } };
-          cell.border = { top: { style: 'hair', color: { argb: XL_LINE } },
-                          bottom: { style: 'thin', color: { argb: XL_LINE } } };
-        });
-      }
-    });
-    xlNote(ws, [
-      'D and E are that location and platform\u2019s own performance over ' + winLabel + ', added up from Raw monthly data.',
-      'G is normally D \u00F7 E. Where a location and platform has very little data the figure is pulled toward the platform average, so a cheap rate earned on a few hundred pounds is not projected at scale.',
-      'H is decided within each location: the budget goes to whichever platform produces the next hire most cheaply, held to the ceiling in K.',
-      'L is the part of H that goes above K. That part rests on a spend level not yet run rather than on measured performance.',
-      'M is from the whole history rather than the period, because hires take several weeks to come through.',
-    ]);
-  }
-
-  // ---- 4. Raw monthly data ----
-  {
-    const ws = xlSheet(wb, 'Raw monthly data');
-    xlTitle(ws, 'Raw monthly data', 'Every month on record. The Workings sheet is built entirely from this.');
+    xlTitle(wsRaw, 'Raw monthly data',
+      'Every month on record for ' + role + '. Everything else in this workbook is built from this sheet.');
     const cols = [{ h: 'Month', w: 12 }, { h: 'Location', w: 20 }, { h: 'Platform', w: 13 },
       { h: 'Spend', w: 14, a: 'right', f: GBP2 }, { h: 'Applications', w: 13, a: 'right', f: N1 },
-      { h: 'Clicks', w: 12, a: 'right', f: N0 }, { h: 'Cost per application', w: 18, a: 'right', f: GBP2 },
-      { h: 'Apply rate', w: 12, a: 'right', f: PCT2 }, { h: 'In the period used', w: 20 }];
-    xlHeader(ws, cols);
-    const rows = [];
+      { h: 'Clicks', w: 14, a: 'right', f: N0 }, { h: 'Cost per application', w: 18, a: 'right', f: GBP2 },
+      { h: 'Apply rate', w: 12, a: 'right', f: PCT2 }, { h: 'In the period used', w: 18 }];
+    const hr = xlHeader(wsRaw, cols);
+    let n = hr;
     DATA.regions_ordered.forEach(r => PLATFORMS.forEach(p => {
       const m = getMonthly(p, r, role);
       Object.keys(m).sort().forEach(mo => {
         const x = m[mo];
         if (!(x.spend > 0)) return;
+        n += 1;
         const inWin = !win || (mo >= win.from && mo <= win.to);
-        rows.push([mo, r, PLATFORM_LABELS[p], x.spend, x.completes, x.clicks || null,
-          x.completes > 0 ? x.spend / x.completes : null,
-          x.clicks > 0 ? x.completes / x.clicks : null,
-          inWin ? 'Yes' : 'No, outside the period']);
+        const hasClicks = x.clicks !== undefined && x.clicks !== null;
+        rawRows.push({ row: n, region: r, platform: p, inWin, hasClicks });
+        style(wsRaw.addRow([mo, r, PLATFORM_LABELS[p], x.spend, x.completes,
+          hasClicks ? x.clicks : 'not recorded',
+          FX('IFERROR(D' + n + '/E' + n + ',"")'),
+          hasClicks ? FX('IFERROR(E' + n + '/F' + n + ',"")') : '',
+          inWin ? 'Yes' : 'No']), cols, { muted: !inWin });
       });
     }));
-    xlBody(ws, cols, rows);
-    xlNote(ws, [
-      'Applications are counted from the ad platform for Meta, Google and Appcast, and from Eploy for Indeed.',
-      'Google means Google Search only. Demand Gen, Acast, brand, competitor and remarketing campaigns are excluded.',
-      'Spend not tagged to a location is excluded rather than spread across locations.',
-    ]);
+  }
+  const sumRef = (region, platform, col) => {
+    const rs = rawRows.filter(x => x.region === region && x.platform === platform && x.inWin);
+    if (!rs.length) return null;
+    if (col === 'F' && rs.some(x => !x.hasClicks)) {
+      const ok = rs.filter(x => x.hasClicks);
+      if (!ok.length) return null;
+      return ok.map(x => "'Raw monthly data'!F" + x.row).join('+');
+    }
+    return rs.map(x => "'Raw monthly data'!" + col + x.row).join('+');
+  };
+
+  // Workings.
+  const wsW = xlSheet(wb, 'Workings');
+  let totalRow = 0;
+  {
+    xlTitle(wsW, role + ' plan, ' + monthLabel,
+      'One row per location and platform. Performance data: ' + winLabel + '. Columns D to H come from Raw monthly data; the rest are formulas on this sheet.');
+    const cols = [
+      { h: 'A\nLocation', w: 20 }, { h: 'B\nPlatform', w: 13 }, { h: 'C\nOpen roles', w: 10, a: 'right', f: N0 },
+      { h: 'D\nSpend in period', w: 15, a: 'right', f: GBP2 },
+      { h: 'E\nApplications', w: 13, a: 'right', f: N1 },
+      { h: 'F\nClicks', w: 13, a: 'right', f: N0 },
+      { h: 'G\nApply rate\nE / F', w: 12, a: 'right', f: PCT2 },
+      { h: 'H\nCost per application, measured\nD / E', w: 20, a: 'right', f: GBP2 },
+      { h: 'I\nCost per application, used', w: 20, a: 'right', f: GBP2 },
+      { h: 'J\nBudget this month', w: 16, a: 'right', f: GBP },
+      { h: 'K\nPredicted applications\nJ / I', w: 17, a: 'right', f: N1 },
+      { h: 'L\nBiggest month already run', w: 17, a: 'right', f: GBP },
+      { h: 'M\nAbove proven spend\nJ - L', w: 15, a: 'right', f: GBP },
+      { h: 'N\nHire rate', w: 11, a: 'right', f: PCT2 },
+      { h: 'O\nPredicted hires\nK x N', w: 14, a: 'right', f: N1 },
+      { h: 'P\nCost per hire\nJ / O', w: 14, a: 'right', f: GBP },
+    ];
+    const hr = xlHeader(wsW, cols);
+    wsW.getRow(hr).height = 48;
+    let n = hr;
+    const locRows = [];
+    plan.locations.forEach(l => {
+      const start = n + 1;
+      PLATFORMS.forEach(p => {
+        const sp = l.platSpend[p] || 0;
+        if (!sp) return;
+        n += 1;
+        const w = windowStats(p, l.region, role, win && win.from, win && win.to);
+        const dR = sumRef(l.region, p, 'D'), eR = sumRef(l.region, p, 'E'), fR = sumRef(l.region, p, 'F');
+        style(wsW.addRow([l.region, PLATFORM_LABELS[p], l.vacancies,
+          dR ? FX(dR) : w.spend,
+          eR ? FX(eR) : w.completes,
+          fR ? FX(fR) : 'not recorded',
+          fR ? FX('IFERROR(E' + n + '/F' + n + ',"")') : '',
+          FX('IFERROR(D' + n + '/E' + n + ',"")'),
+          l.platCpa ? l.platCpa[p] : null,
+          sp,
+          FX('IFERROR(J' + n + '/I' + n + ',0)'),
+          l.peaks ? l.peaks[p] : null,
+          FX('MAX(0,J' + n + '-L' + n + ')'),
+          regionPlatformHireCVR(p, l.region, role),
+          FX('K' + n + '*N' + n),
+          FX('IFERROR(J' + n + '/O' + n + ',"")')]), cols);
+      });
+      n += 1;
+      locRows.push(n);
+      const S = (c) => 'SUM(' + c + start + ':' + c + (n - 1) + ')';
+      style(wsW.addRow([l.region + ' total', '', l.vacancies,
+        FX(S('D')), FX(S('E')), FX('IFERROR(' + S('F') + ',"")'),
+        FX('IFERROR(E' + n + '/F' + n + ',"")'), FX('IFERROR(D' + n + '/E' + n + ',"")'), '',
+        FX(S('J')), FX(S('K')), '', FX(S('M')), '',
+        FX(S('O')), FX('IFERROR(J' + n + '/O' + n + ',"")')]),
+        cols, { bold: true, fill: XL_HEAD, strong: true });
+    });
+    n += 1;
+    totalRow = n;
+    const T = (c) => locRows.map(r => c + r).join('+');
+    style(wsW.addRow(['Plan total', '', plan.locations.reduce((a, l) => a + l.vacancies, 0),
+      FX(T('D')), FX(T('E')), FX('IFERROR(' + T('F') + ',"")'),
+      FX('IFERROR(E' + n + '/F' + n + ',"")'), FX('IFERROR(D' + n + '/E' + n + ',"")'), '',
+      FX(T('J')), FX(T('K')), '', FX(T('M')), '',
+      FX(T('O')), FX('IFERROR(J' + n + '/O' + n + ',"")')]),
+      cols, { bold: true, white: true, fill: XL_NAVY, strong: true, h: 20 });
   }
 
-  // ---- 5. How the range works ----
+  // Summary, built last so it can point at the Workings total, moved to the front.
+  {
+    const ws = wb.addWorksheet('Summary', { views: [{ state: 'frozen', ySplit: 1 }] });
+    xlTitle(ws, 'RAC ' + monthLabel + ', ' + role,
+      'Prepared by Enhance Media. Performance data: ' + winLabel + '.');
+    const cols = [{ h: 'Figure', w: 42 }, { h: 'Value', w: 18, a: 'right' }, { h: 'How it is arrived at', w: 80 }];
+    const hr = xlHeader(ws, cols);
+    const B = k => 'B' + (hr + k);
+    const rows = [
+      ['Monthly budget', plan.budget, 'The budget this plan is built on'],
+      ['Indeed Premium hold-back', plan.premiumHoldback,
+        params.premiumCampaigns + ' campaigns x ' + params.daysInMonth + ' days x \u00A3' + INDEED_PREMIUM_RATE + ' a day'],
+      ['Combined Activity hold-back', plan.acHoldback, 'Flat amount for brand-level activity not tied to a location'],
+      ['Deployable budget', FX(B(1) + '-' + B(2) + '-' + B(3)), 'Monthly budget less the two hold-backs'],
+      ['Of which above spend already run', FX('Workings!M' + totalRow), 'Workings, column M, plan total'],
+      ['', '', ''],
+      ['Application target', plan.appTarget, 'Hire target worked back through the blended hire rate for the live locations'],
+      ['Predicted applications', FX('Workings!K' + totalRow), 'Workings, column K, plan total'],
+      ['Predicted applications, low', FX('ROUND(' + B(8) + '*(1-' + B(17) + '),0)'), 'Central figure less the range'],
+      ['Predicted applications, high', FX('ROUND(' + B(8) + '*(1+' + B(17) + '),0)'), 'Central figure plus the range'],
+      ['', '', ''],
+      ['Predicted hires', FX('Workings!O' + totalRow), 'Workings, column O, plan total'],
+      ['Predicted hires, low', FX(B(12) + '*(1-' + B(17) + ')'), 'Same range as applications'],
+      ['Predicted hires, high', FX(B(12) + '*(1+' + B(17) + ')'), 'Same range as applications'],
+      ['Cost per application', FX('IFERROR(' + B(4) + '/' + B(8) + ',"")'), 'Deployable budget divided by predicted applications'],
+      ['Cost per hire', FX('IFERROR(' + B(4) + '/' + B(12) + ',"")'), 'Deployable budget divided by predicted hires'],
+      ['', '', ''],
+      ['Range used', plan.aggBandPct / 100,
+        'How much ' + role + ' cost per application moved across ' + plan.aggBandMonths + ' months. See How the range works.'],
+      ['Budget to hit the application target', plan.budgetForTarget,
+        'Found by running the whole plan at trial budgets until the prediction lands on the target'],
+    ];
+    xlBody(ws, cols, rows);
+    ws.eachRow((row, k) => {
+      if (k <= hr) return;
+      const c = row.getCell(2), label = String(row.getCell(1).value || '');
+      if (/budget|hold-back|already run|Cost per/i.test(label)) c.numFmt = GBP;
+      else if (/Range used/i.test(label)) c.numFmt = '0.0%';
+      else if (/hires/i.test(label)) c.numFmt = N1;
+      else if (/applications|target/i.test(label)) c.numFmt = N0;
+    });
+    const idx = wb.worksheets.indexOf(ws);
+    wb.worksheets.splice(idx, 1);
+    wb.worksheets.unshift(ws);
+    wb.worksheets.forEach((w, i) => { w.orderNo = i; });
+  }
+
+  // How the range works.
   {
     const ws = xlSheet(wb, 'How the range works');
-    xlTitle(ws, 'How the range works', 'The range is measured on how much ' + role + ' cost per application has moved month to month.');
-    const cols = [{ h: 'Month', w: 14 }, { h: 'Spend', w: 16, a: 'right', f: GBP },
+    xlTitle(ws, 'How the range works',
+      'The range is ' + Math.round(plan.aggBandPct) + '%, measured on how much ' + role +
+      ' cost per application moved across the months marked Yes.');
+    const cols = [{ h: 'Month', w: 14 }, { h: 'Spend', w: 16, a: 'right', f: GBP2 },
       { h: 'Applications', w: 14, a: 'right', f: N1 }, { h: 'Cost per application', w: 20, a: 'right', f: GBP2 },
       { h: 'In the period used', w: 18 }];
-    xlHeader(ws, cols);
+    const hr = xlHeader(ws, cols);
     const byMonth = {};
     PLATFORMS.forEach(p => DATA.regions_ordered.forEach(r => {
       const m = getMonthly(p, r, role);
@@ -3516,14 +3517,14 @@ async function exportWorkings(state, role) {
         o.s += x.spend; o.a += x.completes || 0;
       });
     }));
-    xlBody(ws, cols, Object.keys(byMonth).sort().map(mo => {
+    let n = hr;
+    Object.keys(byMonth).sort().forEach(mo => {
+      n += 1;
       const o = byMonth[mo];
-      return [mo, o.s, o.a, o.a > 0 ? o.s / o.a : null, (!win || (mo >= win.from && mo <= win.to)) ? 'Yes' : 'No'];
-    }));
-    xlNote(ws, [
-      'The range on the whole plan is ' + Math.round(plan.aggBandPct) + '%, measured across the ' + plan.aggBandMonths + ' months marked Yes.',
-      'It is narrower than any single location, because locations do not all miss in the same direction to the same degree.',
-    ]);
+      const inWin = !win || (mo >= win.from && mo <= win.to);
+      style(ws.addRow([mo, o.s, o.a, FX('IFERROR(B' + n + '/C' + n + ',"")'), inWin ? 'Yes' : 'No']),
+        cols, { muted: !inWin });
+    });
   }
 
   const buf = await wb.xlsx.writeBuffer();
@@ -3538,10 +3539,10 @@ async function exportWorkings(state, role) {
 // ====================================================================
 // PDF EXPORT
 // ====================================================================
-function exportPDF(state) {
-  // RAC asked for SMR and Patrol as separate PDFs, so export one per role.
-  exportPlanPDF(state, ['SMR']);
-  exportPlanPDF(state, ['Patrol']);
+function exportPDF(state, role) {
+  // One role at a time. RAC want them as separate documents anyway, and
+  // exporting both when you only wanted one meant deleting a file every time.
+  exportPlanPDF(state, [role]);
 }
 
 function exportPlanPDF(state, roleFilter) {
@@ -4115,6 +4116,9 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Workings export rebuilt. Read me sheet gone and the notes under each table gone. Clicks and apply rate are now on the Workings sheet as well as the raw data, and where clicks were never recorded it says so rather than leaving a blank that looks like a nought.',
+    'Every calculation in the workbook is a live Excel formula rather than a pasted number. Cost per application reads =D5/E5, predicted applications reads =J5/I5, the location totals are SUM ranges and the Summary points at the Workings total. Click any cell and the arithmetic is there.',
+    'SMR or Patrol is picked in the header before exporting, and only that one comes out. Both buttons used to fire twice and produce a file you did not want.',
     'Fixed budget to hit target giving a different answer depending on the budget you were looking at. It was scaling up from the current plan\u2019s applications per pound, which assumes spending twice as much buys twice as many applications. It does not, and the rest of the tool is built on knowing that. It now runs the whole plan at trial budgets until it lands on the target, so the figure is the same from any starting point. On YTD data it reads 136,250 from a 70,000 plan, a 128,200 plan or a 155,000 plan.',
     'Added Export workings next to Export PDF. A formatted spreadsheet for each role, generated from the same plan the PDF is drawn from so the two cannot disagree. Four sheets after the read me: the summary, one Workings sheet with every location and platform as a row reading left to right from raw performance through to predicted hires, every month of raw data, and how the range is worked out.',
     'Loading a saved plan now brings back everything it was built on, not just the settings typed into it. It restores the data window it used and the open roles as they stood when it was saved. Before this, opening an older plan re-costed it on whatever window happened to be selected, so it stopped being the plan that was issued.',
@@ -7623,6 +7627,7 @@ function App() {
   const setBench = (b) => setWs(w => ({ ...w, bench: b }));
 
   const [tool, setTool] = useState('planner');
+  const [exportRole, setExportRole] = useState('SMR');
   const [tab, setTab] = useState('setup');
   const [comparing, setComparing] = useState(false);
 
@@ -7746,12 +7751,18 @@ function App() {
 
         {tool === 'planner' && (
           <>
+            <div className="role-switch" style={{ marginRight: 10 }}>
+              {ROLES.map(r => (
+                <button key={r} className={r === exportRole ? 'active' : ''}
+                  onClick={() => setExportRole(r)}>{r}</button>
+              ))}
+            </div>
             <button className="btn btn-sm" style={{ marginRight: 8 }}
-              onClick={() => ROLES.forEach(r => exportWorkings(plannerState, r))}>
-              Export workings
+              onClick={() => exportWorkings(plannerState, exportRole)}>
+              Workings
             </button>
-            <button className="btn btn-sm btn-primary" onClick={() => exportPDF(plannerState)}>
-              Export PDF
+            <button className="btn btn-sm btn-primary" onClick={() => exportPDF(plannerState, exportRole)}>
+              PDF
             </button>
           </>
         )}
