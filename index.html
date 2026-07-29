@@ -463,6 +463,9 @@ input[type=range]::-moz-range-thumb {
 .fold-chev.open { transform: rotate(90deg); }
 .role-switch-lead button.active { background: var(--rac-navy); }
 .role-switch-lead { font-weight: 700; }
+.method-body p { font-size: 13.5px; color: var(--ink-70); line-height: 1.65; margin: 0 0 12px; }
+.method-body p:last-child { margin-bottom: 0; }
+.method-body strong { color: var(--ink); }
 .chg-list li { font-size: 13px; color: var(--ink-70); margin-bottom: 5px; line-height: 1.5; }
 .paste-box {
   width: 100%; font-family: "JetBrains Mono", monospace; font-size: 12px;
@@ -1909,22 +1912,49 @@ const ALLOWED_DOMAIN = '@enhancemedia.co.uk';
 let onSignedOut = () => {};
 const sbSignedIn = () => !!(SB_TOKEN && SB_TOKEN.access_token);
 function sbClear() { SB_TOKEN = null; localStorage.removeItem('rac-session'); }
-function sbStore(tok) { SB_TOKEN = tok; localStorage.setItem('rac-session', JSON.stringify(tok)); }
+function sbStore(tok) {
+  // Note when the token runs out so it can be renewed early rather than on a
+  // failed request.
+  try {
+    const body = JSON.parse(atob(tok.access_token.split('.')[1]));
+    if (body && body.exp) tok.expires_at = body.exp * 1000;
+  } catch (e) { /* not a readable token, fall back to renewing on failure */ }
+  SB_TOKEN = tok;
+  localStorage.setItem('rac-session', JSON.stringify(tok));
+}
 
-// Access tokens last about an hour. Without this the tool went Offline
-// mid-session for no reason anyone could see.
-async function sbRefresh() {
-  if (!SB_TOKEN || !SB_TOKEN.refresh_token) return false;
-  const r = await fetch(SB_PROJECT + '/auth/v1/token?grant_type=refresh_token', {
-    method: 'POST',
-    headers: { apikey: SB_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh_token: SB_TOKEN.refresh_token }),
-  });
-  if (!r.ok) return false;
-  const j = await r.json();
-  if (!j.access_token) return false;
-  sbStore({ access_token: j.access_token, refresh_token: j.refresh_token || SB_TOKEN.refresh_token });
-  return true;
+// Renew a couple of minutes before it expires, so a request never has to fail
+// first.
+async function sbFresh() {
+  if (!SB_TOKEN || !SB_TOKEN.expires_at) return;
+  if (Date.now() > SB_TOKEN.expires_at - 120000) await sbRefresh();
+}
+
+// Access tokens last about an hour. Refresh tokens are single use, so two
+// requests refreshing at the same time means one of them burns a token that
+// the other has already spent, and every request after that fails. Only one
+// refresh is ever in flight; anything else waits for it and uses the result.
+let _refreshing = null;
+function sbRefresh() {
+  if (_refreshing) return _refreshing;
+  if (!SB_TOKEN || !SB_TOKEN.refresh_token) return Promise.resolve(false);
+  const using = SB_TOKEN.refresh_token;
+  _refreshing = (async () => {
+    try {
+      const r = await fetch(SB_PROJECT + '/auth/v1/token?grant_type=refresh_token', {
+        method: 'POST',
+        headers: { apikey: SB_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: using }),
+      });
+      if (!r.ok) return false;
+      const j = await r.json();
+      if (!j.access_token) return false;
+      sbStore({ access_token: j.access_token, refresh_token: j.refresh_token || using });
+      return true;
+    } catch (e) { return false; }
+    finally { setTimeout(() => { _refreshing = null; }, 0); }
+  })();
+  return _refreshing;
 }
 
 const sbHead = () => ({
@@ -1935,11 +1965,14 @@ const sbHead = () => ({
 
 // One place every request goes through, so the refresh only has to exist once.
 async function sbFetch(url, opts, retry) {
+  if (!retry) await sbFresh();
   const o = { ...(opts || {}) };
   o.headers = { ...sbHead(), ...((opts || {}).headers || {}) };
   const r = await fetch(url, o);
-  if ((r.status === 401 || r.status === 403) && !retry) {
-    if (await sbRefresh()) return sbFetch(url, opts, true);
+  if (r.status === 401 || r.status === 403) {
+    if (!retry && await sbRefresh()) return sbFetch(url, opts, true);
+    // Still refused after a fresh token, so the session is genuinely gone.
+    // Say so rather than retrying forever behind a Reconnecting label.
     sbClear();
     onSignedOut();
     throw new Error('Signed out');
@@ -3207,84 +3240,116 @@ function BenchmarksTab({ state, ws, setBench }) {
 }
 
 function MethodTab() {
+  const months = dataMonths();
+  const first = months[0], last = months[months.length - 1];
   return (
     <div>
+      <div className="banner banner-info">
+        <div className="banner-icon">i</div>
+        <div>How the plan is worked out, in the order it happens.</div>
+      </div>
+
       <div className="card">
-        <div className="card-head"><div className="card-title">How this planner works</div></div>
-        <div className="card-body">
-          <div className="help-text" style={{ fontSize: 13, lineHeight: 1.7 }}>
-            <p style={{ marginBottom: 12 }}>
-              <strong>The hire target is the input.</strong> You enter the number of hires RAC needs for the
-              month. I work back from that to an application target, through the blended hire rate for the
-              locations live that month. The rate is blended rather than flat, because a hire costs a very
-              different number of applications in London than it does in the North West, and a single flat
-              rate across every location quietly builds the wrong target.
-            </p>
-            <p style={{ marginBottom: 12 }}>
-              <strong>After that, the plan runs on applications.</strong> The job is to give RAC confidence
-              that the budget will hit the application target that produces their hires. Application data is
-              plentiful and updates weekly, so the tool can predict next month against a real, recent track
-              record. Hires are the wider business goal, but they are thin and lag by weeks, so applications
-              stay the working currency once the target is set.
-            </p>
-            <p style={{ marginBottom: 12 }}>
-              <strong>Open roles come from Location priorities.</strong> How many roles are open in each
-              location is kept in one place and read by the planner, rather than typed into it. That number
-              decides which locations get funded and how much each one gets, so it needs one home.
-            </p>
-            <p style={{ marginBottom: 12 }}>
-              <strong>Hold-backs come off the top.</strong> Two costs are taken out before anything is
-              distributed: Indeed Premium (campaigns multiplied by days in the month at &pound;44 a day) and
-              the Combined Activity reserve. What is left is the deployable budget, the money the
-              plan actually distributes across locations.
-            </p>
-            <p style={{ marginBottom: 12 }}>
-              <strong>Nothing is planned above a spend level already run.</strong> Each location and
-              platform is held to the biggest month it has actually spent, so no figure in the plan rests
-              on performance at a spend level nobody has tested. Where a location has never run a platform,
-              the ceiling is that platform&rsquo;s typical month across the locations that have. The
-              ceiling can be raised deliberately on Setup to stretch beyond that, and by how much is
-              stated rather than assumed.
-            </p>
-            <p style={{ marginBottom: 12 }}>
-              <strong>The rest follows demand.</strong> The remaining budget is split by open roles: a
-              location with 22 of 79 open roles takes 22/79 of it. So most of the money tracks where the
-              hiring need actually is, which is the logic RAC will recognise. Each location&rsquo;s spend is
-              its equal coverage slice plus its demand share.
-            </p>
-            <p style={{ marginBottom: 12 }}>
-              <strong>Predicted applications, by location and in total.</strong> Each location&rsquo;s
-              predicted applications are its spend divided by its blended cost-per-application. RAC&rsquo;s
-              total application target is split across locations by the same demand weighting, so every
-              location has its own sub-target to plan against, and the headline figure is the total
-              predicted against the total target.
-            </p>
-            <p style={{ marginBottom: 12 }}>
-              <strong>Budget can be worked back from a target.</strong> Predicted applications scale
-              directly with the deployable budget, so the tool also reports the budget needed to land the
-              central estimate on RAC&rsquo;s target. That figure includes the hold-backs and the coverage
-              reserve, and the &ldquo;use this budget&rdquo; button applies it in one step.
-            </p>
-            <p style={{ marginBottom: 12 }}>
-              <strong>Thin data is treated with caution.</strong> Some locations show a very low
-              cost-per-application earned on only a few hundred pounds of historic spend. A bargain rate at
-              low volume rarely holds when spend scales up, so for thin locations the planning CPA is pulled
-              toward the role benchmark. This keeps the predictions grounded rather than optimistic.
-            </p>
-            <p style={{ marginBottom: 12 }}>
-              <strong>Predictions come with a range.</strong> Each location&rsquo;s range is built from the
-              month-to-month movement in its own historic cost-per-application: a wide range means volatile
-              history, a narrow one means steady. A range that turns out right builds more confidence than a
-              single number that turns out wrong.
-            </p>
-            <p>
-              <strong>Data window.</strong> Blended source covering applications reported by the ad
-              platforms plus applications recorded in Eploy, RAC&rsquo;s ATS. Indeed runs October 2025 to
-              May 2026; the other platforms run July 2025 to May 2026. Google and Meta spend tagged only to
-              &ldquo;UK&rdquo; is redistributed across regions by each platform&rsquo;s attributed-spend
-              share.
-            </p>
-          </div>
+        <div className="card-head"><div className="card-title">From a hire target to a budget</div></div>
+        <div className="card-body method-body">
+          <p>
+            <strong>The hire target is the input.</strong> You enter the number of hires RAC need. The
+            application target is worked back from it, through the blended hire rate for the locations live
+            that month. The rate is blended rather than flat because a hire costs a very different number of
+            applications in London than in the North West, and one flat rate across every location builds the
+            wrong target.
+          </p>
+          <p>
+            <strong>After that the plan runs on applications.</strong> Application data is plentiful and
+            updates weekly, so next month can be predicted against a recent record. Hires are the goal, but
+            they are thin and lag by weeks, so applications are what the plan is measured on.
+          </p>
+          <p>
+            <strong>Open roles come from Location priorities.</strong> How many roles are open in each
+            location is kept in one place and read by the planner rather than typed into it. That number sets
+            which locations are funded and how much each one gets.
+          </p>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head"><div className="card-title">How the money is divided</div></div>
+        <div className="card-body method-body">
+          <p>
+            <strong>Hold-backs come off the top.</strong> Indeed Premium, which is campaigns multiplied by
+            days in the month at &pound;{INDEED_PREMIUM_RATE} a day, and the Combined Activity reserve for
+            brand-level work not tied to a location. What is left is the deployable budget.
+          </p>
+          <p>
+            <strong>Locations are funded by open roles.</strong> A location with 22 of 79 open roles takes
+            22/79 of the deployable budget. The money tracks where the hiring need is.
+          </p>
+          <p>
+            <strong>Platforms are funded by what a hire costs.</strong> Within each location the budget goes
+            to whichever platform produces the next hire most cheaply. Two things decide that: every platform
+            gets dearer per application the more it takes in one location in one month, and they turn
+            applications into hires at different rates. A platform with no hire rate on record keeps its
+            historic share instead.
+          </p>
+          <p>
+            <strong>Nothing is planned above a spend level already run.</strong> Each location and platform is
+            held to the biggest month it has actually spent, so no figure rests on performance at a level
+            nobody has tested. Where a location has never run a platform, the ceiling is that platform&rsquo;s
+            typical month across the locations that have. The ceiling can be raised on Setup, and anything
+            above it is reported separately as an estimate rather than a measured figure.
+          </p>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head"><div className="card-title">How far to trust it</div></div>
+        <div className="card-body method-body">
+          <p>
+            <strong>Thin data is treated with caution.</strong> A very low cost per application earned on a
+            few hundred pounds of spend rarely holds at scale, so for thin locations the planning figure is
+            pulled toward the role benchmark.
+          </p>
+          <p>
+            <strong>Predictions come with a range.</strong> The range on the whole plan comes from how much
+            the role&rsquo;s cost per application has moved month to month across the period the plan is built
+            on. It is narrower than any single location, because locations do not all miss in the same
+            direction to the same degree. Each location carries its own range from its own history.
+          </p>
+          <p>
+            <strong>Hires carry the same range as applications.</strong> Predicted hires are predicted
+            applications multiplied by the location&rsquo;s hire rate, so fewer applications means fewer hires
+            at the same rate. Hire rates are never windowed, because hires lag by several weeks and a short
+            period never holds enough of them to mean anything.
+          </p>
+          <p>
+            <strong>Budget can be worked back from a target.</strong> Predicted applications scale with the
+            deployable budget, so the tool reports the budget needed to land the central estimate on the
+            target, hold-backs included.
+          </p>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <div className="card-title">Which data this is built on</div>
+          <div className="card-sub">Currently {benchLabel()}</div>
+        </div>
+        <div className="card-body method-body">
+          <p>
+            Applications are counted from the ad platforms for Meta, Google and Appcast, and from Eploy for
+            Indeed. Google means Google Search only. Demand Gen, Acast, brand, competitor and remarketing
+            campaigns are non-standard and never reach the plan.
+          </p>
+          <p>
+            Spend that is not tagged to a location is left out rather than spread across locations, so a
+            location figure only holds what genuinely happened there. Campaigns on a different project code
+            are excluded outright.
+          </p>
+          <p>
+            The dataset runs {monthShort(first)} to {monthShort(last)}. The window it plans on is set on the
+            Benchmarks tab and is currently <strong>{benchLabel()}</strong>. Changing it changes the cost per
+            application, the range, and every figure that follows from them.
+          </p>
         </div>
       </div>
     </div>
@@ -3370,12 +3435,8 @@ function exportPlanPDF(state, roleFilter) {
 
     // Glossary terms (defined here so we can pre-measure how many pages they need)
     const terms = [
-      ['Application', 'A completed application from a candidate. Counted as applications recorded by the ad platform plus applications recorded in RAC\u2019s Eploy ATS, so credit is captured wherever it lands.'],
-      ['Open roles', 'The roles RAC has live for this role in each location this month. It sets each location\u2019s share of the budget.'],
-      ['Monthly budget', 'The total monthly spend RAC has set for this role.'],
       ['Indeed Premium', 'A fixed daily cost for Indeed\u2019s premium campaigns, held back off the top. Calculated as campaigns \u00D7 days in the month \u00D7 \u00A344 per day per campaign.'],
       ['Combined Activity', 'A flat amount held back for brand-level activity not tied to a specific location.'],
-      ['Deployable budget', 'What is left after the two hold-backs. This is the money actually distributed across locations.'],
       ['Predicted hires', 'Predicted applications multiplied by the location\u2019s historic hire rate. It carries the same range as applications: fewer applications means fewer hires at the same rate.'],
       ['The range', 'How much the whole plan can move, from how much the cost per application has moved month to month across the benchmark period. It is narrower than any single location, because they do not all miss in the same direction to the same degree.'],
       ['Spend ceiling', 'The most a location and platform can be given: the biggest month it has already spent. Nothing in the plan rests on a spend level that has never been run.'],
@@ -3383,13 +3444,10 @@ function exportPlanPDF(state, roleFilter) {
       ['App target', 'RAC\u2019s application goal for the role; the number the plan is judged against. In the table, each row\u2019s App target is that location\u2019s share, allocated by demand: a location with 22 of 79 open roles is responsible for 22/79 of the total.'],
       ['Predicted applications', 'The applications each location\u2019s budget should produce. Calculated as the location\u2019s budget divided by its blended cost-per-application from history.'],
       ['Cost per application', 'What one application has cost in that location, blended across the four platforms. Where a location has thin data the figure is pulled toward the role-wide average.'],
-      ['Likely range', 'A high and low around the predicted number, from how much cost per application has moved month to month over the period this plan is based on.'],
       ['Hire CVR', 'The share of applications that go on to be hired, from RAC\u2019s own historic data. It is fixed per location and platform rather than recalculated from the plan, because hires lag by several weeks. Locations with no hire data show as such.'],
-      ['Predicted hires', 'Predicted applications multiplied by the location\u2019s hire rate, carrying the same range as applications.'],
       ['Cost per hire', 'Spend divided by predicted hires. Hire rates are taken from RAC\u2019s own historic data and are not windowed, because hires lag by several weeks. Shown as n/a where a location has no hire data.'],
       ['Budget to hit target', 'The total spend it would take for the central prediction to land on the application target. Includes the two hold-backs.'],
-      ['Platforms', 'The four conversion channels the plan distributes across: Indeed, Meta, Google (Search) and Appcast. Each location\u2019s budget is split between them in proportion to how it has been spent there historically.'],
-      ['On track / Close / Short', 'On track: predicted apps meet or exceed target. Close: target sits inside the likely range, just not the central estimate. Short: even the top of the likely range is below target.'],
+      ['Platforms', 'Indeed, Meta, Google Search and Appcast. Each location\u2019s budget goes to whichever of them produces hires most cheaply at the level it can absorb.'],
     ];
     const gColW = (pageW - margin * 2 - 6) / 2;
     // Pre-measure glossary: walk the same column/page flow used to render it,
@@ -3878,6 +3936,10 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Cut the PDF glossary from 20 entries to 13. Application, open roles, monthly budget and the on track wording were all saying what the label already said. Predicted hires and the range were each in there twice. Deployable budget just restated the two hold-back entries above it. Platforms still described the old way of splitting a budget, copying whatever the historic mix was.',
+    'Fixed the tool getting permanently stuck on Reconnecting. Sign-in tokens can only be renewed once, and the page was renewing in two places at the same time, so one of them used a token the other had already spent. After that every save failed and it kept retrying behind the Reconnecting label instead of saying anything. Only one renewal now happens at a time, it happens a couple of minutes before the token runs out rather than after a save has failed, and if it genuinely cannot renew you go back to the sign in screen instead of sitting there.',
+    'Took the last line telling you to download and publish the data file off the fold-in button.',
+    'Rewrote the Method tab. It was describing things the tool no longer does: an equal coverage slice per location, a budget-to-target figure that included that slice, and UK-tagged spend being spread across locations. It also never explained how a location\u2019s budget splits across platforms, which is now the main thing the plan does. It says which data window it is built on and updates when that changes.',
     'The PDF says at the top of every page which data the plan is built on, all time or whichever window is picked.',
     'Copy pass on the PDF. The budget-split note still described the old method of copying the historic platform mix. The glossary still said hire rates came from the May plan and still mentioned three locations with no hire data, both out of date. Took out the softer wording and the first-person phrasing.',
     'Fixed how the range on the whole plan is worked out. It was the average of each location\u2019s own range, which is the wrong measure: a single location swings more than the whole plan does. It is now measured on the role\u2019s own cost per application month by month, over whichever benchmark window is picked.',
@@ -6959,7 +7021,7 @@ function DataTool() {
                 Fold in {months.length ? months.length + ' month' + (months.length === 1 ? '' : 's') : 'nothing'}
               </button>
               <span className="help-text" style={{ marginLeft: 12 }}>
-                Applies it here straight away. You then download the data file and publish it so everyone else gets it too.
+                Saves it for everyone straight away.
               </span>
             </div>
           </div>
