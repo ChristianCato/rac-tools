@@ -1816,10 +1816,24 @@ function buildFundingPlan(role, p) {
   const predictedHiresHigh = predictedHires * (1 + aggBandPct / 100);
   const predHigh = predictedApps * (1 + aggBandPct / 100);
 
-  const appsPerPound = deployable > 0 ? predictedApps / deployable : 0;
-  const budgetForTarget = appsPerPound > 0
-    ? Math.ceil(((appTarget / appsPerPound) + premiumHoldback + acHoldback) / 50) * 50
-    : 0;
+  // What it would take to land on the target. This has to be solved rather
+  // than scaled: applications do not rise in step with spend, so working it
+  // out from the current plan's applications per pound gives a different
+  // answer depending on what budget you happen to be looking at. Running the
+  // whole plan at trial budgets gives the same answer from anywhere.
+  let budgetForTarget = 0;
+  if (appTarget > 0 && !p._solving) {
+    const at = (b) => buildFundingPlan(role, { ...p, budget: b, _solving: true }).predictedApps;
+    let lo = premiumHoldback + acHoldback, hi = Math.max(lo + 1000, (p.budget || 0) * 4 + 50000), guard = 0;
+    while (at(hi) < appTarget && guard++ < 8) hi *= 1.6;
+    if (at(hi) >= appTarget) {
+      for (let i = 0; i < 26; i++) {
+        const mid = (lo + hi) / 2;
+        if (at(mid) < appTarget) lo = mid; else hi = mid;
+      }
+      budgetForTarget = Math.ceil(hi / 50) * 50;
+    }
+  }
 
   return {
     unplaceable, beyondProven,
@@ -4326,6 +4340,7 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Fixed budget to hit target giving a different answer depending on the budget you were looking at. It was scaling up from the current plan\u2019s applications per pound, which assumes spending twice as much buys twice as many applications. It does not, and the rest of the tool is built on knowing that. It now runs the whole plan at trial budgets until it lands on the target, so the figure is the same from any starting point. On YTD data it reads 136,250 from a 70,000 plan, a 128,200 plan or a 155,000 plan.',
     'Added Export workings next to Export PDF. It produces a formatted spreadsheet for each role with ten sheets: a read me, the summary, the budget breakdown, by location, by location and platform, the rates used and where they came from, hire rates, spend ceilings, every month of raw data, and how the range is worked out. It is generated from the same plan the PDF is drawn from, so the two cannot disagree.',
     'Loading a saved plan now brings back everything it was built on, not just the settings typed into it. It restores the data window it used and the open roles as they stood when it was saved. Before this, opening an older plan re-costed it on whatever window happened to be selected, so it stopped being the plan that was issued.',
     'The plan selector says which window each saved plan was built on, so it is visible without loading it.',
