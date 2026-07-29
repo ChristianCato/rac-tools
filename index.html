@@ -3936,6 +3936,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Loading a saved plan now brings back everything it was built on, not just the settings typed into it. It restores the data window it used and the open roles as they stood when it was saved. Before this, opening an older plan re-costed it on whatever window happened to be selected, so it stopped being the plan that was issued.',
+    'The plan selector says which window each saved plan was built on, so it is visible without loading it.',
     'Cut the PDF glossary from 20 entries to 13. Application, open roles, monthly budget and the on track wording were all saying what the label already said. Predicted hires and the range were each in there twice. Deployable budget just restated the two hold-back entries above it. Platforms still described the old way of splitting a budget, copying whatever the historic mix was.',
     'Fixed the tool getting permanently stuck on Reconnecting. Sign-in tokens can only be renewed once, and the page was renewing in two places at the same time, so one of them used a token the other had already spent. After that every save failed and it kept retrying behind the Reconnecting label instead of saying anything. Only one renewal now happens at a time, it happens a couple of minutes before the token runs out rather than after a save has failed, and if it genuinely cannot renew you go back to the sign in screen instead of sitting there.',
     'Took the last line telling you to download and publish the data file off the fold-in button.',
@@ -7396,10 +7398,22 @@ function App() {
     });
   };
 
+  // Loading a plan restores everything it was built on, not just the numbers
+  // typed into it: the benchmark window it used and the open roles as they
+  // stood at the time. Otherwise an old plan is re-costed on today's data and
+  // stops being the plan that was issued.
   const loadVersion = (id) => {
     const v = (container.versions || []).find(x => x.id === id);
     if (!v) { patchMonth({ loaded: null }); return; }
-    patchMonth({ working: JSON.parse(JSON.stringify(v.planner)), loaded: id });
+    const planner = JSON.parse(JSON.stringify(v.planner));
+    if (v.demand && Object.keys(v.demand).length) {
+      planner.demandOverride = JSON.parse(JSON.stringify(v.demand));
+    }
+    setWs(w => ({
+      ...w,
+      bench: v.bench ? { ...v.bench } : null,
+      months: { ...w.months, [month]: { ...(w.months[month] || newMonth(w, month)), working: planner, loaded: id } },
+    }));
   };
 
   const tabs = [
@@ -7490,6 +7504,14 @@ function App() {
                   disabled={versions.length < 2}>
                   {comparing ? 'Close comparison' : 'Compare plans'}
                 </button>
+                {loadedVersion && loadedVersion.bench && (
+                  <span className="version-note">
+                    built on {monthShort(loadedVersion.bench.from)} to {monthShort(loadedVersion.bench.to)}
+                  </span>
+                )}
+                {loadedVersion && !loadedVersion.bench && (
+                  <span className="version-note">built on all time</span>
+                )}
                 <span className="version-note">
                   {versions.length === 0
                     ? 'Nothing saved for this month yet'
