@@ -795,7 +795,7 @@ function allocateApplications(role, budget, liveRegions, coverageFloor) {
   // A cheap historic CPA is only trustworthy at the spend level it was
   // earned at: a cell that never spent above £500/month cannot be assumed
   // to deliver the same rate at £4,000/month. So the cap is the larger of:
-  //   - 1.75x the cell's peak historic monthly spend (modest scale-up room)
+  //   - the cell's peak historic monthly spend, times the cap multiple
   //   - 2x its average active-month spend
   //   - a £1,200 flat floor (so a near-zero-history cell still gets a chance)
   // This keeps budget close to proven spend levels.
@@ -807,7 +807,7 @@ function allocateApplications(role, budget, liveRegions, coverageFloor) {
     const avg = spends.length ? spends.reduce((a, b) => a + b, 0) / spends.length : 0;
     cellCap[c.region + '|' + c.platform] = Math.max(
       1200,
-      Math.round(peak * 1.75),
+      Math.round(peak * Math.max(1.5, CAP_MULTIPLE)),
       Math.round(avg * 2)
     );
   });
@@ -863,6 +863,122 @@ function predictedApps(platform, region, role, spend) {
   const eff = effectiveCPA(platform, region, role);
   if (!eff) return 0;
   return spend / eff.cpa;
+}
+
+// ====================================================================
+// SPEND RESPONSE
+// Applications do not scale with spend. Every platform gets dearer the more
+// it takes, and they steepen at different rates. So the split across
+// platforms can be worked out by pushing money at whichever one is currently
+// buying the next application most cheaply, rather than by copying whatever
+// the split happened to be last year.
+//
+//   apps = a * spend^b        b under 1 is diminishing returns
+//   marginal cost of the next application = spend^(1-b) / (a*b)
+//
+// The shape b is fitted per platform from every location month on record. The
+// scale a is set per location from that location's own cost per application,
+// so local knowledge is kept without fitting a curve to eight noisy months.
+// ====================================================================
+
+// How far past a cell's biggest observed month the plan is allowed to go.
+// Default is not at all: never spend more in a location on a platform than
+// has already been spent there and measured. Raise it deliberately to stretch,
+// and say by how much.
+let CAP_MULTIPLE = 1.0;
+function setCapMultiple(x) {
+  Object.keys(_typicalCache).forEach(k => delete _typicalCache[k]);
+  const v = Number(x);
+  CAP_MULTIPLE = (isFinite(v) && v >= 1 && v <= 3) ? v : 1.0;
+}
+
+// Where a cell sits on its platform's curve, anchored on its own history.
+// Typical monthly spend for a platform in one location, across every location
+// that has run it. Used as the ceiling where a location has no history of its
+// own on that platform, so the figure still comes from measured spend.
+const _typicalCache = {};
+function typicalMonth(plat, role) {
+  const key = plat + '|' + role;
+  if (_typicalCache[key] !== undefined) return _typicalCache[key];
+  const all = [];
+  DATA.regions_ordered.forEach(r => {
+    const mon = getMonthly(plat, r, role);
+    Object.values(mon).forEach(m => { if ((m.spend || 0) > 100) all.push(m.spend); });
+  });
+  all.sort((a, b) => a - b);
+  const v = all.length ? all[Math.floor(all.length / 2)] : 0;
+  _typicalCache[key] = v;
+  return v;
+}
+
+function responseCurve(plat, region, role) {
+  const c = (DATA.response_curves || {})[role] || {};
+  const fit = c[plat];
+  if (!fit) return null;
+  const st = getStats(plat, region, role);
+  const eff = effectiveCPA(plat, region, role);
+  const cpa = (eff && eff.cpa) || null;
+  if (!cpa || cpa <= 0) return null;
+  // Anchor at the cell's own typical monthly spend, or the platform's own
+  // scale where it has none of its own.
+  const monthly = getMonthly(plat, region, role);
+  const spends = Object.values(monthly).map(m => m.spend || 0).filter(x => x > 100);
+  const anchorSpend = spends.length
+    ? spends.slice().sort((a, b) => a - b)[Math.floor(spends.length / 2)]
+    : 1000;
+  const anchorApps = anchorSpend / cpa;
+  const b = fit.b;
+  const a = anchorApps / Math.pow(anchorSpend, b);
+  // Never plan past what this cell has actually done, unless someone has
+  // deliberately raised the multiple. The curve will happily extrapolate; the
+  // evidence does not.
+  const peak = spends.length ? Math.max(...spends) : typicalMonth(plat, role);
+  return { a, b, cap: peak * CAP_MULTIPLE, peak,
+           anchorSpend, cpa, fitR2: fit.r2 };
+}
+
+// Cost of the next application at a given monthly spend.
+function marginalCPA(cv, spend) {
+  const s = Math.max(1, spend);
+  return Math.pow(s, 1 - cv.b) / (cv.a * cv.b);
+}
+// Spend at which the next application costs lambda.
+function spendForMarginal(cv, lambda) {
+  return Math.pow(lambda * cv.a * cv.b, 1 / (1 - cv.b));
+}
+
+// Split one location's budget across its platforms so the next application
+// costs the same whichever platform buys it. Falls back to the historic split
+// for any platform with no curve.
+function splitByResponse(budget, plats, curves, caps) {
+  const usable = plats.filter(p => curves[p]);
+  if (!usable.length || budget <= 0) return null;
+  let lo = 1, hi = 1e7;
+  const total = (lam) => usable.reduce((s, p) =>
+    s + Math.min(caps[p], Math.max(0, spendForMarginal(curves[p], lam))), 0);
+  if (total(hi) < budget) return null;      // caps bind before the budget is spent
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (total(mid) < budget) lo = mid; else hi = mid;
+  }
+  const lam = (lo + hi) / 2;
+  const out = {};
+  usable.forEach(p => { out[p] = Math.min(caps[p], Math.max(0, spendForMarginal(curves[p], lam))); });
+  const sum = Object.values(out).reduce((a, b) => a + b, 0);
+  if (sum <= 0) return null;
+  // Give any rounding gap only to platforms with room left. Scaling everything
+  // up proportionally would push cells past their ceiling, which is the one
+  // thing this is here to prevent.
+  let left = budget - sum;
+  for (let pass = 0; pass < 6 && left > 0.5; pass++) {
+    const room = usable.filter(p => caps[p] - out[p] > 0.01);
+    if (!room.length) break;
+    const headroom = room.reduce((a, p) => a + (caps[p] - out[p]), 0);
+    const give = Math.min(left, headroom);
+    room.forEach(p => { out[p] += give * ((caps[p] - out[p]) / headroom); });
+    left -= give;
+  }
+  return { split: out, marginal: lam, unplaced: Math.max(0, left) };
 }
 
 // Predicted hires from applications, via the region's historic CVR.
@@ -1128,7 +1244,7 @@ function rolePlatformBand(plat, role) {
 
 // Build the APPLICATION plan for one role.
 //   - Hold-backs (Indeed Premium + Combined Activity) come off the top -> deployable budget.
-//   - A coverage reserve (default 10%) is split EQUALLY across every live
+//   - A coverage reserve can be split EQUALLY across every live
 //     location, so even a one-role location has a visible, funded presence
 //     and the demand waterfall never starves it.
 //   - The rest follows demand: each location's share = its open roles / total.
@@ -1138,8 +1254,13 @@ function rolePlatformBand(plat, role) {
 //   Predicted applications scale linearly with the deployable budget, so the
 //   budget needed to hit the target is a direct calculation, not a search.
 function buildFundingPlan(role, p) {
+  setCapMultiple(p.capMultiple);
   const daysInMonth = p.daysInMonth || 30;
-  const coverageRate = (p.coveragePct >= 0 ? p.coveragePct : COVERAGE_RESERVE_DEFAULT) / 100;
+  // Off by default. Stress tested across sixteen demand shapes and it never
+  // moved the worst-off location by more than about thirty pounds: a location
+  // the demand split would starve has no spend history, and the ceiling will
+  // not let it take the extra anyway. Kept as a parameter, not as a control.
+  const coverageRate = (p.coveragePct >= 0 ? p.coveragePct : 0) / 100;
   const premiumHoldback = Math.round((p.premiumCampaigns || 0) * daysInMonth * INDEED_PREMIUM_RATE);
   const acHoldback = Math.max(0, Math.round(p.acReserve || 0));
   const deployable = Math.max(0, (p.budget || 0) - premiumHoldback - acHoldback);
@@ -1181,7 +1302,25 @@ function buildFundingPlan(role, p) {
       const platShare = {};
       if (locHistTotal >= 200) PLATFORMS.forEach(plat => { platShare[plat] = locHist[plat] / locHistTotal; });
       else PLATFORMS.forEach(plat => { platShare[plat] = roleShare[plat]; });
-      const platShareSource = locHistTotal >= 200 ? 'location' : 'role';
+      let platShareSource = locHistTotal >= 200 ? 'location' : 'role';
+      // Curves are worked out here and applied once the location's budget is
+      // known, further down. Historic share stays as the fallback.
+      const curves = {}, caps = {}, peaks = {};
+      PLATFORMS.forEach(plat => {
+        const mon = getMonthly(plat, region, role);
+        const sp = Object.values(mon).map(m => m.spend || 0).filter(x => x > 0);
+        peaks[plat] = sp.length ? Math.max(...sp) : 0;
+        // Every platform gets a ceiling from its own biggest month, whether or
+        // not a curve could be fitted for it.
+        // Its own biggest month where it has one. Where it has never run in
+        // this location, the platform's typical month elsewhere, so the
+        // ceiling is still a figure that has been spent somewhere.
+        caps[plat] = peaks[plat] > 0
+          ? peaks[plat] * CAP_MULTIPLE
+          : typicalMonth(plat, role) * CAP_MULTIPLE;
+        const cv = responseCurve(plat, region, role);
+        if (cv) curves[plat] = cv;
+      });
       // Coverage mask: for this region, which platforms may receive budget.
       // Default (no coverage set) is every platform on, so the plan behaves
       // exactly as before. An off platform is removed from the location's mix
@@ -1207,6 +1346,7 @@ function buildFundingPlan(role, p) {
         coverageSlice: 0, demandShare: 0, spend: 0,
         predApps: 0, predLow: 0, predHigh: 0, predHires: 0, appSubTarget: 0,
         platShare, platShareSource, platSpend: {}, onPlat, coveredCount,
+        curves, caps, peaks, marginal: null,
       };
     })
     // Live regions must have a vacancy and at least one covered platform to
@@ -1307,7 +1447,49 @@ function buildFundingPlan(role, p) {
 
   // Platform split and predictions, using the (possibly clamped) location spend.
   locs.forEach(l => {
-    PLATFORMS.forEach(plat => { l.platSpend[plat] = l.spend * l.platShare[plat]; });
+    // Marginal-cost split where the plan asks for it and there are curves to
+    // use; historic share otherwise, and for any platform without a curve.
+    let done = false;
+    if (p.splitMode === 'response') {
+      const on = PLATFORMS.filter(plat => l.onPlat[plat] && l.curves[plat]);
+      const off = PLATFORMS.filter(plat => l.onPlat[plat] && !l.curves[plat]);
+      // Platforms with no curve keep their historic share of the money first.
+      const noCurveShare = off.reduce((a, plat) => a + (l.platShare[plat] || 0), 0);
+      const forCurves = l.spend * (1 - noCurveShare);
+      const r = splitByResponse(forCurves, on, l.curves, l.caps);
+      if (r) {
+        PLATFORMS.forEach(plat => { l.platSpend[plat] = 0; });
+        off.forEach(plat => { l.platSpend[plat] = l.spend * (l.platShare[plat] || 0); });
+        Object.keys(r.split).forEach(plat => { l.platSpend[plat] = r.split[plat]; });
+        l.marginal = r.marginal;
+        l.platShareSource = 'response';
+        PLATFORMS.forEach(plat => { l.platShare[plat] = l.spend > 0 ? l.platSpend[plat] / l.spend : 0; });
+        done = true;
+      }
+    }
+    if (!done) PLATFORMS.forEach(plat => { l.platSpend[plat] = l.spend * l.platShare[plat]; });
+
+    // Nothing goes above what that location and platform has already spent,
+    // whichever way the split was worked out. Anything trimmed moves to a
+    // platform in the same location that still has room. If none has, it is
+    // reported rather than quietly spent anyway.
+    l.overCap = 0;
+    const capOf = (plat) => (l.onPlat[plat] ? l.caps[plat] : 0);
+    let spare = 0;
+    PLATFORMS.forEach(plat => {
+      const c = capOf(plat);
+      if (l.platSpend[plat] > c) { spare += l.platSpend[plat] - c; l.platSpend[plat] = c; }
+    });
+    for (let pass = 0; pass < 6 && spare > 0.5; pass++) {
+      const room = PLATFORMS.filter(plat => l.onPlat[plat] && capOf(plat) - l.platSpend[plat] > 0.01);
+      if (!room.length) break;
+      const headroom = room.reduce((a, plat) => a + (capOf(plat) - l.platSpend[plat]), 0);
+      const give = Math.min(spare, headroom);
+      room.forEach(plat => { l.platSpend[plat] += give * ((capOf(plat) - l.platSpend[plat]) / headroom); });
+      spare -= give;
+    }
+    l.overCap = Math.max(0, spare);
+    l.spend = PLATFORMS.reduce((a, plat) => a + (l.platSpend[plat] || 0), 0);
     // Per-platform predicted apps
     l.platApps = {};
     let totApps = 0;
@@ -1531,6 +1713,7 @@ function buildFundingPlan(role, p) {
     });
   });
 
+  const unplaceable = locs.reduce((a, l) => a + (l.overCap || 0), 0);
   const predictedApps = locs.reduce((s, l) => s + l.predApps, 0);
   const predictedHires = locs.reduce((s, l) => s + l.predHires, 0);
   let bw = 0, bd = 0;
@@ -1545,6 +1728,7 @@ function buildFundingPlan(role, p) {
     : 0;
 
   return {
+    unplaceable,
     role, daysInMonth, coverageRate,
     premiumHoldback, acHoldback, deployable,
     coverageReserve, demandPool,
@@ -1586,6 +1770,8 @@ function planParams(role, s) {
     regionMin: (s.regionMin && s.regionMin[role]) || {},
     regionMax: (s.regionMax && s.regionMax[role]) || {},
     daysInMonth: (DATA.days_in_month && DATA.days_in_month[s.planMonth]) || 30,
+    splitMode: s.splitMode || 'historic',
+    capMultiple: s.capMultiple || 1.0,
   };
 }
 
@@ -1917,7 +2103,7 @@ function CoverageMatrix({ role, state, setState }) {
 }
 
 // ====================================================================
-// TAB 1 - SETUP: budget, targets, live locations, coverage reserve
+// TAB 1 - SETUP: budget, targets, live locations
 // ====================================================================
 function SetupTab({ state, setState, onOpenPriorities }) {
   const update = (patch) => setState(s => ({ ...s, ...patch }));
@@ -1961,15 +2147,6 @@ function SetupTab({ state, setState, onOpenPriorities }) {
                 {(DATA.month_labels && DATA.month_labels[state.planMonth]) || state.planMonth}
               </div>
               <div className="help-text" style={{ marginTop: 4 }}>{days} days</div>
-            </div>
-            <div>
-              <label className="field-label">Coverage reserve</label>
-              <input className="text-input" value={state.coveragePct + '%'}
-                onChange={e => update({ coveragePct: parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0 })} />
-              <div className="help-text" style={{ marginTop: 4 }}>
-                Skimmed from the deployable budget and split equally across every live location, so even a
-                low-demand location keeps a visible, funded presence. The rest follows demand.
-              </div>
             </div>
           </div>
         </div>
@@ -2066,6 +2243,50 @@ function SetupTab({ state, setState, onOpenPriorities }) {
                   </div>
                 );
               })}
+            </div>
+
+            {(() => {
+              const pl = buildFundingPlan(role, { ...planParams(role, state), appTarget: state.appTarget[role] || 0 });
+              if (!(pl.unplaceable > 1)) return null;
+              return (
+                <div className="banner banner-warn" style={{ marginBottom: 14 }}>
+                  <div className="banner-icon">!</div>
+                  <div>
+                    <strong>{fmtGBP(pl.unplaceable)} will not fit.</strong> Every location and platform is at
+                    its ceiling, so there is nowhere left to put it without spending above a month that has
+                    already been run. Raise the ceiling, add locations, or lower the budget.
+                  </div>
+                </div>
+              );
+            })()}
+            <div className="section-label">How the budget splits across platforms</div>
+            <div className="dial-row" style={{ marginBottom: 8 }}>
+              <div className="role-switch">
+                {[['historic', 'As it has been'], ['response', 'By what the next application costs']].map(([id, label]) => (
+                  <button key={id} className={(state.splitMode || 'historic') === id ? 'active' : ''}
+                    onClick={() => update({ splitMode: id })}>{label}</button>
+                ))}
+              </div>
+            </div>
+            <div className="dial-row" style={{ marginBottom: 8 }}>
+              <label className="field-label" style={{ flex: 'none' }}>Spend ceiling</label>
+              <input className="text-input" style={{ width: 90, flex: 'none' }}
+                value={((state.capMultiple || 1) * 100).toFixed(0) + '%'}
+                onChange={e => {
+                  const n = parseInt(e.target.value.replace(/[^0-9]/g, ''), 10);
+                  update({ capMultiple: isFinite(n) ? Math.min(3, Math.max(1, n / 100)) : 1 });
+                }} />
+              <span className="help-text" style={{ flex: 1 }}>
+                Of the biggest month each location and platform has already done.
+                {(state.capMultiple || 1) > 1
+                  ? ' Above 100%, so some cells are planned past anything measured.'
+                  : ' At 100% nothing is planned above a spend level already proven.'}
+              </span>
+            </div>
+            <div className="help-text" style={{ marginBottom: 16 }}>
+              {(state.splitMode || 'historic') === 'historic'
+                ? 'Each location splits its budget across platforms the way it has historically, whatever that has cost.'
+                : 'Money goes wherever the next application is cheapest, using a spend response curve per platform. Every platform gets dearer the more it takes, and they steepen at different rates. The ceiling above holds it to spend levels that have actually been run.'}
             </div>
 
             <div className="section-label">
@@ -2296,7 +2517,7 @@ function PlanTab({ state, setState }) {
           </button>
           <span style={{ flex: 1, minWidth: 240 }}>
             Predicted applications scale with the deployable budget, so this is the spend that puts the central
-            estimate on RAC&rsquo;s target, with hold-backs and the coverage reserve included.
+            estimate on RAC&rsquo;s target, with hold-backs included.
           </span>
         </div>
       )}
@@ -2325,11 +2546,7 @@ function PlanTab({ state, setState }) {
                   <td style={{ textAlign: 'right' }}>{fmtGBP(plan.deployable)}</td>
                 </tr>
                 <tr>
-                  <td>Coverage reserve ({covPct}%), split equally across {liveCount} locations</td>
-                  <td style={{ textAlign: 'right' }}>{fmtGBP(plan.coverageReserve)}</td>
-                </tr>
-                <tr>
-                  <td>Demand pool ({100 - covPct}%), distributed by open roles</td>
+                  <td>Split across {liveCount} locations by open roles</td>
                   <td style={{ textAlign: 'right' }}>{fmtGBP(plan.demandPool)}</td>
                 </tr>
               </tbody>
@@ -2391,9 +2608,8 @@ function PlanTab({ state, setState }) {
               </tbody>
             </table>
             <div className="help-text" style={{ padding: '12px 16px' }}>
-              The {covPct}% coverage reserve is split equally so every location is visibly funded; the
-              remaining {100 - covPct}% follows demand (open roles). Each location&rsquo;s app target is
-              RAC&rsquo;s total split the same way. Predicted apps = budget &divide; the location&rsquo;s
+              Each location gets a share of the budget in proportion to its open roles, and the same share
+              of the application target. Predicted apps = budget &divide; the location&rsquo;s
               blended cost-per-application; the range reflects its historic month-to-month volatility.
               {' '}<span style={{ color: 'var(--warn)' }}>*</span> thin data, CPA adjusted toward the
               benchmark; <span style={{ color: 'var(--ink-35)' }}>&dagger;</span> no historic data.
@@ -2936,10 +3152,12 @@ function MethodTab() {
               plan actually distributes across locations.
             </p>
             <p style={{ marginBottom: 12 }}>
-              <strong>A coverage reserve protects every location.</strong> A set share of the deployable
-              budget (10% by default) is taken off and split equally across every live location. This
-              guarantees that even a location with one open role has a visible, funded presence. Without it,
-              distributing purely by demand would leave the smallest locations with almost nothing.
+              <strong>Nothing is planned above a spend level already run.</strong> Each location and
+              platform is held to the biggest month it has actually spent, so no figure in the plan rests
+              on performance at a spend level nobody has tested. Where a location has never run a platform,
+              the ceiling is that platform&rsquo;s typical month across the locations that have. The
+              ceiling can be raised deliberately on Setup to stretch beyond that, and by how much is
+              stated rather than assumed.
             </p>
             <p style={{ marginBottom: 12 }}>
               <strong>The rest follows demand.</strong> The remaining budget is split by open roles: a
@@ -3069,7 +3287,7 @@ function exportPlanPDF(state, roleFilter) {
       ['Indeed Premium', 'A fixed daily cost for Indeed\u2019s premium campaigns, held back off the top. Calculated as campaigns \u00D7 days in the month \u00D7 \u00A344 per day per campaign.'],
       ['Combined Activity', 'A flat amount held back for brand-level activity not tied to a specific location.'],
       ['Deployable budget', 'What is left after the two hold-backs. This is the money actually distributed across locations.'],
-      ['Coverage reserve (10%)', 'A small share of the deployable budget, split equally across every live location. It guarantees that even a one-role location has a visible, funded presence.'],
+      ['Spend ceiling', 'The most a location and platform can be given: the biggest month it has already spent. Nothing in the plan rests on a spend level that has never been run.'],
       ['Demand pool (90%)', 'The remainder of the deployable budget. Split between locations by their share of open roles: bigger demand means a bigger share.'],
       ['App target', 'RAC\u2019s application goal for the role; the number the plan is judged against. In the table, each row\u2019s App target is that location\u2019s share, allocated by demand: a location with 22 of 79 open roles is responsible for 22/79 of the total.'],
       ['Predicted applications', 'How many applications we expect from each location\u2019s budget. Calculated as the location\u2019s budget divided by its blended cost-per-application from history.'],
@@ -3078,7 +3296,7 @@ function exportPlanPDF(state, roleFilter) {
       ['Hire CVR', 'The share of applications that go on to be hired, using the SMR historical rates from the May plan. It is fixed per region and platform, not recalculated from the plan. Patrol is assumed to convert at 0.933 of the SMR rate. Three regions (North East, Wales, Northern Ireland) have no data and show as such.'],
       ['Predicted hires', 'Predicted applications multiplied by the Hire CVR. Hire numbers are small in many regions, so single-figure predictions are indicative rather than precise.'],
       ['Cost per hire', 'Spend divided by predicted hires, using the SMR historical hire rates from the May plan. Shown as n/a where there is no hire data for the region.'],
-      ['Budget to hit target', 'The total spend it would take for the central prediction to land on the application target. Includes the two hold-backs and the coverage reserve.'],
+      ['Budget to hit target', 'The total spend it would take for the central prediction to land on the application target. Includes the two hold-backs.'],
       ['Platforms', 'The four conversion channels the plan distributes across: Indeed, Meta, Google (Search) and Appcast. Each location\u2019s budget is split between them in proportion to how it has been spent there historically.'],
       ['On track / Close / Short', 'A traffic-light judgement. On track: predicted apps meet or exceed target. Close: target sits inside the likely range, just not the central estimate. Short: even the top of the likely range is below target.'],
     ];
@@ -3179,12 +3397,8 @@ function exportPlanPDF(state, roleFilter) {
       pdf.line(leftX + 5, by - 2.5, leftX + colW - 5, by - 2.5);
       row('Deployable budget', 'What we actually distribute across locations',
         fmtGBP(plan.deployable), { bold: true }); by += lineGap;
-      const perLoc = plan.totalCount > 0 ? plan.coverageReserve / plan.totalCount : 0;
-      row('Coverage reserve (' + cov + '%)',
-        fmtGBP(plan.coverageReserve) + ' \u00F7 ' + plan.totalCount + ' locations = ' + fmtGBP(perLoc) + ' each',
-        fmtGBP(plan.coverageReserve)); by += lineGap;
-      row('Demand pool (' + (100 - cov) + '%)',
-        'Split between locations by their share of open roles',
+      row('Split across ' + plan.totalCount + ' locations',
+        'By each location\u2019s share of open roles',
         fmtGBP(plan.demandPool));
 
       // -- KPI tiles (right) --
@@ -3554,6 +3768,14 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Took the coverage reserve out. Stress tested across sixteen demand shapes, both ways of splitting, from two locations at 50 roles against 1 up to twelve locations on an 8,000 pound budget. It never moved the worst-off location by more than about thirty pounds and the predicted applications were identical every time. A location the demand split would starve has no spend history, and the spend ceiling will not let it take the extra anyway, so the two cancel each other out. Gone from Setup, from the workings and from the PDF.',
+    'Nothing is ever planned above what a location and platform has already spent in a month. That is now the default and it applies whichever way the budget is split, not just the new way. The old split had no ceiling at all and was putting money into cells above anything measured.',
+    'Added a spend ceiling on Setup, set as a percentage of the biggest month each location and platform has already run. 100% means never above a proven figure. Raise it to 110% to stretch a little, and the number is on the page rather than buried in the model.',
+    'Where a location has never run a platform, the ceiling is that platform\u2019s typical month across the locations that have. Still a figure that has been spent somewhere, rather than a number picked out of the air.',
+    'If the budget cannot fit under the ceilings, Setup says how much will not fit instead of quietly spending it anyway. On July SMR at 70,000 pounds, about 3,200 has nowhere to go.',
+    'Added a second way of splitting a location\u2019s budget across platforms, on Setup. The old way copies whatever the split has historically been. The new one sends money wherever the next application is cheapest, using a spend response curve fitted per platform from every location month on record. On July SMR at 70,000 pounds it moves about 12,000 off Indeed onto Google and Appcast and predicts 196 more applications, 45 pounds each instead of 52. Default is still the old way so nothing changes on its own.',
+    'The curve shape is fitted per platform, not per location. A single location has six or eight months and fits to nonsense: Google London came out saying more spend buys fewer applications. Each location sets its own scale from its own cost per application, so local knowledge is kept without inventing a curve from noise.',
+    'Every location and platform is capped at 1.75 times the biggest month it has actually done. Appcast is cheapest at the margin by a distance but has never taken more than 1,640 pounds in a month, and without the cap the curve would happily send it 20,000.',
     'Cut a lot of text out. Headings that repeated themselves, help under fields that explained the obvious, and banners that said the same thing three ways. About a quarter of the written copy has gone and nothing works differently.',
     'The benchmark window now drives the plan. Pick May to June in Benchmarks and the planner, the channel tables and the PDF all work on those rates. The window is shown next to the month at the top, and a saved plan records which window it was built on.',
     'Every benchmark table now leads with the same four columns: cost per application, cost per hire, hire rate and apply rate. Anything else comes after.',
@@ -3677,7 +3899,9 @@ function defaultPlannerState() {
     budget: { SMR: 35000, Patrol: 28000 },
     hireTarget: { SMR: 26, Patrol: 26 },
     coverageFloor: 1000,
-    coveragePct: COVERAGE_RESERVE_DEFAULT,
+    splitMode: 'historic',
+    capMultiple: 1.0,
+    coveragePct: 0,
     premiumCampaigns: { SMR: 3, Patrol: 3 },
     acReserve: { SMR: AC_RESERVE_DEFAULT, Patrol: AC_RESERVE_DEFAULT },
     platMin: {
