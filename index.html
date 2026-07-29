@@ -2498,162 +2498,284 @@ function dataQuality(months, apps) {
   return { label: 'None', kind: 'none' };
 }
 
+// Every month the dataset holds, oldest first.
+function dataMonths() {
+  const set = new Set();
+  PLATFORMS.forEach(p => Object.keys(DATA[p] || {}).forEach(k => {
+    if (k === 'OVERALL') return;
+    Object.keys((DATA[p][k] || {}).monthly || {}).forEach(m => set.add(m));
+  }));
+  return [...set].sort();
+}
+
+// Spend and applications for one cell over a month range. All-time when no
+// range is given.
+function windowStats(plat, region, role, from, to) {
+  const cell = (DATA[plat] || {})[region + '__' + role];
+  if (!cell) return { spend: 0, completes: 0, months: 0, cpa: null, first: null, last: null };
+  const m = cell.monthly || {};
+  let spend = 0, completes = 0, months = 0, first = null, last = null;
+  Object.keys(m).sort().forEach(mo => {
+    if (from && mo < from) return;
+    if (to && mo > to) return;
+    const x = m[mo]; if (!x) return;
+    spend += x.spend || 0; completes += x.completes || 0;
+    if ((x.completes || 0) >= 1) {
+      months += 1;
+      if (!first) first = mo;
+      last = mo;
+    }
+  });
+  return { spend, completes, months, first, last, cpa: completes > 0 ? spend / completes : null };
+}
+
+const monthShort = mo => {
+  const [y, m] = mo.split('-');
+  return new Date(Date.UTC(+y, +m - 1, 1)).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
+};
+
 function BenchmarksTab({ state }) {
   const [roleView, setRoleView] = useState('SMR');
   const role = roleView;
+  const months = useMemo(() => dataMonths(), []);
+  const [from, setFrom] = useState(months[0]);
+  const [to, setTo] = useState(months[months.length - 1]);
+  const [open, setOpen] = useState({ byLocation: true, byPlatform: true });
+  const [openPlat, setOpenPlat] = useState({});
 
-  // Build the full region × platform matrix for this role.
-  const rows = DATA.regions_ordered.map(region => {
-    const cells = PLATFORMS.map(p => {
-      const monthly = getMonthly(p, region, role);
-      const months = Object.values(monthly).filter(m => m && (m.completes || 0) >= 1).length;
-      const stats = getStats(p, region, role);
-      const apps = stats?.completes || 0;
-      const spend = stats?.spend || 0;
-      const band = predictionBand(p, region, role);
-      const eff = effectiveCPA(p, region, role);
-      const q = dataQuality(months, apps);
-      return { platform: p, months, apps, spend, band, eff, q };
-    });
-    return { region, cells };
-  });
+  const preset = (n) => {
+    if (!n) { setFrom(months[0]); setTo(months[months.length - 1]); return; }
+    setFrom(months[Math.max(0, months.length - n)]);
+    setTo(months[months.length - 1]);
+  };
+  const spanLen = months.filter(m => m >= from && m <= to).length;
+  const isAll = from === months[0] && to === months[months.length - 1];
 
-  // Headline coverage stats across the matrix.
-  const allCells = rows.flatMap(r => r.cells);
+  // Hire rates stay on the whole history whatever window is chosen: hires lag
+  // by weeks and there is never enough of them in a short window to mean
+  // anything. So cost per hire is the windowed cost per application divided
+  // by the all-time hire rate.
+  const cph = (cpa, region) => {
+    if (!cpa) return null;
+    const r = (DATA.cvr_benchmarks && DATA.cvr_benchmarks[role] && DATA.cvr_benchmarks[role][region]) || 0;
+    return r > 0 ? cpa / r : null;
+  };
+
+  const grid = DATA.regions_ordered.map(region => ({
+    region,
+    cells: PLATFORMS.map(p => {
+      const w = windowStats(p, region, role, from, to);
+      return { platform: p, ...w, q: dataQuality(w.months, w.completes) };
+    }),
+  }));
+  const allCells = grid.flatMap(r => r.cells);
   const strong = allCells.filter(c => c.q.kind === 'good').length;
   const usable = allCells.filter(c => c.q.kind === 'warn').length;
   const thin = allCells.filter(c => c.q.kind === 'bad').length;
   const none = allCells.filter(c => c.q.kind === 'none').length;
-  const totalApps = allCells.reduce((s, c) => s + c.apps, 0);
+  const totalApps = allCells.reduce((s, c) => s + c.completes, 0);
+  const totalSpend = allCells.reduce((s, c) => s + c.spend, 0);
+  const blendedAll = totalApps > 0 ? totalSpend / totalApps : null;
+
+  // Same figures on the whole history, so the window can be judged against it.
+  const allTime = DATA.regions_ordered.flatMap(region =>
+    PLATFORMS.map(p => windowStats(p, region, role, null, null)));
+  const atSpend = allTime.reduce((s, c) => s + c.spend, 0);
+  const atApps = allTime.reduce((s, c) => s + c.completes, 0);
+  const blendedAllTime = atApps > 0 ? atSpend / atApps : null;
+
+  const rangeLabel = spanLen + ' month' + (spanLen === 1 ? '' : 's') + ', ' + monthShort(from) + ' to ' + monthShort(to);
+
+  const Section = ({ id, title, sub, children }) => (
+    <div className="card">
+      <div className="card-head fold-head" onClick={() => setOpen(o => ({ ...o, [id]: !o[id] }))}>
+        <span className={'fold-chev' + (open[id] ? ' open' : '')}>{'\u203A'}</span>
+        <div>
+          <div className="card-title">{title}</div>
+          <div className="card-sub">{sub}</div>
+        </div>
+      </div>
+      {open[id] && <div className="card-body" style={{ padding: 0 }}>{children}</div>}
+    </div>
+  );
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <div className="role-switch">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div className="role-switch role-switch-lead">
           {ROLES.map(r => (
-            <button key={r} className={r === roleView ? 'active' : ''}
-              onClick={() => setRoleView(r)}>{r}</button>
+            <button key={r} className={r === roleView ? 'active' : ''} onClick={() => setRoleView(r)}>{r}</button>
           ))}
         </div>
-        <span className="help-text">How much past performance data backs each prediction</span>
+        <div className="role-switch">
+          <button className={isAll ? 'active' : ''} onClick={() => preset(0)}>All time</button>
+          <button className={spanLen === 6 && !isAll ? 'active' : ''} onClick={() => preset(6)}>Last 6 months</button>
+          <button className={spanLen === 3 && !isAll ? 'active' : ''} onClick={() => preset(3)}>Last 3 months</button>
+        </div>
+        <div className="mb-group">
+          <label>From</label>
+          <select value={from} onChange={e => setFrom(e.target.value > to ? to : e.target.value)}>
+            {months.map(m => <option key={m} value={m}>{monthShort(m)}</option>)}
+          </select>
+          <label>to</label>
+          <select value={to} onChange={e => setTo(e.target.value < from ? from : e.target.value)}>
+            {months.map(m => <option key={m} value={m}>{monthShort(m)}</option>)}
+          </select>
+        </div>
       </div>
 
       <div className="banner banner-info">
         <div className="banner-icon">i</div>
         <div>
-          Every prediction in this tool is only as good as the history behind it. This view shows, for each
-          location and platform, how many months of application data exist and how many applications that
-          covers. <strong>Strong</strong> cells give tight, reliable ranges; <strong>thin</strong> cells fall
-          back to a wide default band, so treat their predictions as indicative, not precise.
+          Showing <strong>{rangeLabel}</strong> for {role}.
+          {!isAll && blendedAll && blendedAllTime && (
+            <> Cost per application over this window is {fmtGBP(blendedAll)} against {fmtGBP(blendedAllTime)}
+            {' '}across the whole history, {Math.abs(Math.round((blendedAll / blendedAllTime - 1) * 100))}%
+            {' '}{blendedAll > blendedAllTime ? 'higher' : 'lower'}.</>
+          )}
+          {' '}Hire rates are always taken from the whole history, so cost per hire is this window's cost per
+          application divided by the all-time hire rate.
         </div>
       </div>
 
-      {/* Coverage summary */}
       <div className="kpi-row" style={{ marginBottom: 18 }}>
+        <div className="kpi kpi-accent-blue">
+          <div className="kpi-label">Cost per application</div>
+          <div className="kpi-value mono">{blendedAll ? fmtGBP(blendedAll) : '-'}</div>
+          <div className="kpi-sub">{fmtInt(totalApps)} applications on {fmtGBP(totalSpend)}</div>
+        </div>
         <div className="kpi kpi-accent-good">
           <div className="kpi-label">Strong coverage</div>
           <div className="kpi-value mono">{strong}</div>
-          <div className="kpi-sub">of {allCells.length} region-platform cells</div>
+          <div className="kpi-sub">of {allCells.length} location and platform cells</div>
         </div>
         <div className="kpi kpi-accent-orange">
-          <div className="kpi-label">Usable coverage</div>
+          <div className="kpi-label">Usable</div>
           <div className="kpi-value mono">{usable}</div>
           <div className="kpi-sub">enough to plan against</div>
         </div>
         <div className="kpi kpi-accent-navy">
-          <div className="kpi-label">Thin / none</div>
+          <div className="kpi-label">Thin or none</div>
           <div className="kpi-value mono">{thin + none}</div>
-          <div className="kpi-sub">{thin} thin · {none} no data</div>
-        </div>
-        <div className="kpi kpi-accent-blue">
-          <div className="kpi-label">Total applications</div>
-          <div className="kpi-value mono">{fmtInt(totalApps)}</div>
-          <div className="kpi-sub">historic, all-time, this role</div>
+          <div className="kpi-sub">{thin} thin, {none} with nothing</div>
         </div>
       </div>
 
-      {/* Per-platform breakdown */}
+      <Section id="byLocation" title="By location, across all platforms"
+        sub={'Every platform blended together. ' + rangeLabel}>
+        <table className="alloc-table">
+          <thead>
+            <tr>
+              <th>Location</th><th>Months of data</th><th>Applications</th><th>Spend</th>
+              <th>Cost per application</th><th>Hire rate</th><th>Cost per hire</th>
+            </tr>
+          </thead>
+          <tbody>
+            {grid.map(({ region, cells }) => {
+              const sp = cells.reduce((a, c) => a + c.spend, 0);
+              const ap = cells.reduce((a, c) => a + c.completes, 0);
+              const cpa = ap > 0 ? sp / ap : null;
+              const mFirst = cells.map(c => c.first).filter(Boolean).sort()[0];
+              const mLast = cells.map(c => c.last).filter(Boolean).sort().pop();
+              const nMonths = mFirst ? months.filter(m => m >= mFirst && m <= mLast && m >= from && m <= to).length : 0;
+              const hr = (DATA.cvr_benchmarks && DATA.cvr_benchmarks[role] && DATA.cvr_benchmarks[role][region]) || 0;
+              return (
+                <tr key={region}>
+                  <td>{region}</td>
+                  <td>{nMonths ? nMonths + ', ' + monthShort(mFirst) + ' to ' + monthShort(mLast) : '-'}</td>
+                  <td className="mono">{fmtInt(ap)}</td>
+                  <td className="mono">{fmtGBP(sp)}</td>
+                  <td className="mono">{cpa ? fmtGBP(cpa) : '-'}</td>
+                  <td className="mono">{hr ? (hr * 100).toFixed(2) + '%' : 'no data'}</td>
+                  <td className="mono">{cph(cpa, region) ? fmtGBP(cph(cpa, region)) : '-'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </Section>
+
+      <Section id="byPlatform" title="By platform, across all locations"
+        sub={'Every location blended together. ' + rangeLabel}>
+        <table className="alloc-table">
+          <thead>
+            <tr>
+              <th>Platform</th><th>Locations with data</th><th>Applications</th><th>Spend</th>
+              <th>Cost per application</th><th>Share of applications</th>
+            </tr>
+          </thead>
+          <tbody>
+            {PLATFORMS.map(pl => {
+              const cs = grid.map(g => g.cells.find(c => c.platform === pl));
+              const sp = cs.reduce((a, c) => a + c.spend, 0);
+              const ap = cs.reduce((a, c) => a + c.completes, 0);
+              const live = cs.filter(c => c.completes >= 1).length;
+              return (
+                <tr key={pl}>
+                  <td>{PLATFORM_LABELS[pl]}</td>
+                  <td className="mono">{live} of {DATA.regions_ordered.length}</td>
+                  <td className="mono">{fmtInt(ap)}</td>
+                  <td className="mono">{fmtGBP(sp)}</td>
+                  <td className="mono">{ap > 0 ? fmtGBP(sp / ap) : '-'}</td>
+                  <td className="mono">{totalApps > 0 ? Math.round(1000 * ap / totalApps) / 10 + '%' : '-'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </Section>
+
       {PLATFORMS.map(platform => {
-        const platRows = rows.map(r => ({
-          region: r.region,
-          cell: r.cells.find(c => c.platform === platform),
-        }));
-        const platApps = platRows.reduce((s, r) => s + r.cell.apps, 0);
-        const platMonthsAvg = platRows.reduce((s, r) => s + r.cell.months, 0) / platRows.length;
+        const platRows = grid.map(g => ({ region: g.region, cell: g.cells.find(c => c.platform === platform) }));
+        const platApps = platRows.reduce((s, r) => s + r.cell.completes, 0);
+        const platSpend = platRows.reduce((s, r) => s + r.cell.spend, 0);
+        const isOpen = !!openPlat[platform];
         return (
           <div className="card" key={platform}>
-            <div className="card-head">
-              <div className="card-title">{PLATFORM_LABELS[platform]}</div>
-              <div className="card-sub">
-                {fmtInt(platApps)} applications on record · {platMonthsAvg.toFixed(1)} months average per location
+            <div className="card-head fold-head" onClick={() => setOpenPlat(o => ({ ...o, [platform]: !o[platform] }))}>
+              <span className={'fold-chev' + (isOpen ? ' open' : '')}>{'\u203A'}</span>
+              <div>
+                <div className="card-title">{PLATFORM_LABELS[platform]} by location</div>
+                <div className="card-sub">
+                  {fmtInt(platApps)} applications on {fmtGBP(platSpend)}
+                  {platApps > 0 ? ', ' + fmtGBP(platSpend / platApps) + ' each' : ''} &middot; {rangeLabel}
+                </div>
               </div>
             </div>
-            <div className="card-body" style={{ padding: 0 }}>
-              <table className="alloc-table">
-                <thead>
-                  <tr>
-                    <th>Location</th>
-                    <th>Months of data</th>
-                    <th>Applications</th>
-                    <th>Spend on record</th>
-                    <th>CPA used</th>
-                    <th>Prediction band</th>
-                    <th>Data quality</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {platRows.map(({ region, cell }) => (
-                    <tr key={region}>
-                      <td>{region}</td>
-                      <td>{cell.months}</td>
-                      <td>{fmtInt(cell.apps)}</td>
-                      <td>{fmtGBP(cell.spend)}</td>
-                      <td>{cell.eff ? fmtGBP(cell.eff.cpa) : '-'}</td>
-                      <td className="band-text">
-                        ±{cell.band.pct}%
-                        {cell.band.basis === 'thin' && <span style={{ opacity: 0.7 }}> (default)</span>}
-                      </td>
-                      <td>
-                        <span className={'pill pill-' + (cell.q.kind === 'none' ? '' : cell.q.kind)}>
-                          {cell.q.label}
-                        </span>
-                      </td>
+            {isOpen && (
+              <div className="card-body" style={{ padding: 0 }}>
+                <table className="alloc-table">
+                  <thead>
+                    <tr>
+                      <th>Location</th><th>Months of data</th><th>Applications</th><th>Spend</th>
+                      <th>Cost per application</th><th>Cost per hire</th><th>Data quality</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {platRows.map(({ region, cell }) => (
+                      <tr key={region}>
+                        <td>{region}</td>
+                        <td>{cell.months ? cell.months + ', ' + monthShort(cell.first) + ' to ' + monthShort(cell.last) : '-'}</td>
+                        <td className="mono">{fmtInt(cell.completes)}</td>
+                        <td className="mono">{fmtGBP(cell.spend)}</td>
+                        <td className="mono">{cell.cpa ? fmtGBP(cell.cpa) : '-'}</td>
+                        <td className="mono">{cph(cell.cpa, region) ? fmtGBP(cph(cell.cpa, region)) : '-'}</td>
+                        <td>
+                          <span className={'pill pill-' + (cell.q.kind === 'none' ? '' : cell.q.kind)}>{cell.q.label}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         );
       })}
-
-      <div className="card">
-        <div className="card-head"><div className="card-title">Reading this view</div></div>
-        <div className="card-body">
-          <div className="help-text" style={{ fontSize: 12.5, lineHeight: 1.7 }}>
-            <p style={{ marginBottom: 8 }}>
-              <strong>Months of data</strong> counts calendar months where this location-platform recorded at
-              least one application. <strong>Prediction band</strong> is the ± range the tool puts around its
-              forecast, derived from how much that cell&rsquo;s cost-per-application has moved month
-              to month. A cell with under 3 months of data can&rsquo;t support a real variance figure, so it
-              falls back to a wide ±35% default, marked &ldquo;(default)&rdquo;.
-            </p>
-            <p>
-              <strong>Strong</strong> = 6+ months and 60+ applications. <strong>Usable</strong> = 3+ months
-              and 20+ applications. <strong>Thin</strong> = some data but below that bar. <strong>None</strong>
-              = no application history at all. When a plan leans on thin or no-data cells, the predicted ranges
-              widen accordingly, rather than the tool projecting false precision.
-            </p>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
 
-// ====================================================================
-// TAB 5 - METHOD: plain-English explanation of how the tool works
-// ====================================================================
 function MethodTab() {
   return (
     <div>
@@ -3305,6 +3427,11 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Benchmarks can be set to a date range. Presets for all time, last six months and last three, plus a from and to month picker for a specific window like May to June. It says how far off all time that window is, so the difference is on the page rather than something to work out.',
+    'Benchmarks now shows cost per hire alongside cost per application. Hire rates stay on the whole history whatever window is picked, because hires lag by weeks and a short window never has enough of them, so cost per hire is the window\u2019s cost per application divided by the all-time hire rate.',
+    'Months of data now says which months, not just how many. Nine months reads as "9, Oct 25 to Jun 26".',
+    'Added two blended views to Benchmarks: every location across all platforms, and every platform across all locations. The per-platform tables fold away.',
+    'Fixed the blended CPA on Month on month. It was averaging the location rates, which gives a location with two roles the same say as one with twenty. It is now total spend over total applications with the budget following the roles, so a bigger share in an expensive location moves it. Reads about 3 pounds lower and matches how the planner works out its own blended rate.',
     'Location priorities is split by role first. Pick SMR or Patrol, then Vacancies, What changed, Trends or Month on month underneath. What changed and Trends used to show both roles stacked on one page.',
     'Month on month is per role too, so the blended CPA of the mix is SMR\u2019s or Patrol\u2019s rather than the two averaged together, which was not a number that meant anything.',
     'Fixed a month with nothing pasted showing July\u2019s locations under its own heading. July\u2019s tracker was being used as the fallback for every month, so August looked populated when it was empty, and Month on month only counted one month because only one had anything genuinely stored against it.',
@@ -4058,14 +4185,19 @@ function MonthOnMonth({ ws, month, role }) {
     } catch (e) { /* no data for this location and role */ }
     return null;
   };
+  // Budget follows the roles, so a location holding a fifth of the roles gets
+  // about a fifth of the money. The blended rate is therefore what all that
+  // money buys: total spend over total applications, not an average of the
+  // rates. Averaging the rates gives every location equal say regardless of
+  // what its share of the budget buys, and reads about £3 high here.
   const blended = (c) => {
-    let spendish = 0, apps = 0;
+    let share = 0, apps = 0;
     DATA.regions_ordered.forEach(r => {
       const v = c[r].vac; if (!v) return;
       const cpa = rate(r); if (!cpa) return;
-      spendish += v * cpa; apps += v;
+      share += v; apps += v / cpa;
     });
-    return apps > 0 ? spendish / apps : null;
+    return apps > 0 ? share / apps : null;
   };
   const bA = blended(A.cut), bB = blended(B.cut);
   const tot = c => DATA.regions_ordered.reduce((s, r) => s + c[r].vac, 0);
@@ -4102,7 +4234,7 @@ function MonthOnMonth({ ws, month, role }) {
           <div className="kpi-value mono">{bB ? fmtGBP(bB) : '-'}</div>
           <div className="kpi-sub">
             {bA ? fmtGBP(bA) : '-'} in {label(a)}, {bB ? fmtGBP(bB) : '-'} in {label(b)}.
-            {' '}On historic rates, weighted by where the roles are.
+            {' '}What the money buys across the mix, on historic rates, with budget following the roles.
           </div>
         </div>
       </div>
