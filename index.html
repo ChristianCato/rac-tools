@@ -610,8 +610,47 @@ function fmtPct(n) {
 // STAT ACCESS
 // ====================================================================
 // Returns the all_time stats for a region × platform × role.
+// The benchmark window. Null means the whole history. Set from Benchmarks and
+// saved with the workspace, so the plan is built on whatever RAC agreed to.
+const _platformCPACache = {};
+let BENCH_WINDOW = null;
+function setBenchWindow(w) {
+  const next = (w && (w.from || w.to)) ? { from: w.from, to: w.to } : null;
+  if (JSON.stringify(next) === JSON.stringify(BENCH_WINDOW)) return false;
+  BENCH_WINDOW = next;
+  Object.keys(_platformCPACache).forEach(k => delete _platformCPACache[k]);
+  return true;
+}
+function benchLabel() {
+  if (!BENCH_WINDOW) return 'all time';
+  return monthShort(BENCH_WINDOW.from) + ' to ' + monthShort(BENCH_WINDOW.to);
+}
+
+// Everything that plans reads this. Windowing it here means the engine, the
+// channel tables and the PDF all move together with no other change.
 function getStats(platform, region, role) {
-  return DATA[platform]?.[`${region}__${role}`]?.all_time || null;
+  const cell = DATA[platform]?.[`${region}__${role}`];
+  if (!cell) return null;
+  if (!BENCH_WINDOW) return cell.all_time || null;
+  const m = cell.monthly || {};
+  let spend = 0, completes = 0;
+  Object.keys(m).forEach(mo => {
+    if (mo < BENCH_WINDOW.from || mo > BENCH_WINDOW.to) return;
+    spend += m[mo].spend || 0; completes += m[mo].completes || 0;
+  });
+  let clicks = 0;
+  Object.keys(m).forEach(mo => {
+    if (mo < BENCH_WINDOW.from || mo > BENCH_WINDOW.to) return;
+    clicks += m[mo].clicks || 0;
+  });
+  const at = cell.all_time || {};
+  // Hire rate stays on the whole history: hires lag too far to mean anything
+  // in a short window. The apply rate is worked out from the clicks in the
+  // window, falling back to all-time for months with none on record.
+  return { ...at, spend, completes, clicks,
+    cpa: completes > 0 ? spend / completes : null,
+    cvr: clicks > 0 ? completes / clicks : (at.cvr || 0),
+    cvrWindowed: clicks > 0 };
 }
 function getMonthly(platform, region, role) {
   return DATA[platform]?.[`${region}__${role}`]?.monthly || {};
@@ -635,7 +674,6 @@ const CPA_PRIOR_K = 35;
 
 // Platform-level aggregate CPA, cached. This is the "prior" the engine
 // regresses thin or unusually cheap cell CPAs toward.
-const _platformCPACache = {};
 function platformAvgCPA(platform, role) {
   const key = platform + ':' + role;
   if (_platformCPACache[key] !== undefined) return _platformCPACache[key];
@@ -2543,25 +2581,29 @@ function dataMonths() {
   return [...set].sort();
 }
 
-// Spend and applications for one cell over a month range. All-time when no
-// range is given.
+// Spend, applications and clicks for one cell over a month range. All-time
+// when no range is given.
 function windowStats(plat, region, role, from, to) {
   const cell = (DATA[plat] || {})[region + '__' + role];
-  if (!cell) return { spend: 0, completes: 0, months: 0, cpa: null, first: null, last: null };
+  if (!cell) return { spend: 0, completes: 0, clicks: 0, months: 0, cpa: null, cvr: null, first: null, last: null };
   const m = cell.monthly || {};
-  let spend = 0, completes = 0, months = 0, first = null, last = null;
+  let spend = 0, completes = 0, clicks = 0, months = 0, first = null, last = null;
   Object.keys(m).sort().forEach(mo => {
     if (from && mo < from) return;
     if (to && mo > to) return;
     const x = m[mo]; if (!x) return;
-    spend += x.spend || 0; completes += x.completes || 0;
+    spend += x.spend || 0; completes += x.completes || 0; clicks += x.clicks || 0;
     if ((x.completes || 0) >= 1) {
       months += 1;
       if (!first) first = mo;
       last = mo;
     }
   });
-  return { spend, completes, months, first, last, cpa: completes > 0 ? spend / completes : null };
+  const at = cell.all_time || {};
+  return { spend, completes, clicks, months, first, last,
+    cpa: completes > 0 ? spend / completes : null,
+    cvr: clicks > 0 ? completes / clicks : (at.cvr || null),
+    cvrWindowed: clicks > 0 };
 }
 
 const monthShort = mo => {
@@ -2569,19 +2611,25 @@ const monthShort = mo => {
   return new Date(Date.UTC(+y, +m - 1, 1)).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
 };
 
-function BenchmarksTab({ state }) {
+function BenchmarksTab({ state, ws, setBench }) {
   const [roleView, setRoleView] = useState('SMR');
   const role = roleView;
   const months = useMemo(() => dataMonths(), []);
-  const [from, setFrom] = useState(months[0]);
-  const [to, setTo] = useState(months[months.length - 1]);
+  const w = (ws && ws.bench) || null;
+  const from = (w && w.from) || months[0];
+  const to = (w && w.to) || months[months.length - 1];
+  const setWindow = (f, t) => {
+    const all = f === months[0] && t === months[months.length - 1];
+    setBench(all ? null : { from: f, to: t });
+  };
+  const setFrom = (v) => setWindow(v > to ? to : v, to);
+  const setTo = (v) => setWindow(from, v < from ? from : v);
   const [open, setOpen] = useState({ byLocation: true, byPlatform: true });
   const [openPlat, setOpenPlat] = useState({});
 
   const preset = (n) => {
-    if (!n) { setFrom(months[0]); setTo(months[months.length - 1]); return; }
-    setFrom(months[Math.max(0, months.length - n)]);
-    setTo(months[months.length - 1]);
+    if (!n) { setWindow(months[0], months[months.length - 1]); return; }
+    setWindow(months[Math.max(0, months.length - n)], months[months.length - 1]);
   };
   const spanLen = months.filter(m => m >= from && m <= to).length;
   const isAll = from === months[0] && to === months[months.length - 1];
@@ -2594,6 +2642,42 @@ function BenchmarksTab({ state }) {
     if (!cpa) return null;
     const r = (DATA.cvr_benchmarks && DATA.cvr_benchmarks[role] && DATA.cvr_benchmarks[role][region]) || 0;
     return r > 0 ? cpa / r : null;
+  };
+
+  // Apply rate and hire rate come from the whole history: clicks are not
+  // stored per month, and hires lag too far to mean anything in a window.
+  // Applications over clicks across the window. Falls back to the all-time
+  // rate for any cell with no clicks on record.
+  const applyRate = (region) => {
+    let cl = 0, ap = 0, w = 0, n = 0;
+    PLATFORMS.forEach(p => {
+      const st = windowStats(p, region, role, from, to);
+      if (st.clicks > 0) { cl += st.clicks; ap += st.completes; }
+      else if (st.cvr > 0 && st.completes > 0) { w += st.cvr * st.completes; n += st.completes; }
+    });
+    if (cl > 0) return ap / cl;
+    return n > 0 ? w / n : null;
+  };
+  const platApplyRate = (pl) => {
+    let cl = 0, ap = 0;
+    DATA.regions_ordered.forEach(r => {
+      const st = windowStats(pl, r, role, from, to);
+      cl += st.clicks; ap += st.completes;
+    });
+    return cl > 0 ? ap / cl : null;
+  };
+  const platHireRate = (pl) => {
+    let w = 0, n = 0;
+    DATA.regions_ordered.forEach(r => {
+      const h = regionPlatformHireCVR(pl, r, role);
+      const st = windowStats(pl, r, role, from, to);
+      if (h > 0 && st.completes > 0) { w += h * st.completes; n += st.completes; }
+    });
+    return n > 0 ? w / n : null;
+  };
+  const platCph = (pl, cpa) => {
+    const h = platHireRate(pl);
+    return (cpa && h > 0) ? cpa / h : null;
   };
 
   const grid = DATA.regions_ordered.map(region => ({
@@ -2668,8 +2752,13 @@ function BenchmarksTab({ state }) {
             {' '}across the whole history, {Math.abs(Math.round((blendedAll / blendedAllTime - 1) * 100))}%
             {' '}{blendedAll > blendedAllTime ? 'higher' : 'lower'}.</>
           )}
-          {' '}Hire rates are always taken from the whole history, so cost per hire is this window's cost per
-          application divided by the all-time hire rate.
+          {' '}Apply rate is applications over clicks across this window. Anything marked with a star has
+          no clicks on record for those months, which is everything before 2026, and falls back to the
+          all-time rate. Hire rate stays on the whole history whatever window is picked, since hires lag
+          too far to mean anything over a couple of months, so cost per hire is this window's cost per
+          application divided by that rate.
+          {' '}<strong>The plan uses this window too</strong>, so changing it here changes what the planner
+          predicts.
         </div>
       </div>
 
@@ -2701,8 +2790,9 @@ function BenchmarksTab({ state }) {
         <table className="alloc-table">
           <thead>
             <tr>
-              <th>Location</th><th>Months of data</th><th>Applications</th><th>Spend</th>
-              <th>Cost per application</th><th>Hire rate</th><th>Cost per hire</th>
+              <th>Location</th><th>Cost per application</th><th>Cost per hire</th>
+              <th>Hire rate</th><th>Apply rate</th><th>Months of data</th>
+              <th>Applications</th><th>Spend</th>
             </tr>
           </thead>
           <tbody>
@@ -2717,12 +2807,13 @@ function BenchmarksTab({ state }) {
               return (
                 <tr key={region}>
                   <td>{region}</td>
+                  <td className="mono">{cpa ? fmtGBP(cpa) : '-'}</td>
+                  <td className="mono">{cph(cpa, region) ? fmtGBP(cph(cpa, region)) : '-'}</td>
+                  <td className="mono">{hr ? (hr * 100).toFixed(2) + '%' : 'no data'}</td>
+                  <td className="mono">{applyRate(region) ? (applyRate(region) * 100).toFixed(2) + '%' : '-'}</td>
                   <td>{nMonths ? nMonths + ', ' + monthShort(mFirst) + ' to ' + monthShort(mLast) : '-'}</td>
                   <td className="mono">{fmtInt(ap)}</td>
                   <td className="mono">{fmtGBP(sp)}</td>
-                  <td className="mono">{cpa ? fmtGBP(cpa) : '-'}</td>
-                  <td className="mono">{hr ? (hr * 100).toFixed(2) + '%' : 'no data'}</td>
-                  <td className="mono">{cph(cpa, region) ? fmtGBP(cph(cpa, region)) : '-'}</td>
                 </tr>
               );
             })}
@@ -2735,8 +2826,9 @@ function BenchmarksTab({ state }) {
         <table className="alloc-table">
           <thead>
             <tr>
-              <th>Platform</th><th>Locations with data</th><th>Applications</th><th>Spend</th>
-              <th>Cost per application</th><th>Share of applications</th>
+              <th>Platform</th><th>Cost per application</th><th>Cost per hire</th>
+              <th>Hire rate</th><th>Apply rate</th><th>Locations with data</th>
+              <th>Applications</th><th>Spend</th>
             </tr>
           </thead>
           <tbody>
@@ -2748,11 +2840,13 @@ function BenchmarksTab({ state }) {
               return (
                 <tr key={pl}>
                   <td>{PLATFORM_LABELS[pl]}</td>
+                  <td className="mono">{ap > 0 ? fmtGBP(sp / ap) : '-'}</td>
+                  <td className="mono">{platCph(pl, ap > 0 ? sp / ap : null) ? fmtGBP(platCph(pl, ap > 0 ? sp / ap : null)) : '-'}</td>
+                  <td className="mono">{platHireRate(pl) ? (platHireRate(pl) * 100).toFixed(2) + '%' : '-'}</td>
+                  <td className="mono">{platApplyRate(pl) ? (platApplyRate(pl) * 100).toFixed(2) + '%' : '-'}</td>
                   <td className="mono">{live} of {DATA.regions_ordered.length}</td>
                   <td className="mono">{fmtInt(ap)}</td>
                   <td className="mono">{fmtGBP(sp)}</td>
-                  <td className="mono">{ap > 0 ? fmtGBP(sp / ap) : '-'}</td>
-                  <td className="mono">{totalApps > 0 ? Math.round(1000 * ap / totalApps) / 10 + '%' : '-'}</td>
                 </tr>
               );
             })}
@@ -2782,19 +2876,22 @@ function BenchmarksTab({ state }) {
                 <table className="alloc-table">
                   <thead>
                     <tr>
-                      <th>Location</th><th>Months of data</th><th>Applications</th><th>Spend</th>
-                      <th>Cost per application</th><th>Cost per hire</th><th>Data quality</th>
+                      <th>Location</th><th>Cost per application</th><th>Cost per hire</th>
+                      <th>Hire rate</th><th>Apply rate</th><th>Months of data</th>
+                      <th>Applications</th><th>Spend</th><th>Data quality</th>
                     </tr>
                   </thead>
                   <tbody>
                     {platRows.map(({ region, cell }) => (
                       <tr key={region}>
                         <td>{region}</td>
+                        <td className="mono">{cell.cpa ? fmtGBP(cell.cpa) : '-'}</td>
+                        <td className="mono">{cph(cell.cpa, region) ? fmtGBP(cph(cell.cpa, region)) : '-'}</td>
+                        <td className="mono">{(() => { const h = regionPlatformHireCVR(platform, region, role); return h ? (h * 100).toFixed(2) + '%' : '-'; })()}</td>
+                        <td className="mono">{cell.cvr ? (cell.cvr * 100).toFixed(2) + '%' + (cell.cvrWindowed ? '' : '*') : '-'}</td>
                         <td>{cell.months ? cell.months + ', ' + monthShort(cell.first) + ' to ' + monthShort(cell.last) : '-'}</td>
                         <td className="mono">{fmtInt(cell.completes)}</td>
                         <td className="mono">{fmtGBP(cell.spend)}</td>
-                        <td className="mono">{cell.cpa ? fmtGBP(cell.cpa) : '-'}</td>
-                        <td className="mono">{cph(cell.cpa, region) ? fmtGBP(cph(cell.cpa, region)) : '-'}</td>
                         <td>
                           <span className={'pill pill-' + (cell.q.kind === 'none' ? '' : cell.q.kind)}>{cell.q.label}</span>
                         </td>
@@ -3462,6 +3559,9 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'The benchmark window now drives the plan. Pick May to June in Benchmarks and the planner, the channel tables and the PDF all work on those rates. The window is shown next to the month at the top, and a saved plan records which window it was built on.',
+    'Every benchmark table now leads with the same four columns: cost per application, cost per hire, hire rate and apply rate. Anything else comes after.',
+    'Clicks are now kept month by month, so apply rate moves with the chosen window instead of being stuck on the all-time figure. Months before 2026 have no clicks on record and fall back to the all-time rate, marked with a star. The Data tab keeps clicks from now on, so this fills in as months are added.',
     'Sign in is now required. No local-only mode, no sign out button, and only enhancemedia.co.uk addresses. The address is checked in the page and again by the database, so a link sent anywhere else gets nowhere.',
     'Fixed the tool dropping to Offline for no visible reason. Sessions expire after about an hour and were never being renewed. Requests now renew the session and retry, and a save that fails keeps retrying rather than being thrown away. If a session cannot be renewed you land back on the sign in screen instead of quietly working on your own copy.',
     'Benchmarks can be set to a date range. Presets for all time, last six months and last three, plus a from and to month picker for a specific window like May to June. It says how far off all time that window is, so the difference is on the page rather than something to work out.',
@@ -6159,7 +6259,7 @@ function digestExport(rows) {
   };
   const iDate = col('Date'), iPlat = col('Platform'), iArea = col('Area'),
         iReg = col('Region'), iSpend = col('Ad Spend'),
-        iApps = col('Blended Apply Completes');
+        iApps = col('Blended Apply Completes'), iClicks = col('Clicks');
   const missing = [['Date', iDate], ['Platform', iPlat], ['Area', iArea], ['Region', iReg],
                    ['Ad Spend', iSpend], ['Blended Apply Completes', iApps]]
                    .filter(([, i]) => i < 0).map(([n]) => n);
@@ -6195,8 +6295,9 @@ function digestExport(rows) {
     const key = region + '__' + role;
     cells[plat] = cells[plat] || {};
     cells[plat][key] = cells[plat][key] || {};
-    const c = cells[plat][key][mo] = cells[plat][key][mo] || { spend: 0, completes: 0 };
+    const c = cells[plat][key][mo] = cells[plat][key][mo] || { spend: 0, completes: 0, clicks: 0 };
     c.spend += spend; c.completes += apps;
+    if (iClicks >= 0) c.clicks += Number(row[iClicks]) || 0;
   }
 
   Object.keys(cells).forEach(p => Object.keys(cells[p]).forEach(k => Object.keys(cells[p][k]).forEach(mo => {
@@ -6804,6 +6905,11 @@ function App() {
     });
   };
 
+  // Keep the engine on whatever window the workspace holds, before anything
+  // is worked out from it.
+  const benchChanged = setBenchWindow(ws.bench);
+  const setBench = (b) => setWs(w => ({ ...w, bench: b }));
+
   const [tool, setTool] = useState('planner');
   const [tab, setTab] = useState('setup');
   const [comparing, setComparing] = useState(false);
@@ -6827,7 +6933,7 @@ function App() {
     working: typeof updater === 'function' ? updater(container.working) : updater,
   });
 
-  const plannerState = useMemo(() => composePlannerState(month, container), [month, container]);
+  const plannerState = useMemo(() => composePlannerState(month, container), [month, container, ws.bench]);
   // The planner writes back its own fields only. Demand, live locations and
   // the application target are derived, so they are stripped on the way in.
   const setPlannerState = (updater) => setPlanner(w => {
@@ -6853,7 +6959,8 @@ function App() {
     // quietly follows reality and can never be missed.
     const entry = { id, name, note: '', saved: new Date().toISOString(),
       planner: JSON.parse(JSON.stringify(container.working)),
-      demand: JSON.parse(JSON.stringify((container.working && container.working.demandOverride) || container.demand || {})) };
+      demand: JSON.parse(JSON.stringify((container.working && container.working.demandOverride) || container.demand || {})),
+      bench: ws.bench || null };
     patchMonth({ versions: [...versions, entry], loaded: id });
   };
 
@@ -6901,7 +7008,7 @@ function App() {
         <div className="logo-mark">R</div>
         <div>
           <h1>RAC Planning Tools</h1>
-          <div className="sub">Enhance Media &middot; {monthLabel}</div>
+          <div className="sub">Enhance Media &middot; {monthLabel} &middot; benchmarks {benchLabel()}</div>
         </div>
         <div className="spacer" />
         <span className={'sync sync-' + sync} title={
@@ -7002,7 +7109,7 @@ function App() {
                   onOpenPriorities={() => setTool('priorities')} />}
                 {tab === 'plan' && <PlanTab state={plannerState} setState={setPlannerState} />}
                 {tab === 'platforms' && <PlatformsTab state={plannerState} />}
-                {tab === 'benchmarks' && <BenchmarksTab state={plannerState} />}
+                {tab === 'benchmarks' && <BenchmarksTab state={plannerState} ws={ws} setBench={setBench} />}
                 {tab === 'method' && <MethodTab />}
               </>
             )}
