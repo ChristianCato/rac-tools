@@ -3336,251 +3336,147 @@ async function exportWorkings(state, role) {
   // ---- 1. Read me ----
   {
     const ws = xlSheet(wb, 'Read me');
-    ws.columns = [{ width: 3 }, { width: 110 }];
+    ws.columns = [{ width: 3 }, { width: 112 }];
     const add = (t, style) => {
       const r = ws.addRow(['', t]);
-      if (style === 'h') r.getCell(2).font = { bold: true, size: 13, color: { argb: XL_NAVY } };
-      else if (style === 'b') r.getCell(2).font = { bold: true, size: 10.5 };
-      else r.getCell(2).font = { size: 10.5, color: { argb: 'FF35415A' } };
-      r.getCell(2).alignment = { wrapText: true, vertical: 'top' };
-      r.height = style === 'h' ? 24 : undefined;
+      const c = r.getCell(2);
+      if (style === 'h') { c.font = { bold: true, size: 13, color: { argb: XL_NAVY } }; r.height = 24; }
+      else if (style === 'b') c.font = { bold: true, size: 10.5 };
+      else c.font = { size: 10.5, color: { argb: 'FF35415A' } };
+      c.alignment = { wrapText: true, vertical: 'top' };
     };
     add('RAC ' + monthLabel + ' plan, ' + role + ': working out', 'h');
     add('Prepared by Enhance Media. Performance data: ' + winLabel + '.');
     ws.addRow([]);
-    add('What this is', 'b');
-    add('Every figure in the plan, and where it came from. Each sheet moves one step further back toward the raw monthly data, so any number in the plan can be followed to the months of spend and applications behind it.');
+    add('How to follow a number', 'b');
+    add('Start on Workings. Every location and platform is one row, and the row reads left to right from the raw performance behind it to the budget it gets and what that budget should produce. Nothing is calculated anywhere you cannot see.');
     ws.addRow([]);
-    add('The sheets, in order', 'b');
-    [['Summary', 'The plan in one place: budget, hold-backs, predicted applications and hires.'],
-     ['Budget breakdown', 'How the monthly budget becomes the money actually spent in each location.'],
-     ['By location', 'Each location: budget, predicted applications, target and hires.'],
-     ['By location and platform', 'The same, split across the four platforms. This is the level the plan is built at.'],
-     ['Rates used', 'The cost per application, apply rate and hire rate behind every location and platform, with how many months of data sit behind each.'],
-     ['Hire rates', 'The share of applications that become hires, per location.'],
-     ['Spend ceilings', 'The most each location and platform can be given, and why.'],
-     ['Raw monthly data', 'Every month of spend, applications and clicks on record. Everything above is built from this sheet.'],
+    add('The four sheets', 'b');
+    [['Summary', 'The plan in one place: budget, hold-backs, applications, hires, and what it would take to hit the target.'],
+     ['Workings', 'The whole plan. One row per location and platform, with the data behind it, the rate used, the ceiling, the budget and the result.'],
+     ['Raw monthly data', 'Every month of spend, applications and clicks on record. The Workings sheet is built entirely from this.'],
      ['How the range works', 'The month by month movement the predicted range is measured from.']]
-      .forEach(([n, d]) => add(n + ', ' + d));
+      .forEach(([n, d]) => add(n + ': ' + d));
     ws.addRow([]);
     add('Two things worth knowing', 'b');
-    add('Hire rates are taken from the whole history rather than the window above, because hires take several weeks to come through and a short window never holds enough of them to be meaningful.');
-    add('Nothing is planned above a monthly spend that a location and platform has already run. Where the budget goes beyond that, the amount is stated separately on the Summary sheet rather than hidden in the totals.');
+    add('Hire rates are taken from the whole history rather than the period above, because hires take several weeks to come through and a short period never holds enough of them to be meaningful.');
+    add('Nothing is planned above a monthly spend that a location and platform has already run. Where the budget goes beyond that, the amount is on both the Summary and the Workings sheet rather than folded into the totals.');
   }
 
   // ---- 2. Summary ----
   {
     const ws = xlSheet(wb, 'Summary');
-    xlTitle(ws, 'Summary', role + ' · ' + monthLabel + ' · performance data ' + winLabel);
-    const cols = [{ h: 'Figure', w: 40 }, { h: 'Value', w: 18, a: 'right' }, { h: 'Where it comes from', w: 74 }];
+    xlTitle(ws, 'Summary', role + ' \u00B7 ' + monthLabel + ' \u00B7 performance data ' + winLabel);
+    const cols = [{ h: 'Figure', w: 42 }, { h: 'Value', w: 18, a: 'right' }, { h: 'How it is arrived at', w: 78 }];
     xlHeader(ws, cols);
     const pct = plan.deployable > 0 ? plan.beyondProven / plan.deployable : 0;
     xlBody(ws, cols, [
-      ['Monthly budget', plan.budget, 'Set by RAC'],
-      ['Indeed Premium hold-back', plan.premiumHoldback, params.premiumCampaigns + ' campaigns × ' + params.daysInMonth + ' days × £' + INDEED_PREMIUM_RATE + ' a day'],
+      ['Monthly budget', plan.budget, 'The budget this plan is built on'],
+      ['Indeed Premium hold-back', plan.premiumHoldback, params.premiumCampaigns + ' campaigns \u00D7 ' + params.daysInMonth + ' days \u00D7 \u00A3' + INDEED_PREMIUM_RATE + ' a day'],
       ['Combined Activity hold-back', plan.acHoldback, 'Flat amount for brand-level activity not tied to a location'],
-      ['Deployable budget', plan.deployable, 'Monthly budget less the two hold-backs'],
-      ['Of which above proven spend', plan.beyondProven, Math.round(pct * 100) + '% of the deployable budget. No month at this level has been run in these locations'],
+      ['Deployable budget', plan.deployable, 'Monthly budget less the two hold-backs. Column H on Workings adds to this.'],
+      ['Of which above proven spend', plan.beyondProven, Math.round(pct * 100) + '% of the deployable budget. Column L on Workings adds to this.'],
       ['', '', ''],
-      ['Application target', plan.appTarget, 'Worked back from the hire target using the blended hire rate for the live locations'],
-      ['Predicted applications', plan.predictedApps, 'Sum of each location and platform: budget ÷ cost per application'],
+      ['Hire target', params.appTarget > 0 ? plan.predictedHires : 0, 'Set by RAC'],
+      ['Application target', plan.appTarget, 'Hire target worked back through the blended hire rate for the live locations'],
+      ['Predicted applications', plan.predictedApps, 'Column J on Workings'],
       ['Predicted applications, low', plan.predLow, 'Central figure less ' + Math.round(plan.aggBandPct) + '%'],
       ['Predicted applications, high', plan.predHigh, 'Central figure plus ' + Math.round(plan.aggBandPct) + '%'],
       ['', '', ''],
-      ['Predicted hires', plan.predictedHires, 'Predicted applications × each location’s hire rate'],
+      ['Predicted hires', plan.predictedHires, 'Column N on Workings'],
       ['Predicted hires, low', plan.predictedHiresLow, 'Same range as applications'],
       ['Predicted hires, high', plan.predictedHiresHigh, 'Same range as applications'],
-      ['Cost per hire', plan.predictedHires > 0 ? plan.deployable / plan.predictedHires : 0, 'Deployable budget ÷ predicted hires'],
+      ['Cost per hire', plan.predictedHires > 0 ? plan.deployable / plan.predictedHires : 0, 'Deployable budget \u00F7 predicted hires'],
       ['', '', ''],
-      ['Range used', plan.aggBandPct / 100, 'Measured on how much ' + role + ' cost per application moved across ' + plan.aggBandMonths + ' months of ' + winLabel],
-      ['Budget to hit the target', plan.budgetForTarget, 'What it would take for the central prediction to land on the application target'],
-    ].map((r, i) => {
-      const fmt = [0, 1, 2, 3, 4].includes(i) || [14, 17].includes(i) ? 'money' : null;
-      return r;
-    }));
-    // Number formats per row.
+      ['Range used', plan.aggBandPct / 100, 'How much ' + role + ' cost per application moved across ' + plan.aggBandMonths + ' months of ' + winLabel + '. See How the range works.'],
+      ['Budget to hit the application target', plan.budgetForTarget, 'Solved by running the whole plan at trial budgets until the central prediction lands on the target'],
+    ]);
     ws.eachRow((row, n) => {
       if (n < 5) return;
-      const c = row.getCell(2);
-      const label = String(row.getCell(1).value || '');
+      const c = row.getCell(2), label = String(row.getCell(1).value || '');
       if (/budget|hold-back|proven|Cost per hire/i.test(label)) c.numFmt = GBP;
       else if (/Range used/i.test(label)) c.numFmt = '0.0%';
       else if (/hires/i.test(label)) c.numFmt = N1;
       else if (/applications|target/i.test(label)) c.numFmt = N0;
     });
-    xlNote(ws, [
-      'Every figure on this sheet is the total of the By location and platform sheet, which is in turn built from Rates used and Raw monthly data.',
-    ]);
   }
 
-  // ---- 3. Budget breakdown ----
+  // ---- 3. Workings: the whole plan, one row per location and platform ----
   {
-    const ws = xlSheet(wb, 'Budget breakdown');
-    xlTitle(ws, 'How the budget is divided', 'Hold-backs first, then split between locations by open roles');
-    const cols = [{ h: 'Step', w: 44 }, { h: 'Amount', w: 16, a: 'right', f: GBP }, { h: 'Running total', w: 16, a: 'right', f: GBP }, { h: 'Note', w: 66 }];
-    xlHeader(ws, cols);
-    xlBody(ws, cols, [
-      ['Monthly budget', plan.budget, plan.budget, 'Set by RAC'],
-      ['Less Indeed Premium', -plan.premiumHoldback, plan.budget - plan.premiumHoldback, params.premiumCampaigns + ' campaigns × ' + params.daysInMonth + ' days × £' + INDEED_PREMIUM_RATE],
-      ['Less Combined Activity', -plan.acHoldback, plan.deployable, 'Brand-level activity not tied to a location'],
-      ['Deployable budget', plan.deployable, plan.deployable, 'Distributed across ' + plan.totalCount + ' locations by open roles'],
-    ], { totalRow: true });
-    ws.addRow([]);
-    const c2 = [{ h: 'Location', w: 24 }, { h: 'Open roles', w: 12, a: 'right', f: N0 },
-      { h: 'Share of open roles', w: 18, a: 'right', f: '0.0%' }, { h: 'Budget', w: 16, a: 'right', f: GBP },
-      { h: 'Of which above proven spend', w: 26, a: 'right', f: GBP }];
-    xlHeader(ws, c2);
-    const totVac = plan.locations.reduce((a, l) => a + l.vacancies, 0);
-    xlBody(ws, c2, plan.locations.map(l => [l.region, l.vacancies, totVac > 0 ? l.vacancies / totVac : 0, l.spend, l.beyondProvenTotal || 0])
-      .concat([['Total', totVac, 1, plan.deployable, plan.beyondProven]]), { totalRow: true });
-  }
-
-  // ---- 4. By location ----
-  {
-    const ws = xlSheet(wb, 'By location');
-    xlTitle(ws, 'By location', role + ' · ' + monthLabel);
-    const cols = [{ h: 'Location', w: 24 }, { h: 'Open roles', w: 11, a: 'right', f: N0 },
-      { h: 'Budget', w: 15, a: 'right', f: GBP }, { h: 'Cost per application', w: 18, a: 'right', f: GBP },
-      { h: 'Predicted applications', w: 19, a: 'right', f: N0 }, { h: 'Low', w: 11, a: 'right', f: N0 },
-      { h: 'High', w: 11, a: 'right', f: N0 }, { h: 'Application target', w: 16, a: 'right', f: N0 },
-      { h: 'Hire rate', w: 11, a: 'right', f: PCT2 }, { h: 'Predicted hires', w: 14, a: 'right', f: N1 },
-      { h: 'Cost per hire', w: 15, a: 'right', f: GBP }, { h: 'Range used', w: 12, a: 'right', f: '0%' }];
-    xlHeader(ws, cols);
-    const rows = plan.locations.map(l => {
-      const hr = (DATA.cvr_benchmarks && DATA.cvr_benchmarks[role] && DATA.cvr_benchmarks[role][l.region]) || 0;
-      return [l.region, l.vacancies, l.spend, l.cpa, l.predApps, l.predLow, l.predHigh, l.appSubTarget,
-        hr, l.predHires, l.predHires > 0 ? l.spend / l.predHires : null, l.bandPct / 100];
+    const ws = xlSheet(wb, 'Workings');
+    xlTitle(ws, 'Workings', 'One row per location and platform. Reads left to right: the data behind it, the rate used, the ceiling, the budget, the result.');
+    const cols = [
+      { h: 'A\nLocation', w: 20 },
+      { h: 'B\nPlatform', w: 13 },
+      { h: 'C\nOpen roles', w: 10, a: 'right', f: N0 },
+      { h: 'D\nSpend in period', w: 15, a: 'right', f: GBP },
+      { h: 'E\nApplications in period', w: 15, a: 'right', f: N1 },
+      { h: 'F\nMonths of data', w: 18 },
+      { h: 'G\nCost per application used', w: 18, a: 'right', f: GBP2 },
+      { h: 'H\nBudget this month', w: 16, a: 'right', f: GBP },
+      { h: 'I\nShare of location budget', w: 15, a: 'right', f: '0.0%' },
+      { h: 'J\nPredicted applications\nH \u00F7 G', w: 17, a: 'right', f: N1 },
+      { h: 'K\nBiggest month already run', w: 17, a: 'right', f: GBP },
+      { h: 'L\nAbove proven spend', w: 15, a: 'right', f: GBP },
+      { h: 'M\nHire rate', w: 11, a: 'right', f: PCT2 },
+      { h: 'N\nPredicted hires\nJ \u00D7 M', w: 14, a: 'right', f: N1 },
+      { h: 'O\nCost per hire\nH \u00F7 N', w: 14, a: 'right', f: GBP },
+    ];
+    const hr = xlHeader(ws, cols);
+    ws.getRow(hr).height = 42;
+    const rows = [];
+    plan.locations.forEach(l => {
+      PLATFORMS.forEach(p => {
+        const sp = l.platSpend[p] || 0;
+        if (!sp) return;
+        const w = windowStats(p, l.region, role, win && win.from, win && win.to);
+        const hire = regionPlatformHireCVR(p, l.region, role);
+        const apps = l.platApps ? (l.platApps[p] || 0) : 0;
+        rows.push([l.region, PLATFORM_LABELS[p], l.vacancies, w.spend, w.completes,
+          w.months ? w.months + ', ' + monthShort(w.first) + ' to ' + monthShort(w.last) : 'none',
+          l.platCpa ? l.platCpa[p] : null, sp, l.spend > 0 ? sp / l.spend : 0, apps,
+          l.peaks ? l.peaks[p] : null, (l.beyondProven && l.beyondProven[p]) || 0,
+          hire, apps * hire, (apps * hire) > 0 ? sp / (apps * hire) : null]);
+      });
+      // A subtotal line for the location.
+      rows.push([l.region + ' total', '', l.vacancies, null, null, '', l.cpa, l.spend, 1,
+        l.predApps, null, l.beyondProvenTotal || 0, null, l.predHires,
+        l.predHires > 0 ? l.spend / l.predHires : null]);
     });
-    rows.push(['Total', plan.locations.reduce((a, l) => a + l.vacancies, 0), plan.deployable,
-      plan.predictedApps > 0 ? plan.deployable / plan.predictedApps : null, plan.predictedApps,
-      plan.predLow, plan.predHigh, plan.appTarget, null, plan.predictedHires,
-      plan.predictedHires > 0 ? plan.deployable / plan.predictedHires : null, plan.aggBandPct / 100]);
+    rows.push(['Plan total', '', plan.locations.reduce((a, l) => a + l.vacancies, 0), null, null, '',
+      plan.predictedApps > 0 ? plan.deployable / plan.predictedApps : null, plan.deployable, null,
+      plan.predictedApps, null, plan.beyondProven, null, plan.predictedHires,
+      plan.predictedHires > 0 ? plan.deployable / plan.predictedHires : null]);
     xlBody(ws, cols, rows, { totalRow: true });
+    // Mark every location subtotal so the eye can find them.
+    ws.eachRow((row, n) => {
+      const a = String(row.getCell(1).value || '');
+      if (/ total$/.test(a)) {
+        row.eachCell(cell => {
+          cell.font = { size: 10, bold: true };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: XL_HEAD } };
+          cell.border = { top: { style: 'hair', color: { argb: XL_LINE } },
+                          bottom: { style: 'thin', color: { argb: XL_LINE } } };
+        });
+      }
+    });
     xlNote(ws, [
-      'Predicted applications = budget ÷ cost per application. Predicted hires = predicted applications × hire rate.',
-      'The low and high come from the range used, which is measured on how much cost per application has moved month to month.',
+      'D and E are that location and platform\u2019s own performance over ' + winLabel + ', added up from Raw monthly data.',
+      'G is normally D \u00F7 E. Where a location and platform has very little data the figure is pulled toward the platform average, so a cheap rate earned on a few hundred pounds is not projected at scale.',
+      'H is decided within each location: the budget goes to whichever platform produces the next hire most cheaply, held to the ceiling in K.',
+      'L is the part of H that goes above K. That part rests on a spend level not yet run rather than on measured performance.',
+      'M is from the whole history rather than the period, because hires take several weeks to come through.',
     ]);
   }
 
-  // ---- 5. By location and platform ----
-  {
-    const ws = xlSheet(wb, 'By location and platform');
-    xlTitle(ws, 'By location and platform', 'The level the plan is built at. Everything else is a total of this sheet.');
-    const cols = [{ h: 'Location', w: 22 }, { h: 'Platform', w: 14 }, { h: 'Budget', w: 14, a: 'right', f: GBP },
-      { h: 'Cost per application used', w: 20, a: 'right', f: GBP2 }, { h: 'Predicted applications', w: 19, a: 'right', f: N1 },
-      { h: 'Hire rate', w: 11, a: 'right', f: PCT2 }, { h: 'Predicted hires', w: 14, a: 'right', f: N1 },
-      { h: 'Cost per hire', w: 15, a: 'right', f: GBP },
-      { h: 'Biggest month already run', w: 22, a: 'right', f: GBP },
-      { h: 'Spend ceiling', w: 15, a: 'right', f: GBP },
-      { h: 'Above proven spend', w: 18, a: 'right', f: GBP }];
-    xlHeader(ws, cols);
-    const rows = [];
-    plan.locations.forEach(l => PLATFORMS.forEach(p => {
-      const sp = l.platSpend[p] || 0;
-      if (!sp) return;
-      const hr = regionPlatformHireCVR(p, l.region, role);
-      const apps = l.platApps ? (l.platApps[p] || 0) : 0;
-      rows.push([l.region, PLATFORM_LABELS[p], sp, l.platCpa ? l.platCpa[p] : null, apps, hr,
-        apps * hr, hr > 0 ? sp / (apps * hr) : null, l.peaks ? l.peaks[p] : null,
-        l.caps ? l.caps[p] : null, (l.beyondProven && l.beyondProven[p]) || 0]);
-    }));
-    const tSpend = rows.reduce((a, r) => a + r[2], 0), tApps = rows.reduce((a, r) => a + r[4], 0);
-    rows.push(['Total', '', tSpend, tApps > 0 ? tSpend / tApps : null, tApps, null,
-      rows.reduce((a, r) => a + r[6], 0), null, null, null, plan.beyondProven]);
-    xlBody(ws, cols, rows, { totalRow: true });
-    xlNote(ws, [
-      'Within each location the budget goes to the platforms where hires cost the least, held to the spend ceiling.',
-      'Above proven spend is the part of a cell that goes beyond the biggest month that location and platform has already run.',
-    ]);
-  }
-
-  // ---- 6. Rates used ----
-  {
-    const ws = xlSheet(wb, 'Rates used');
-    xlTitle(ws, 'Rates used', 'Taken from ' + winLabel + '. Every rate here comes from the Raw monthly data sheet.');
-    const cols = [{ h: 'Location', w: 22 }, { h: 'Platform', w: 14 },
-      { h: 'Spend in period', w: 16, a: 'right', f: GBP }, { h: 'Applications', w: 13, a: 'right', f: N1 },
-      { h: 'Clicks', w: 12, a: 'right', f: N0 },
-      { h: 'Cost per application, measured', w: 24, a: 'right', f: GBP2 },
-      { h: 'Cost per application, used', w: 22, a: 'right', f: GBP2 },
-      { h: 'Why they differ', w: 34 },
-      { h: 'Apply rate', w: 12, a: 'right', f: PCT2 }, { h: 'Hire rate', w: 12, a: 'right', f: PCT2 },
-      { h: 'Months of data', w: 14, a: 'right', f: N0 }, { h: 'Period covered', w: 20 }];
-    xlHeader(ws, cols);
-    const rows = [];
-    DATA.regions_ordered.forEach(r => PLATFORMS.forEach(p => {
-      const w = windowStats(p, r, role, win && win.from, win && win.to);
-      if (!w.spend && !w.completes) return;
-      const eff = effectiveCPA(p, r, role);
-      const why = !eff ? 'No usable rate' :
-        eff.source === 'own' ? 'Used as measured' :
-        'Thin data, pulled toward the ' + PLATFORM_LABELS[p] + ' average';
-      rows.push([r, PLATFORM_LABELS[p], w.spend, w.completes, w.clicks || null, w.cpa,
-        eff && eff.cpa, why, w.cvr, regionPlatformHireCVR(p, r, role), w.months,
-        w.first ? monthShort(w.first) + ' to ' + monthShort(w.last) : '']);
-    }));
-    xlBody(ws, cols, rows);
-    xlNote(ws, [
-      'Cost per application, measured, is spend ÷ applications over the period. Cost per application, used, is what the plan runs on.',
-      'They differ only where a location and platform has very little data, in which case the figure is pulled toward the platform average so a cheap rate earned on a few hundred pounds is not projected at scale.',
-      'Apply rate is applications ÷ clicks. Hire rate is taken from the whole history, not this period.',
-    ]);
-  }
-
-  // ---- 7. Hire rates ----
-  {
-    const ws = xlSheet(wb, 'Hire rates');
-    xlTitle(ws, 'Hire rates', 'The share of applications that become hires. From RAC’s own historic data, across the whole history.');
-    const cols = [{ h: 'Location', w: 26 }, { h: 'Hire rate', w: 14, a: 'right', f: PCT2 },
-      { h: 'Applications per hire', w: 20, a: 'right', f: N0 }, { h: 'In this plan', w: 16 }];
-    xlHeader(ws, cols);
-    const live = new Set(plan.locations.map(l => l.region));
-    xlBody(ws, cols, DATA.regions_ordered.map(r => {
-      const hr = (DATA.cvr_benchmarks && DATA.cvr_benchmarks[role] && DATA.cvr_benchmarks[role][r]) || 0;
-      return [r, hr || null, hr > 0 ? 1 / hr : null, live.has(r) ? 'Yes' : 'No open roles'];
-    }));
-    xlNote(ws, [
-      'These are held at the whole-history figure whatever period the rest of the plan uses, because hires take several weeks to come through and a short period never holds enough of them to be meaningful.',
-      'A location showing no rate has no hire data on record and its hires are not predicted.',
-    ]);
-  }
-
-  // ---- 8. Spend ceilings ----
-  {
-    const ws = xlSheet(wb, 'Spend ceilings');
-    xlTitle(ws, 'Spend ceilings', 'Nothing is planned above a monthly spend that has already been run.');
-    const cols = [{ h: 'Location', w: 22 }, { h: 'Platform', w: 14 },
-      { h: 'Biggest month already run', w: 22, a: 'right', f: GBP },
-      { h: 'Ceiling', w: 14, a: 'right', f: GBP },
-      { h: 'Planned this month', w: 18, a: 'right', f: GBP },
-      { h: 'Above the ceiling', w: 17, a: 'right', f: GBP },
-      { h: 'At the ceiling', w: 14 }];
-    xlHeader(ws, cols);
-    const rows = [];
-    plan.locations.forEach(l => PLATFORMS.forEach(p => {
-      const sp = l.platSpend[p] || 0;
-      if (!sp) return;
-      const cap = l.caps ? l.caps[p] : null, peak = l.peaks ? l.peaks[p] : null;
-      rows.push([l.region, PLATFORM_LABELS[p], peak, cap, sp, (l.beyondProven && l.beyondProven[p]) || 0,
-        (cap && Math.abs(sp - cap) < 1) ? 'Yes' : '']);
-    }));
-    xlBody(ws, cols, rows);
-    xlNote(ws, [
-      'The ceiling is the biggest single month that location and platform has already spent, times the ceiling setting on the plan (currently ' + Math.round((params.capMultiple || 1) * 100) + '%).',
-      'Where a location has never run a platform, the ceiling is that platform’s typical month across the locations that have.',
-      'Where the budget goes above the ceiling the amount is shown, because that part rests on a spend level not yet tested rather than on measured performance.',
-    ]);
-  }
-
-  // ---- 9. Raw monthly data ----
+  // ---- 4. Raw monthly data ----
   {
     const ws = xlSheet(wb, 'Raw monthly data');
-    xlTitle(ws, 'Raw monthly data', 'Every month on record. Everything in this workbook is built from this sheet.');
-    const cols = [{ h: 'Month', w: 12 }, { h: 'Location', w: 22 }, { h: 'Platform', w: 14 },
+    xlTitle(ws, 'Raw monthly data', 'Every month on record. The Workings sheet is built entirely from this.');
+    const cols = [{ h: 'Month', w: 12 }, { h: 'Location', w: 20 }, { h: 'Platform', w: 13 },
       { h: 'Spend', w: 14, a: 'right', f: GBP2 }, { h: 'Applications', w: 13, a: 'right', f: N1 },
       { h: 'Clicks', w: 12, a: 'right', f: N0 }, { h: 'Cost per application', w: 18, a: 'right', f: GBP2 },
-      { h: 'Apply rate', w: 12, a: 'right', f: PCT2 },
-      { h: 'Used in this plan', w: 16 }];
+      { h: 'Apply rate', w: 12, a: 'right', f: PCT2 }, { h: 'In the period used', w: 20 }];
     xlHeader(ws, cols);
     const rows = [];
     DATA.regions_ordered.forEach(r => PLATFORMS.forEach(p => {
@@ -3603,7 +3499,7 @@ async function exportWorkings(state, role) {
     ]);
   }
 
-  // ---- 10. How the range works ----
+  // ---- 5. How the range works ----
   {
     const ws = xlSheet(wb, 'How the range works');
     xlTitle(ws, 'How the range works', 'The range is measured on how much ' + role + ' cost per application has moved month to month.');
@@ -3620,16 +3516,13 @@ async function exportWorkings(state, role) {
         o.s += x.spend; o.a += x.completes || 0;
       });
     }));
-    const months = Object.keys(byMonth).sort();
-    xlBody(ws, cols, months.map(mo => {
+    xlBody(ws, cols, Object.keys(byMonth).sort().map(mo => {
       const o = byMonth[mo];
-      const inWin = !win || (mo >= win.from && mo <= win.to);
-      return [mo, o.s, o.a, o.a > 0 ? o.s / o.a : null, inWin ? 'Yes' : 'No'];
+      return [mo, o.s, o.a, o.a > 0 ? o.s / o.a : null, (!win || (mo >= win.from && mo <= win.to)) ? 'Yes' : 'No'];
     }));
     xlNote(ws, [
-      'The range on the whole plan is ' + Math.round(plan.aggBandPct) + '%, measured across the ' + plan.aggBandMonths + ' months marked Yes above.',
+      'The range on the whole plan is ' + Math.round(plan.aggBandPct) + '%, measured across the ' + plan.aggBandMonths + ' months marked Yes.',
       'It is narrower than any single location, because locations do not all miss in the same direction to the same degree.',
-      'A shorter period usually gives a tighter range, because it holds less of the change the account has been through.',
     ]);
   }
 
@@ -3640,124 +3533,6 @@ async function exportWorkings(state, role) {
   a.download = 'RAC_' + monthLabel.replace(/\s+/g, '_') + '_' + role + '_workings.xlsx';
   a.click();
   URL.revokeObjectURL(a.href);
-}
-
-
-function MethodTab() {
-  const months = dataMonths();
-  const first = months[0], last = months[months.length - 1];
-  return (
-    <div>
-      <div className="banner banner-info">
-        <div className="banner-icon">i</div>
-        <div>How the plan is worked out, in the order it happens.</div>
-      </div>
-
-      <div className="card">
-        <div className="card-head"><div className="card-title">From a hire target to a budget</div></div>
-        <div className="card-body method-body">
-          <p>
-            <strong>The hire target is the input.</strong> You enter the number of hires RAC need. The
-            application target is worked back from it, through the blended hire rate for the locations live
-            that month. The rate is blended rather than flat because a hire costs a very different number of
-            applications in London than in the North West, and one flat rate across every location builds the
-            wrong target.
-          </p>
-          <p>
-            <strong>After that the plan runs on applications.</strong> Application data is plentiful and
-            updates weekly, so next month can be predicted against a recent record. Hires are the goal, but
-            they are thin and lag by weeks, so applications are what the plan is measured on.
-          </p>
-          <p>
-            <strong>Open roles come from Location priorities.</strong> How many roles are open in each
-            location is kept in one place and read by the planner rather than typed into it. That number sets
-            which locations are funded and how much each one gets.
-          </p>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-head"><div className="card-title">How the money is divided</div></div>
-        <div className="card-body method-body">
-          <p>
-            <strong>Hold-backs come off the top.</strong> Indeed Premium, which is campaigns multiplied by
-            days in the month at &pound;{INDEED_PREMIUM_RATE} a day, and the Combined Activity reserve for
-            brand-level work not tied to a location. What is left is the deployable budget.
-          </p>
-          <p>
-            <strong>Locations are funded by open roles.</strong> A location with 22 of 79 open roles takes
-            22/79 of the deployable budget. The money tracks where the hiring need is.
-          </p>
-          <p>
-            <strong>Platforms are funded by what a hire costs.</strong> Within each location the budget goes
-            to whichever platform produces the next hire most cheaply. Two things decide that: every platform
-            gets dearer per application the more it takes in one location in one month, and they turn
-            applications into hires at different rates. A platform with no hire rate on record keeps its
-            historic share instead.
-          </p>
-          <p>
-            <strong>Nothing is planned above a spend level already run.</strong> Each location and platform is
-            held to the biggest month it has actually spent, so no figure rests on performance at a level
-            nobody has tested. Where a location has never run a platform, the ceiling is that platform&rsquo;s
-            typical month across the locations that have. The ceiling can be raised on Setup, and anything
-            above it is reported separately as an estimate rather than a measured figure.
-          </p>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-head"><div className="card-title">How far to trust it</div></div>
-        <div className="card-body method-body">
-          <p>
-            <strong>Thin data is treated with caution.</strong> A very low cost per application earned on a
-            few hundred pounds of spend rarely holds at scale, so for thin locations the planning figure is
-            pulled toward the role benchmark.
-          </p>
-          <p>
-            <strong>Predictions come with a range.</strong> The range on the whole plan comes from how much
-            the role&rsquo;s cost per application has moved month to month across the period the plan is built
-            on. It is narrower than any single location, because locations do not all miss in the same
-            direction to the same degree. Each location carries its own range from its own history.
-          </p>
-          <p>
-            <strong>Hires carry the same range as applications.</strong> Predicted hires are predicted
-            applications multiplied by the location&rsquo;s hire rate, so fewer applications means fewer hires
-            at the same rate. Hire rates are never windowed, because hires lag by several weeks and a short
-            period never holds enough of them to mean anything.
-          </p>
-          <p>
-            <strong>Budget can be worked back from a target.</strong> Predicted applications scale with the
-            deployable budget, so the tool reports the budget needed to land the central estimate on the
-            target, hold-backs included.
-          </p>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-head">
-          <div className="card-title">Which data this is built on</div>
-          <div className="card-sub">Currently {benchLabel()}</div>
-        </div>
-        <div className="card-body method-body">
-          <p>
-            Applications are counted from the ad platforms for Meta, Google and Appcast, and from Eploy for
-            Indeed. Google means Google Search only. Demand Gen, Acast, brand, competitor and remarketing
-            campaigns are non-standard and never reach the plan.
-          </p>
-          <p>
-            Spend that is not tagged to a location is left out rather than spread across locations, so a
-            location figure only holds what genuinely happened there. Campaigns on a different project code
-            are excluded outright.
-          </p>
-          <p>
-            The dataset runs {monthShort(first)} to {monthShort(last)}. The window it plans on is set on the
-            Benchmarks tab and is currently <strong>{benchLabel()}</strong>. Changing it changes the cost per
-            application, the range, and every figure that follows from them.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 // ====================================================================
@@ -4341,7 +4116,7 @@ function exportPlanPDF(state, roleFilter) {
 const CHANGELOG = [
   { date: '28 Jul', items: [
     'Fixed budget to hit target giving a different answer depending on the budget you were looking at. It was scaling up from the current plan\u2019s applications per pound, which assumes spending twice as much buys twice as many applications. It does not, and the rest of the tool is built on knowing that. It now runs the whole plan at trial budgets until it lands on the target, so the figure is the same from any starting point. On YTD data it reads 136,250 from a 70,000 plan, a 128,200 plan or a 155,000 plan.',
-    'Added Export workings next to Export PDF. It produces a formatted spreadsheet for each role with ten sheets: a read me, the summary, the budget breakdown, by location, by location and platform, the rates used and where they came from, hire rates, spend ceilings, every month of raw data, and how the range is worked out. It is generated from the same plan the PDF is drawn from, so the two cannot disagree.',
+    'Added Export workings next to Export PDF. A formatted spreadsheet for each role, generated from the same plan the PDF is drawn from so the two cannot disagree. Four sheets after the read me: the summary, one Workings sheet with every location and platform as a row reading left to right from raw performance through to predicted hires, every month of raw data, and how the range is worked out.',
     'Loading a saved plan now brings back everything it was built on, not just the settings typed into it. It restores the data window it used and the open roles as they stood when it was saved. Before this, opening an older plan re-costed it on whatever window happened to be selected, so it stopped being the plan that was issued.',
     'The plan selector says which window each saved plan was built on, so it is visible without loading it.',
     'Cut the PDF glossary from 20 entries to 13. Application, open roles, monthly budget and the on track wording were all saying what the label already said. Predicted hires and the range were each in there twice. Deployable budget just restated the two hold-back entries above it. Platforms still described the old way of splitting a budget, copying whatever the historic mix was.',
@@ -7465,6 +7240,124 @@ function DataTool() {
 // ====================================================================
 // CHANGELOG VIEW
 // ====================================================================
+
+function MethodTab() {
+  const months = dataMonths();
+  const first = months[0], last = months[months.length - 1];
+  return (
+    <div>
+      <div className="banner banner-info">
+        <div className="banner-icon">i</div>
+        <div>How the plan is worked out, in the order it happens.</div>
+      </div>
+
+      <div className="card">
+        <div className="card-head"><div className="card-title">From a hire target to a budget</div></div>
+        <div className="card-body method-body">
+          <p>
+            <strong>The hire target is the input.</strong> You enter the number of hires RAC need. The
+            application target is worked back from it, through the blended hire rate for the locations live
+            that month. The rate is blended rather than flat because a hire costs a very different number of
+            applications in London than in the North West, and one flat rate across every location builds the
+            wrong target.
+          </p>
+          <p>
+            <strong>After that the plan runs on applications.</strong> Application data is plentiful and
+            updates weekly, so next month can be predicted against a recent record. Hires are the goal, but
+            they are thin and lag by weeks, so applications are what the plan is measured on.
+          </p>
+          <p>
+            <strong>Open roles come from Location priorities.</strong> How many roles are open in each
+            location is kept in one place and read by the planner rather than typed into it. That number sets
+            which locations are funded and how much each one gets.
+          </p>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head"><div className="card-title">How the money is divided</div></div>
+        <div className="card-body method-body">
+          <p>
+            <strong>Hold-backs come off the top.</strong> Indeed Premium, which is campaigns multiplied by
+            days in the month at &pound;{INDEED_PREMIUM_RATE} a day, and the Combined Activity reserve for
+            brand-level work not tied to a location. What is left is the deployable budget.
+          </p>
+          <p>
+            <strong>Locations are funded by open roles.</strong> A location with 22 of 79 open roles takes
+            22/79 of the deployable budget. The money tracks where the hiring need is.
+          </p>
+          <p>
+            <strong>Platforms are funded by what a hire costs.</strong> Within each location the budget goes
+            to whichever platform produces the next hire most cheaply. Two things decide that: every platform
+            gets dearer per application the more it takes in one location in one month, and they turn
+            applications into hires at different rates. A platform with no hire rate on record keeps its
+            historic share instead.
+          </p>
+          <p>
+            <strong>Nothing is planned above a spend level already run.</strong> Each location and platform is
+            held to the biggest month it has actually spent, so no figure rests on performance at a level
+            nobody has tested. Where a location has never run a platform, the ceiling is that platform&rsquo;s
+            typical month across the locations that have. The ceiling can be raised on Setup, and anything
+            above it is reported separately as an estimate rather than a measured figure.
+          </p>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head"><div className="card-title">How far to trust it</div></div>
+        <div className="card-body method-body">
+          <p>
+            <strong>Thin data is treated with caution.</strong> A very low cost per application earned on a
+            few hundred pounds of spend rarely holds at scale, so for thin locations the planning figure is
+            pulled toward the role benchmark.
+          </p>
+          <p>
+            <strong>Predictions come with a range.</strong> The range on the whole plan comes from how much
+            the role&rsquo;s cost per application has moved month to month across the period the plan is built
+            on. It is narrower than any single location, because locations do not all miss in the same
+            direction to the same degree. Each location carries its own range from its own history.
+          </p>
+          <p>
+            <strong>Hires carry the same range as applications.</strong> Predicted hires are predicted
+            applications multiplied by the location&rsquo;s hire rate, so fewer applications means fewer hires
+            at the same rate. Hire rates are never windowed, because hires lag by several weeks and a short
+            period never holds enough of them to mean anything.
+          </p>
+          <p>
+            <strong>Budget can be worked back from a target.</strong> Predicted applications scale with the
+            deployable budget, so the tool reports the budget needed to land the central estimate on the
+            target, hold-backs included.
+          </p>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <div className="card-title">Which data this is built on</div>
+          <div className="card-sub">Currently {benchLabel()}</div>
+        </div>
+        <div className="card-body method-body">
+          <p>
+            Applications are counted from the ad platforms for Meta, Google and Appcast, and from Eploy for
+            Indeed. Google means Google Search only. Demand Gen, Acast, brand, competitor and remarketing
+            campaigns are non-standard and never reach the plan.
+          </p>
+          <p>
+            Spend that is not tagged to a location is left out rather than spread across locations, so a
+            location figure only holds what genuinely happened there. Campaigns on a different project code
+            are excluded outright.
+          </p>
+          <p>
+            The dataset runs {monthShort(first)} to {monthShort(last)}. The window it plans on is set on the
+            Benchmarks tab and is currently <strong>{benchLabel()}</strong>. Changing it changes the cost per
+            application, the range, and every figure that follows from them.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChangelogTool() {
   return (
     <div>
