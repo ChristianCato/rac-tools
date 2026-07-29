@@ -103,10 +103,34 @@ export default async function handler(req, res) {
     const isCron = !!process.env.CRON_SECRET && token === process.env.CRON_SECRET;
     if (!isCron) {
       if (!token) return res.status(401).json({ error: "Not signed in." });
+      // The token is issued by one Supabase project and checked against
+      // whichever project this function is pointed at. If those differ, every
+      // sign-in looks invalid, so say so rather than just refusing.
+      let tokenProject = null;
+      try {
+        const claims = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString("utf8"));
+        tokenProject = claims.iss || null;
+      } catch (e) { /* not a readable token */ }
+      const serverProject = SUPABASE_URL.replace(/\/+$/, "");
+      if (tokenProject && !tokenProject.startsWith(serverProject)) {
+        return res.status(401).json({
+          error: "This function is pointed at a different Supabase project than the one you signed in to.",
+          signedInTo: tokenProject.replace(/\/auth\/v1$/, ""),
+          serverConfiguredFor: serverProject,
+          fix: "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel to the project you sign in to, then redeploy.",
+        });
+      }
       const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
       const { data: userData, error: userErr } = await admin.auth.getUser(token);
       const email = userData?.user?.email || "";
-      if (userErr || !email) return res.status(401).json({ error: "Sign-in could not be verified." });
+      if (userErr || !email) {
+        return res.status(401).json({
+          error: "Sign-in could not be verified.",
+          reason: userErr ? String(userErr.message || userErr) : "No email on the account",
+          serverConfiguredFor: serverProject,
+          hint: "If the reason mentions an invalid or expired token, sign out and back in. If it mentions the API key, the service role key in Vercel is from a different project.",
+        });
+      }
       let allowed = email.toLowerCase().endsWith(ENHANCE_DOMAIN);
       if (!allowed) {
         const { data: allow } = await admin.from("allowed_emails").select("email").eq("email", email.toLowerCase()).maybeSingle();
