@@ -724,13 +724,27 @@ function effectiveCPA(platform, region, role) {
 // as a +/- percentage. This is the confidence mechanism: the tool
 // promises a range, not a point. Wider band = more volatile history.
 // ====================================================================
+// How much a prediction can move, from how much the cost per application has
+// moved month to month. It follows the benchmark window: recent months only
+// means recent variance only, which is usually tighter.
+//
+// Two months cannot show variance, so where the window holds fewer than three
+// months the cell falls back to its own full history rather than to a flat
+// number. A narrower window should not buy false precision.
 function predictionBand(platform, region, role) {
   const monthly = getMonthly(platform, region, role);
-  const cpas = Object.values(monthly)
-    .filter(m => m && m.cpa > 0 && (m.completes || 0) >= 1)
-    .map(m => m.cpa);
+  const usable = (mo) => {
+    const m = monthly[mo];
+    return m && m.cpa > 0 && (m.completes || 0) >= 1;
+  };
+  const inWindow = Object.keys(monthly)
+    .filter(mo => !BENCH_WINDOW || (mo >= BENCH_WINDOW.from && mo <= BENCH_WINDOW.to))
+    .filter(usable).map(mo => monthly[mo].cpa);
+  const everything = Object.keys(monthly).filter(usable).map(mo => monthly[mo].cpa);
+  let cpas = inWindow, basis = 'measured';
+  if (cpas.length < 3) { cpas = everything; basis = 'all-time'; }
   if (cpas.length < 3) {
-    // Not enough history: use a wide default band and flag it.
+    // Nothing to measure anywhere: a wide default, flagged as such.
     return { pct: 35, basis: 'thin', n: cpas.length };
   }
   const mean = cpas.reduce((a, b) => a + b, 0) / cpas.length;
@@ -740,7 +754,7 @@ function predictionBand(platform, region, role) {
   // Coefficient of variation -> band. Clamp to a sensible 8%–45% range so
   // the tool never projects false precision nor uselessly wide ranges.
   const pct = Math.max(8, Math.min(45, Math.round(cov * 100)));
-  return { pct, basis: 'measured', n: cpas.length };
+  return { pct, basis, n: cpas.length };
 }
 
 // ====================================================================
@@ -1766,7 +1780,33 @@ function buildFundingPlan(role, p) {
   const predictedHires = locs.reduce((s, l) => s + l.predHires, 0);
   let bw = 0, bd = 0;
   locs.forEach(l => { if (l.predApps > 0) { bw += l.bandPct * l.predApps; bd += l.predApps; } });
-  const aggBandPct = bd > 0 ? bw / bd : 35;
+  // How much the whole plan can move is not the average of how much each
+  // location can move. A single location swings more than the role does,
+  // because they do not all miss in the same direction to the same degree.
+  // So this is measured on the role's own blended cost per application month
+  // by month, over the benchmark window, and only falls back to the weighted
+  // average of the location bands when there are too few months to measure.
+  const rollUpBand = () => {
+    const byMonth = {};
+    PLATFORMS.forEach(plat => DATA.regions_ordered.forEach(r => {
+      const m = getMonthly(plat, r, role);
+      Object.keys(m).forEach(mo => {
+        if (BENCH_WINDOW && (mo < BENCH_WINDOW.from || mo > BENCH_WINDOW.to)) return;
+        const x = m[mo]; if (!x || !(x.spend > 0)) return;
+        const o = byMonth[mo] = byMonth[mo] || { spend: 0, apps: 0 };
+        o.spend += x.spend; o.apps += x.completes || 0;
+      });
+    }));
+    const cpas = Object.values(byMonth).filter(o => o.apps > 0).map(o => o.spend / o.apps);
+    if (cpas.length < 3) return null;
+    const mean = cpas.reduce((a, b) => a + b, 0) / cpas.length;
+    if (!(mean > 0)) return null;
+    const sd = Math.sqrt(cpas.reduce((a, b) => a + (b - mean) ** 2, 0) / cpas.length);
+    return { pct: Math.max(5, Math.min(45, Math.round(sd / mean * 100))), months: cpas.length };
+  };
+  const roleBand = rollUpBand();
+  const aggBandPct = roleBand ? roleBand.pct : (bd > 0 ? bw / bd : 35);
+  const aggBandMonths = roleBand ? roleBand.months : 0;
   const predLow = predictedApps * (1 - aggBandPct / 100);
   const predictedHiresLow = predictedHires * (1 - aggBandPct / 100);
   const predictedHiresHigh = predictedHires * (1 + aggBandPct / 100);
@@ -1785,7 +1825,7 @@ function buildFundingPlan(role, p) {
     locations: locs, totalVac, totalCount: M, platformTotals, channelSummary, regionChannel,
     platBreaches, platClamped: clamped, platMin, platMax,
     regionMin, regionMax, regionClamped, unplacedBudget,
-    appTarget, predictedApps, predLow, predHigh, aggBandPct, predictedHires,
+    appTarget, predictedApps, predLow, predHigh, aggBandPct, aggBandMonths, predictedHires,
     predictedHiresLow, predictedHiresHigh,
     onTarget: appTarget > 0 && predictedApps >= appTarget,
     pctOfTarget: appTarget > 0 ? predictedApps / appTarget : (predictedApps > 0 ? 1 : 0),
@@ -2523,6 +2563,7 @@ function PlanTab({ state, setState }) {
             <div className="kpi-value mono">{plan.predictedHires.toFixed(1)}</div>
             <div className="kpi-sub">
               likely {plan.predictedHiresLow.toFixed(1)}&ndash;{plan.predictedHiresHigh.toFixed(1)}
+              {plan.aggBandMonths ? ' \u00B7 from ' + plan.aggBandMonths + ' months' : ''}
               {plan.predictedHires > 0 ? ' \u00B7 ' + fmtGBP(plan.deployable / plan.predictedHires) + ' per hire' : ''}
             </div>
           </div>
@@ -3334,6 +3375,7 @@ function exportPlanPDF(state, roleFilter) {
       ['Combined Activity', 'A flat amount held back for brand-level activity not tied to a specific location.'],
       ['Deployable budget', 'What is left after the two hold-backs. This is the money actually distributed across locations.'],
       ['Predicted hires', 'Predicted applications multiplied by the location\u2019s historic hire rate. It carries the same range as applications: fewer applications means fewer hires at the same rate.'],
+      ['The range', 'How much the whole plan can move, from how much the cost per application has moved month to month across the benchmark period. It is narrower than any single location, because they do not all miss in the same direction to the same degree.'],
       ['Spend ceiling', 'The most a location and platform can be given: the biggest month it has already spent. Nothing in the plan rests on a spend level that has never been run.'],
       ['Split by open roles', 'The deployable budget divided between locations by their share of open roles: more roles means a bigger share.'],
       ['App target', 'RAC\u2019s application goal for the role; the number the plan is judged against. In the table, each row\u2019s App target is that location\u2019s share, allocated by demand: a location with 22 of 79 open roles is responsible for 22/79 of the total.'],
@@ -3834,6 +3876,10 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Fixed how the range on the whole plan is worked out. It was the average of each location\u2019s own range, which is the wrong measure: a single location swings more than the whole plan does. It is now measured on the role\u2019s own cost per application month by month, over whichever benchmark window is picked.',
+    'That makes a real difference. SMR on all time reads 12.8 to 31.3 hires, which is not much use to anyone. On January to June it reads 14.5 to 20.9. Patrol stays wide at 5.6 to 14.3 on the same window, because Patrol genuinely is that volatile month to month.',
+    'The prediction range now follows the benchmark window. It used to read every month on record whatever window was picked, so choosing recent months changed the cost per application but not how certain it was. On the last three months the range comes down from 39% to 29% for SMR and 43% to 35% for Patrol.',
+    'A window of fewer than three months cannot show variance, so those cells fall back to their own full history rather than to a flat 35%. Picking a two month window used to make everything look tighter purely because the placeholder was tighter than the real figure.',
     'Predicted hires now carries a range, on screen and in the PDF, alongside the headline number and on every line of the by-channel table. Applications had a range and hires did not, which made hires look like the more certain number when it is applications multiplied by a rate. Same rate across the range: fewer applications means fewer hires.',
     'Folding months into the benchmarks now saves them for everyone straight away, the same as plans and priorities. Updating the master sheet no longer means downloading a file and putting it in the repository. The download is still there as a backstop, along with an undo that goes back to the numbers the tool starts from.',
     'Plainer wording on Setup for how the split works and for the above-proven figure.',
