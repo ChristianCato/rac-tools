@@ -2248,6 +2248,18 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
   const pinned = !!state.demandOverride;
   // Pinning starts from whatever is on screen, so nothing jumps.
   const pinCounts = () => update({ demandOverride: JSON.parse(JSON.stringify(state.vacancies || {})) });
+  // RAC's own plan column for this month, where their file carried one.
+  const racPlan = (() => {
+    try {
+      const pri = priorityFor(state.planMonth, container);
+      const out = {};
+      ROLES.forEach(r => { out[r] = planDemandFrom(pri, r); });
+      return (out.SMR || out.Patrol) ? out : null;
+    } catch (e) { return null; }
+  })();
+  const useRacPlan = () => update({
+    demandOverride: JSON.parse(JSON.stringify(racPlan[role] || state.vacancies || {})),
+  });
   const usePriorities = () => update({ demandOverride: null });
   const setPinned = (role, region, n) => setState(s => ({
     ...s,
@@ -2451,6 +2463,36 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
                   <a href="#" className="link-inline" onClick={e => { e.preventDefault(); pinCounts(); }}>
                     set them by hand for this plan
                   </a>.
+                  {(() => {
+                    let dates = [];
+                    try { dates = (priorityFor(state.planMonth, container).dates || []).slice().reverse(); }
+                    catch (e) { dates = []; }
+                    if (dates.length < 2) return null;
+                    return (
+                      <div className="dial-row" style={{ marginTop: 10, marginBottom: 2 }}>
+                        <label className="field-label" style={{ flex: 'none' }}>Open roles as at</label>
+                        <select className="text-input" style={{ width: 150, flex: 'none' }}
+                          value={state.demandDate || ''}
+                          onChange={e => update({ demandDate: e.target.value || null, demandOverride: null })}>
+                          <option value="">Latest ({fmtDay(dates[0])})</option>
+                          {dates.map(d => <option key={d} value={d}>{fmtDay(d)}</option>)}
+                        </select>
+                        <span className="help-text" style={{ flex: 1 }}>
+                          Any day RAC have sent. The date is kept with the plan, so it stays true to
+                          their file, and saving a version freezes the counts as they stood.
+                        </span>
+                      </div>
+                    );
+                  })()}
+                  {racPlan && racPlan[role] && (
+                    <>
+                      {' '}RAC's file carries a plan column for this month.{' '}
+                      <a href="#" className="link-inline" onClick={e => { e.preventDefault(); useRacPlan(); }}>
+                        Use those counts instead
+                      </a>
+                      {' '}({Object.values(racPlan[role]).reduce((a, b) => a + b, 0)} roles).
+                    </>
+                  )}
                 </>
               )}
             </div>
@@ -3321,6 +3363,9 @@ function xlBody(ws, cols, rows, opts) {
   });
 }
 
+function fmtDay(iso) {
+  return new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+}
 const GBP = '£#,##0', GBP2 = '£#,##0.00', PCT2 = '0.00%', N1 = '#,##0.0', N0 = '#,##0';
 
 async function exportWorkings(state, role) {
@@ -4126,6 +4171,10 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'A plan can be built on the open roles as at any day RAC have sent, picked on Setup, instead of typing the counts in by hand. The working plan keeps the date rather than the numbers, so it stays true to their file if they revise a day. Saving a version freezes the counts as they stood and records which date they came from, shown next to the plan.',
+    'Location priorities takes RAC\u2019s own file directly. Their Location Updates workbook and our daily tracker both paste in as they are, so their file no longer has to be copied into ours first. Checked against June, July and August: 111 SMR rows and 120 Patrol, none unmatched.',
+    'Dates in the file with nothing filled in yet are skipped. RAC lay the whole month out in advance, so the last column was usually empty and every location was reading as zero. The paste summary says how many were skipped.',
+    'RAC\u2019s plan column is kept per month, and Setup offers it as the basis for a plan. So a plan can be built on the counts the month was planned against rather than on whatever the daily list says today.',
     'Fixed being unable to add vacancies to a month with nothing in it. The empty state was rendering instead of the paste box, so it told you to paste and gave you nowhere to do it. Vacancies now always shows, whatever month you are on.',
     'A month with no list of its own carries the previous month\u2019s open roles forward, which is what you want when building next month\u2019s plan early. Setup now says so instead of showing them as this month\u2019s own figures.',
     'Shorter wording on the Windsor button and the two export boxes.',
@@ -4357,10 +4406,22 @@ function defaultWorkspace() {
 // has to know where any of it came from.
 function composePlannerState(month, container, demandOverride) {
   const s = { ...container.working, planMonth: month };
+  // A plan can be anchored to one day of the priorities history rather than
+  // to today's counts. The date is stored, not the numbers, so the plan keeps
+  // matching the file. Saving a version freezes the numbers as they stood.
+  if (!demandOverride && s.demandDate) {
+    try {
+      const pri = priorityFor(month, container);
+      if ((pri.dates || []).includes(s.demandDate)) {
+        demandOverride = demandAsAt(pri, s.demandDate);
+      }
+    } catch (e) { /* fall through to live counts */ }
+  }
   // Live priorities by default. A plan can pin its own counts instead, which
   // is how a plan written weeks ago gets rebuilt on the demand it actually
   // had rather than on today's.
-  const demandSrc = demandOverride || (container.working && container.working.demandOverride) || container.demand;
+  const demandSrc = (container.working && container.working.demandOverride)
+    || demandOverride || container.demand;
   s.vacancies = {};
   s.liveRegions = {};
   ROLES.forEach(role => {
@@ -4489,11 +4550,51 @@ function parseMonthPaste(text, fallbackYear) {
   }
 
   if (!rows.length) return { error: 'I found the date row but no location rows under it.' };
-  return { rows, dates: dateCols.map(d => d[1]).sort(), unmatched, hadPlan: iPlan >= 0 };
+  // RAC's own file lays the whole month out in advance, so most columns are
+  // still empty. Keep only the days that have actually been filled in, or
+  // every location reads as zero on the last column.
+  const allDates = dateCols.map(d => d[1]).sort();
+  const filled = allDates.filter(d => rows.some(r => r.v[d] !== undefined && r.v[d] !== null && r.v[d] !== ''));
+  const blank = allDates.length - filled.length;
+  rows.forEach(r => {
+    const v = {};
+    filled.forEach(d => { if (r.v[d] !== undefined) v[d] = r.v[d]; });
+    r.v = v;
+  });
+  return { rows, dates: filled, unmatched, hadPlan: iPlan >= 0, blankCols: blank };
 }
 
 // The paste is the whole month, so it replaces the role's grid outright.
 // No merging, no inferring what a missing row means.
+// RAC's file carries a plan column: the vacancy count the month was planned
+// on. Kept per month so a plan can be built on it rather than on whatever the
+// daily list says today.
+// Vacancy counts as at one day of the priorities history, per role.
+function demandAsAt(pri, date) {
+  const out = {};
+  ROLES.forEach(role => {
+    out[role] = {};
+    DATA.regions_ordered.forEach(r => { out[role][r] = 0; });
+    (((pri.roles || {})[role] || {}).rows || []).forEach(row => {
+      const n = +((row.v || {})[date]) || 0;
+      if (n > 0 && out[role][row.region] !== undefined) out[role][row.region] += n;
+    });
+  });
+  return out;
+}
+
+function planDemandFrom(pri, role) {
+  const rows = ((pri.roles || {})[role] || {}).rows || [];
+  const out = {};
+  DATA.regions_ordered.forEach(r => { out[r] = 0; });
+  let any = false;
+  rows.forEach(r => {
+    const n = +r.plan || 0;
+    if (n > 0 && out[r.region] !== undefined) { out[r.region] += n; any = true; }
+  });
+  return any ? out : null;
+}
+
 function applyMonthPaste(pri, role, parsed) {
   const next = JSON.parse(JSON.stringify(pri));
   const oldRows = (next.roles[role] || {}).rows || [];
@@ -4546,7 +4647,6 @@ function seedPriorities() {
   }));
 }
 
-const fmtDay = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
 
 function nextWeekday(fromISO) {
   const d = new Date((fromISO || todayISO()) + 'T00:00:00');
@@ -4631,6 +4731,12 @@ function MonthPaste({ role, pri, onApply, month }) {
               {' \u00B7 '}<strong>{parsed.dates.length}</strong> days, {fmtDay(parsed.dates[0])} to {fmtDay(preview.last)}
               {' \u00B7 '}<strong>{preview.live}</strong> live and <strong>{preview.vac}</strong> vacancies on the last day
             </div>
+            {parsed.blankCols > 0 && (
+              <div style={{ marginTop: 6 }}>
+                {parsed.blankCols} later date{parsed.blankCols === 1 ? '' : 's'} in the file
+                {parsed.blankCols === 1 ? ' is' : ' are'} still empty and {parsed.blankCols === 1 ? 'was' : 'were'} skipped.
+              </div>
+            )}
             {parsed.unmatched.length > 0 && (
               <div className="parse-bad">
                 <strong>{parsed.unmatched.length} row{parsed.unmatched.length === 1 ? '' : 's'} I could not read.</strong>
@@ -7738,7 +7844,8 @@ function App() {
     const entry = { id, name, note: '', saved: new Date().toISOString(),
       planner: JSON.parse(JSON.stringify(container.working)),
       demand: JSON.parse(JSON.stringify((container.working && container.working.demandOverride) || container.demand || {})),
-      bench: ws.bench || null };
+      bench: ws.bench || null,
+      demandDate: (container.working && container.working.demandDate) || null };
     patchMonth({ versions: [...versions, entry], loaded: id });
   };
 
@@ -7774,6 +7881,7 @@ function App() {
     if (v.demand && Object.keys(v.demand).length) {
       planner.demandOverride = JSON.parse(JSON.stringify(v.demand));
     }
+    planner.demandDate = v.demandDate || null;
     setWs(w => ({
       ...w,
       bench: v.bench ? { ...v.bench } : null,
@@ -7881,6 +7989,9 @@ function App() {
                   disabled={versions.length < 2}>
                   {comparing ? 'Close comparison' : 'Compare plans'}
                 </button>
+                {loadedVersion && loadedVersion.demandDate && (
+                  <span className="version-note">roles as at {fmtDay(loadedVersion.demandDate)}</span>
+                )}
                 {loadedVersion && loadedVersion.bench && (
                   <span className="version-note">
                     built on {monthShort(loadedVersion.bench.from)} to {monthShort(loadedVersion.bench.to)}
