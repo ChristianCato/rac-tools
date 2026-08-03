@@ -4203,6 +4203,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'The In platform data heading names the master sheet file it read and the last day in it. Downloads all share a name with a number on the end, so it was easy to load an older one and not notice.',
+    'Took the last mention of matching the master sheet dates out of the two export boxes.',
     'An older shared copy can no longer replace newer work in your browser. Every save is stamped, and the reload leaves yours alone if it is the more recent of the two. This is what would otherwise have wiped five days of work the first time the tool was opened after the save bug was fixed.',
     'Added Back up next to the sync label. It downloads everything in this browser as a file.',
     'Fixed nothing having saved to the server since 28 July. The functions that read and write the shared copy had been deleted by an edit and the tool carried on against the copy in your browser without saying so. That is also why Performance Pacing kept losing what you had pasted: the reload was pulling a five day old copy over the top of it. Restored, and the test suite now fails the build if anything is called that does not exist.',
@@ -6450,10 +6452,7 @@ function PlatformPasteBox({ label, hint, priRows, onApply, applied, range }) {
     <div style={{ marginBottom: 14 }}>
       <div className="section-label">{label}{applied ? ' \u00B7 loaded' : ''}</div>
       <div className="help-text" style={{ marginBottom: 6 }}>
-        {hint}
-        {range
-          ? <> Export it for <strong>{range}</strong> so it covers the same days as the master sheet.</>
-          : <> Load the master sheet first, then this will tell you which dates to export for.</>}
+        {hint}{range ? <> {range}.</> : null}
       </div>
       <textarea className="paste-box" rows={3} value={text}
         placeholder="Paste the export, header row included"
@@ -6556,7 +6555,7 @@ function PacingTool({ month, container, patchMonth }) {
         rows = window.XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true });
       }
       const dg = digestActuals(rows, month);
-      if (!dg.error) dg.loadedAt = new Date().toISOString();
+      if (!dg.error) { dg.loadedAt = new Date().toISOString(); dg.fileName = file.name; }
       setBaseActuals(dg);
     } catch (e) { setBaseActuals({ error: e.message }); }
     setBusy('');
@@ -6705,7 +6704,10 @@ function PacingTool({ month, container, patchMonth }) {
             sub={((DATA.month_labels && DATA.month_labels[month]) || month)
               + (pacing ? ' \u00B7 day ' + pacing.elapsed + ' of ' + pacing.days : '')
               + (Object.keys(pastes).length ? ' \u00B7 ' + Object.keys(pastes).map(x => PLATFORM_LABELS[x]).join(', ') + ' loaded' : '')
-              + (baseActuals && baseActuals.loadedAt ? ' \u00B7 master sheet loaded' : '')}>
+              + (baseActuals && !baseActuals.error && baseActuals.loadedAt
+                  ? ' \u00B7 master sheet: ' + (baseActuals.fileName || 'loaded') + ', to ' + baseActuals.lastDay + ' ' +
+                    new Date(month + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'short' })
+                  : '')}>
             <div className="card-body">
               <input ref={fileRef} type="file" accept=".xlsx,.xlsm,.csv" style={{ display: 'none' }}
                 onChange={e => { const f = e.target.files[0]; if (f) readFile(f); e.target.value = ''; }} />
