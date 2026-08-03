@@ -467,6 +467,9 @@ input[type=range]::-moz-range-thumb {
 .method-body p { font-size: 13.5px; color: var(--ink-70); line-height: 1.65; margin: 0 0 12px; }
 .method-body p:last-child { margin-bottom: 0; }
 .method-body strong { color: var(--ink); }
+.trend-key { display: flex; gap: 12px; font-size: 11px; color: var(--ink-55); align-items: center; }
+.trend-key span { display: inline-flex; align-items: center; gap: 5px; }
+.trend-key i { width: 13px; height: 13px; border-radius: 3px; display: inline-block; }
 .chg-list li { font-size: 13px; color: var(--ink-70); margin-bottom: 5px; line-height: 1.5; }
 .paste-box {
   width: 100%; font-family: "JetBrains Mono", monospace; font-size: 12px;
@@ -4171,6 +4174,7 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Trends is shaded day to day. Green where a location gained roles on the day before, red where it lost them, one role pale and four or more dark. A location that closed that day is solid red and one that opened is solid green. No change stays white. The first column is shaded against the plan, since that is the day before it. Depth is the number of roles that moved rather than a percentage, because one role off five is an ordinary day rather than a twenty per cent event.',
     'Location priorities can compare against a saved plan. Pick one in Compare against and the Plan column becomes the open roles as at the day that plan was built on, so the grid, What changed and Trends all show how the month has moved against the plan rather than against RAC\u2019s own plan column. It works per location rather than per region, because the plan records its date and the counts for that day are already in the month\u2019s own history.',
     'A plan saved without a date recorded falls back to RAC\u2019s plan column, and the banner says which of the two is in use.',
     'A plan can be built on the open roles as at any day RAC have sent, picked on Setup, instead of typing the counts in by hand. The working plan keeps the date rather than the numbers, so it stays true to their file if they revise a day. Saving a version freezes the counts as they stood and records which date they came from, shown next to the plan.',
@@ -4958,6 +4962,27 @@ function WhatChanged({ pri, from, to, role, baseline }) {
 }
 
 // ---- Trends ----
+// Shading against the day before, so a column shows what moved that day
+// rather than the whole gap since the plan. Depth grows with the size of the
+// move and tops out at a third, so one big swing does not flatten the rest.
+// Reaching nought, or coming back from it, is called out on its own because
+// closing a location is a different event from losing a role in it.
+function trendShade(now, prev) {
+  if (prev === 0 && now === 0) return null;
+  if (prev > 0 && now === 0) return { bg: 'rgba(198,40,40,0.85)', fg: '#fff', strong: true, note: 'closed' };
+  if (prev === 0 && now > 0) return { bg: 'rgba(27,110,60,0.85)', fg: '#fff', strong: true, note: 'opened' };
+  if (now === prev) return null;
+  // Depth is the number of roles that moved, not a percentage. Day to day
+  // these are small counts, and one role off five is an ordinary day rather
+  // than a 20% event. One role is pale, four or more is as dark as it gets
+  // short of the location closing.
+  const share = Math.min(1, (Math.abs(now - prev) - 1) / 3);
+  const a = 0.12 + share * 0.40;
+  return now < prev
+    ? { bg: 'rgba(198,40,40,' + a.toFixed(2) + ')', fg: 'var(--ink)', note: 'down' }
+    : { bg: 'rgba(27,110,60,' + a.toFixed(2) + ')', fg: 'var(--ink)', note: 'up' };
+}
+
 function TrendsView({ pri, role, baseline }) {
   const dates = pri.dates || [];
   return (
@@ -4974,7 +4999,14 @@ function TrendsView({ pri, role, baseline }) {
           <div className="card" key={role + b.key}>
             <div className="card-head">
               <div className="card-title">{role}: {b.title}</div>
-              
+              <div style={{ flex: 1 }} />
+              <div className="trend-key" title="Each day is shaded against the day before. The first column is shaded against the plan.">
+                <span><i style={{ background: 'rgba(198,40,40,0.85)' }} />closed</span>
+                <span><i style={{ background: 'rgba(198,40,40,0.28)' }} />down</span>
+                <span><i style={{ background: '#fff', border: '1px solid var(--line-c)' }} />no change</span>
+                <span><i style={{ background: 'rgba(27,110,60,0.28)' }} />up</span>
+                <span><i style={{ background: 'rgba(27,110,60,0.85)' }} />opened</span>
+              </div>
             </div>
             <div className="card-body" style={{ padding: 0 }}>
               <div className="grid-scroll">
@@ -4991,9 +5023,18 @@ function TrendsView({ pri, role, baseline }) {
                       <tr key={r}>
                         <td className="stick loc">{r}</td>
                         <td className="plan-col mono">{b.get(planCut, r) || 0}</td>
-                        {dates.map(d => {
-                          const v = b.get(cuts[d], r);
-                          return <td key={d} className="mono num" style={{ color: v ? 'var(--ink)' : 'var(--ink-35)' }}>{v || 0}</td>;
+                        {dates.map((d, i) => {
+                          const v = b.get(cuts[d], r) || 0;
+                          // The day before, or the plan for the first column.
+                          const prev = i === 0 ? (b.get(planCut, r) || 0) : (b.get(cuts[dates[i - 1]], r) || 0);
+                          const sh = trendShade(v, prev);
+                          const against = i === 0 ? 'the plan' : fmtDay(dates[i - 1]);
+                          return (
+                            <td key={d} className="mono num"
+                              title={sh ? (v + ' against ' + prev + ' on ' + against) : (v + ', unchanged from ' + against)}
+                              style={sh ? { background: sh.bg, color: sh.fg, fontWeight: sh.strong ? 600 : 400 }
+                                        : { color: v ? 'var(--ink)' : 'var(--ink-35)' }}>{v}</td>
+                          );
                         })}
                       </tr>
                     ))}
