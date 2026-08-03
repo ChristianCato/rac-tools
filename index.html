@@ -4203,6 +4203,7 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Fixed the master sheet reading a day short and losing the first of the month. Dates come out of the spreadsheet reader at midnight local time, and the code was reading them in UTC, which is an hour earlier through British Summer Time. So 31 July read as 30 July, and 1 July read as 30 June and dropped out of the month altogether. On the July file that was 382 rows and 6,000 pounds of spend missing. This affected every master sheet load between late March and late October.',
     'The In platform data heading names the master sheet file it read and the last day in it. Downloads all share a name with a number on the end, so it was easy to load an older one and not notice.',
     'Took the last mention of matching the master sheet dates out of the two export boxes.',
     'An older shared copy can no longer replace newer work in your browser. Every save is stamped, and the reload leaves yours alone if it is the more recent of the two. This is what would otherwise have wiped five days of work the first time the tool was opened after the save bug was fixed.',
@@ -5589,13 +5590,12 @@ function digestActuals(rows, month) {
 
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r]; if (!row || !row.length) continue;
-    const raw = row[iDate];
-    let dt = raw instanceof Date ? raw : (typeof raw === 'number' ? new Date(Math.round((raw - 25569) * 86400000)) : new Date(raw));
-    if (!dt || isNaN(dt.getTime())) continue;
-    const mo = dt.getUTCFullYear() + '-' + String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const day = sheetDay(row[iDate]);
+    if (!day) continue;
+    const mo = day.y + '-' + String(day.m).padStart(2, '0');
     if (mo !== month) continue;
     monthRows++;
-    lastDay = Math.max(lastDay, dt.getUTCDate());
+    lastDay = Math.max(lastDay, day.d);
 
     const spend = Number(row[iSpend]) || 0, apps = Number(row[iApps]) || 0;
     totalSpend += spend; totalApps += apps;
@@ -7113,6 +7113,32 @@ function monthSettled(mo) {
   return (Date.now() - end.getTime()) / 86400000 >= SETTLE_DAYS;
 }
 
+// The calendar day a spreadsheet cell means. The reader hands back dates at
+// local midnight, and reading those in UTC shifts them back an hour through
+// British Summer Time: 31 July becomes 30 July, and 1 July becomes 30 June
+// and falls out of the month. So local parts for real dates, UTC parts for
+// Excel's own serial numbers, which genuinely are UTC based.
+function sheetDay(raw) {
+  if (raw instanceof Date) {
+    if (isNaN(raw.getTime())) return null;
+    return { y: raw.getFullYear(), m: raw.getMonth() + 1, d: raw.getDate() };
+  }
+  if (typeof raw === 'number' && isFinite(raw)) {
+    const dt = new Date(Math.round((raw - 25569) * 86400000));
+    if (isNaN(dt.getTime())) return null;
+    return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() };
+  }
+  const t = String(raw || '').trim();
+  if (!t) return null;
+  let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return { y: +m[1], m: +m[2], d: +m[3] };
+  m = t.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
+  if (m) { let y = +m[3]; if (y < 100) y += 2000; return { y, m: +m[2], d: +m[1] }; }
+  const dt = new Date(t);
+  if (isNaN(dt.getTime())) return null;
+  return { y: dt.getFullYear(), m: dt.getMonth() + 1, d: dt.getDate() };
+}
+
 function normHeader(h) { return String(h || '').toLowerCase().replace(/[^a-z]/g, ''); }
 
 // Turn the Raw Data Export into monthly cells. Returns the cells plus a
@@ -7138,10 +7164,9 @@ function digestExport(rows) {
 
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r]; if (!row || !row.length) continue;
-    const raw = row[iDate];
-    let dt = raw instanceof Date ? raw : (typeof raw === 'number' ? new Date(Math.round((raw - 25569) * 86400000)) : new Date(raw));
-    if (!dt || isNaN(dt.getTime())) continue;
-    const mo = dt.getUTCFullYear() + '-' + String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const day = sheetDay(row[iDate]);
+    if (!day) continue;
+    const mo = day.y + '-' + String(day.m).padStart(2, '0');
 
     const platRaw = String(row[iPlat] || '').trim().toLowerCase();
     const spend = Number(row[iSpend]) || 0;
