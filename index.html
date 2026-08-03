@@ -2243,7 +2243,7 @@ function CoverageMatrix({ role, state, setState }) {
 // ====================================================================
 // TAB 1 - SETUP: budget, targets, live locations
 // ====================================================================
-function SetupTab({ state, setState, onOpenPriorities }) {
+function SetupTab({ state, setState, onOpenPriorities, container }) {
   const update = (patch) => setState(s => ({ ...s, ...patch }));
   const pinned = !!state.demandOverride;
   // Pinning starts from whatever is on screen, so nothing jumps.
@@ -2414,6 +2414,16 @@ function SetupTab({ state, setState, onOpenPriorities }) {
               </span>
             </div>
 
+            {(container && container.demand && container.demand._carriedFrom && !pinned) && (
+              <div className="banner banner-warn" style={{ marginBottom: 12 }}>
+                <div className="banner-icon">!</div>
+                <div>
+                  These open roles are {(DATA.month_labels && DATA.month_labels[container.demand._carriedFrom]) || container.demand._carriedFrom}'s,
+                  carried forward because no list has been pasted for this month yet. Paste this month's tab in
+                  Location priorities to replace them.
+                </div>
+              </div>
+            )}
             <div className="section-label">
               {pinned ? 'Open roles set for this plan' : 'Live locations & open roles this month'}
               <span className="text-muted" style={{ fontWeight: 400 }}>
@@ -4116,6 +4126,10 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Fixed being unable to add vacancies to a month with nothing in it. The empty state was rendering instead of the paste box, so it told you to paste and gave you nowhere to do it. Vacancies now always shows, whatever month you are on.',
+    'A month with no list of its own carries the previous month\u2019s open roles forward, which is what you want when building next month\u2019s plan early. Setup now says so instead of showing them as this month\u2019s own figures.',
+    'Shorter wording on the Windsor button and the two export boxes.',
+    'The pacing summary names where each platform\u2019s figures came from, so Windsor, the Indeed export, the Appcast export and the master sheet are no longer all described as pasted.',
     'Fixed the Windsor button failing with "sign-in could not be verified" about an hour after signing in. It was the one call that did not renew the session first, so it sent whatever token was sitting in the browser while everything else renewed and carried on working. It now renews before it asks, and retries once if it is still refused.',
     'The Windsor button also says why a sign-in was refused rather than just that it was. If the function is pointed at a different Supabase project than the one you signed in to, it names both.',
     'Workings export rebuilt. Read me sheet gone and the notes under each table gone. Clicks and apply rate are now on the Workings sheet as well as the raw data, and where clicks were never recorded it says so rather than leaving a blank that looks like a nought.',
@@ -4303,10 +4317,17 @@ function defaultDemand(ws, month) {
     });
     return out;
   }
+  // No list for this month yet, so carry the most recent one forward. A plan
+  // for next month has to be built on what is known now. Where it came from
+  // is marked below so it does not read as this month's own figure.
   const earlier = Object.keys(ws.months || {}).filter(m => m < month).sort();
   if (earlier.length) {
     const prev = ws.months[earlier[earlier.length - 1]];
-    if (prev && prev.demand) return JSON.parse(JSON.stringify(prev.demand));
+    if (prev && prev.demand) {
+      const copy = JSON.parse(JSON.stringify(prev.demand));
+      copy._carriedFrom = earlier[earlier.length - 1];
+      return copy;
+    }
   }
   const out = {};
   ROLES.forEach(role => {
@@ -5044,14 +5065,30 @@ function PrioritiesTool({ container, patchMonth, month, ws }) {
   const views = [['grid', 'Vacancies'], ['changed', 'What changed'],
                  ['trends', 'Trends'], ['mom', 'Month on month']];
 
-  if (dates.length === 0 && view !== 'mom') {
+  // An empty month used to return here, before the paste box rendered, so it
+  // told you to paste and gave you nowhere to do it. Vacancies always renders;
+  // only the views that need history are held back.
+  const empty = dates.length === 0;
+  if (empty && view !== 'grid' && view !== 'mom') {
     return (
       <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+          <div className="role-switch role-switch-lead">
+            {ROLES.map(r => (
+              <button key={r} className={r === role ? 'active' : ''} onClick={() => setRole(r)}>{r}</button>
+            ))}
+          </div>
+          <div className="role-switch">
+            {views.map(([id, label]) => (
+              <button key={id} className={id === view ? 'active' : ''} onClick={() => setView(id)}>{label}</button>
+            ))}
+          </div>
+        </div>
         <div className="card"><div className="card-body">
           <div className="help-text">
-            No {role} data for {month} yet. Paste the {role} tab on Vacancies, or use
-            {' '}<a href="#" className="link-inline" onClick={e => { e.preventDefault(); setView('mom'); }}>Month on month</a>
-            {' '}to look at months that do have data.
+            No {role} data for {(DATA.month_labels && DATA.month_labels[month]) || month} yet.
+            {' '}<a href="#" className="link-inline" onClick={e => { e.preventDefault(); setView('grid'); }}>Paste the {role} tab</a>
+            {' '}to fill it in.
           </div>
         </div></div>
       </div>
@@ -6164,9 +6201,7 @@ function WindsorPull({ month, lastDay, priRows, onApply }) {
     <div style={{ marginBottom: 14 }}>
       <div className="section-label">Google and Meta, straight from Windsor</div>
       <div className="help-text" style={{ marginBottom: 8 }}>
-        Pulls {from} to {to} for spend and applications both.
-        {lastDay ? ' Matched to the days the master sheet covers, so every platform is on the same footing.'
-                 : ' No master sheet loaded, so this runs to yesterday.'}
+        Spend and applications, {from} to {to}.
       </div>
       <button className="btn btn-sm btn-primary" onClick={go} disabled={state.status === 'busy'}>
         {state.status === 'busy' ? 'Fetching...' : 'Get spend from Windsor'}
@@ -6490,7 +6525,17 @@ function PacingTool({ month, container, patchMonth }) {
                   applied={!!pastes.indeed} onApply={(p, r) => setPastes(x => ({ ...x, ...splitByPlatform(r) }))} />
                 {Object.keys(pastes).length > 0 && (
                   <div className="help-text">
-                    Using pasted figures for {Object.keys(pastes).map(p => PLATFORM_LABELS[p]).join(' and ')}.
+                    {(() => {
+                      const src = { google: 'Windsor', meta: 'Windsor', indeed: 'Indeed export', appcast: 'Appcast export' };
+                      const by = {};
+                      Object.keys(pastes).forEach(p => {
+                        const k = src[p] || 'pasted';
+                        (by[k] = by[k] || []).push(PLATFORM_LABELS[p]);
+                      });
+                      const parts = Object.keys(by).map(k => by[k].join(' and ') + ' from ' + k);
+                      return parts.join('. ') + '.' +
+                        (baseActuals && !baseActuals.error ? ' Everything else from the master sheet.' : '');
+                    })()}
                     {' '}<a href="#" className="link-inline" onClick={e => { e.preventDefault(); setPastes({}); }}>Clear them</a>
                   </div>
                 )}
@@ -7870,7 +7915,7 @@ function App() {
             )}
             {tool === 'planner' && !comparing && (
               <>
-                {tab === 'setup' && <SetupTab state={plannerState} setState={setPlannerState}
+                {tab === 'setup' && <SetupTab state={plannerState} setState={setPlannerState} container={container}
                   onOpenPriorities={() => setTool('priorities')} />}
                 {tab === 'plan' && <PlanTab state={plannerState} setState={setPlannerState} />}
                 {tab === 'platforms' && <PlatformsTab state={plannerState} />}
