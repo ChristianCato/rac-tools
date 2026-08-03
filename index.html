@@ -1998,6 +1998,29 @@ async function sbFetch(url, opts, retry) {
   return r;
 }
 
+// Read and write the shared state. Both go through sbFetch, so the session is
+// renewed before the request rather than after it has already been refused.
+async function sbGet(key) {
+  const r = await sbFetch(SB_URL + '?k=eq.' + encodeURIComponent(key) + '&select=v');
+  if (!r.ok) throw new Error('Could not read ' + key + ': ' + r.status);
+  const rows = await r.json();
+  return rows && rows.length ? rows[0].v : null;
+}
+
+async function sbSet(key, value) {
+  const r = await sbFetch(SB_URL + '?on_conflict=k', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates' },
+    body: JSON.stringify({ k: key, v: value, updated_at: new Date().toISOString() }),
+  });
+  if (!r.ok) {
+    let detail = '';
+    try { detail = ' ' + (await r.text()).slice(0, 200); } catch (e) {}
+    throw new Error('Could not save ' + key + ': ' + r.status + detail);
+  }
+  return true;
+}
+
 async function sbSendLink(email) {
   const r = await fetch(SB_PROJECT + '/auth/v1/otp', {
     method: 'POST',
@@ -3366,6 +3389,12 @@ function xlBody(ws, cols, rows, opts) {
   });
 }
 
+function todayISO() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+
 function fmtDay(iso) {
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
 }
@@ -4174,6 +4203,10 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'An older shared copy can no longer replace newer work in your browser. Every save is stamped, and the reload leaves yours alone if it is the more recent of the two. This is what would otherwise have wiped five days of work the first time the tool was opened after the save bug was fixed.',
+    'Added Back up next to the sync label. It downloads everything in this browser as a file.',
+    'Fixed nothing having saved to the server since 28 July. The functions that read and write the shared copy had been deleted by an edit and the tool carried on against the copy in your browser without saying so. That is also why Performance Pacing kept losing what you had pasted: the reload was pulling a five day old copy over the top of it. Restored, and the test suite now fails the build if anything is called that does not exist.',
+    'Removed the loading screen in front of the tool. It waited on the folded-in benchmarks before rendering anything, so a slow or failed request left it sat there. The tool opens straight away and the benchmarks fold in when they arrive.',
     'Trends is shaded day to day. Green where a location gained roles on the day before, red where it lost them, one role pale and four or more dark. A location that closed that day is solid red and one that opened is solid green. No change stays white. The first column is shaded against the plan, since that is the day before it. Depth is the number of roles that moved rather than a percentage, because one role off five is an ordinary day rather than a twenty per cent event.',
     'Location priorities can compare against a saved plan. Pick one in Compare against and the Plan column becomes the open roles as at the day that plan was built on, so the grid, What changed and Trends all show how the month has moved against the plan rather than against RAC\u2019s own plan column. It works per location rather than per region, because the plan records its date and the counts for that day are already in the month\u2019s own history.',
     'A plan saved without a date recorded falls back to RAC\u2019s plan column, and the banner says which of the two is in use.',
@@ -7829,6 +7862,15 @@ function App() {
     try {
       const remote = await sbGet('workspace');
       if (remote && remote.months && remote.current) {
+        // Never replace newer work with an older shared copy. Writes failed
+        // silently for five days in July and the reload was pulling a stale
+        // copy over the top of what had just been done.
+        const localAt = Number(localStorage.getItem('v3-workspace-at') || 0);
+        const remoteAt = Date.parse(remote._savedAt || '') || 0;
+        if (localAt && remoteAt && localAt > remoteAt) {
+          setSync('ok');
+          return;   // ours is newer; the next change pushes it up
+        }
         setWsRaw(remote);
         lsSet('v3-workspace', remote);
       }
@@ -7852,6 +7894,8 @@ function App() {
       lsSet('v3-workspace', next);
       // Local first so typing stays instant, shared a moment later.
       pendingRef.current = true;
+      next._savedAt = new Date().toISOString();
+      try { localStorage.setItem('v3-workspace-at', String(Date.now())); } catch (e) {}
       clearTimeout(pushRef.current);
       pushRef.current = setTimeout(() => {
         setSync('saving');
@@ -7989,6 +8033,17 @@ function App() {
           <div className="sub">Enhance Media &middot; {monthLabel} &middot; benchmarks {benchLabel()}</div>
         </div>
         <div className="spacer" />
+        <a href="#" className="link-inline" style={{ marginRight: 12, fontSize: 12 }}
+          title="Download everything in this browser as a file"
+          onClick={e => {
+            e.preventDefault();
+            const blob = new Blob([JSON.stringify(ws, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'rac-tools-backup-' + todayISO() + '.json';
+            a.click();
+            URL.revokeObjectURL(a.href);
+          }}>Back up</a>
         <span className={'sync sync-' + sync} title={
           sync === 'ok' ? 'Saved for everyone'
             : sync === 'saving' ? 'Saving'
@@ -8130,34 +8185,28 @@ function App() {
 
 function Root() {
   const [inSession, setInSession] = useState(() => { sbCatchSession(); return sbSignedIn(); });
-  // Folded-in months live on the server, so everyone gets them without anyone
-  // republishing a file. They have to be applied before a single figure is
-  // worked out, so nothing renders until this has been tried.
-  const [benchReady, setBenchReady] = useState(false);
+  // Folded-in months live on the server so everyone gets them without anyone
+  // republishing a file. They are applied as soon as they arrive rather than
+  // held in front of the app: a slow or failed request should never leave the
+  // whole tool sat on a loading screen.
+  const [benchStamp, setBenchStamp] = useState(0);
   useEffect(() => {
-    if (!inSession) { setBenchReady(false); return; }
+    if (!inSession) return;
     let live = true;
     (async () => {
       try {
         const b = await sbGet('benchmarks');
-        if (b && b.cells && b.months) {
-          window.__RAC_BENCH__ = b;
-          applyMonths(b.months, b.cells);
-        }
-      } catch (e) { /* fall back to the numbers the file ships with */ }
-      if (live) setBenchReady(true);
+        if (!live || !b || !b.cells || !b.months) return;
+        window.__RAC_BENCH__ = b;
+        applyMonths(b.months, b.cells);
+        setBenchStamp(x => x + 1);
+      } catch (e) { /* carry on with the numbers the file ships with */ }
     })();
     return () => { live = false; };
   }, [inSession]);
-  useEffect(() => {
-    // Any request that comes back unauthorised and cannot be refreshed drops
-    // straight back here, so there is no need for a sign out button.
-    onSignedOut = () => setInSession(false);
-    return () => { onSignedOut = () => {}; };
-  }, []);
+
   if (!inSession) return <SignIn onIn={() => setInSession(true)} />;
-  if (!benchReady) return <div className="signin-wrap"><div className="signin">Loading...</div></div>;
-  return <App />;
+  return <App key={benchStamp} />;
 }
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
