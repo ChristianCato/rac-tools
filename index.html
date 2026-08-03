@@ -4171,6 +4171,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '28 Jul', items: [
+    'Location priorities can compare against a saved plan. Pick one in Compare against and the Plan column becomes the open roles as at the day that plan was built on, so the grid, What changed and Trends all show how the month has moved against the plan rather than against RAC\u2019s own plan column. It works per location rather than per region, because the plan records its date and the counts for that day are already in the month\u2019s own history.',
+    'A plan saved without a date recorded falls back to RAC\u2019s plan column, and the banner says which of the two is in use.',
     'A plan can be built on the open roles as at any day RAC have sent, picked on Setup, instead of typing the counts in by hand. The working plan keeps the date rather than the numbers, so it stays true to their file if they revise a day. Saving a version freezes the counts as they stood and records which date they came from, shown next to the plan.',
     'Location priorities takes RAC\u2019s own file directly. Their Location Updates workbook and our daily tracker both paste in as they are, so their file no longer has to be copied into ours first. Checked against June, July and August: 111 SMR rows and 120 Patrol, none unmatched.',
     'Dates in the file with nothing filled in yet are skipped. RAC lay the whole month out in advance, so the last column was usually empty and every location was reading as zero. The paste summary says how many were skipped.',
@@ -4583,6 +4585,24 @@ function demandAsAt(pri, date) {
   return out;
 }
 
+// What the Plan column on Location priorities compares against. A saved plan
+// records the day its open roles were taken from, so the baseline can be that
+// day's counts, per location, straight out of this month's own history. Where
+// a plan has no date on it, RAC's own plan column is used instead.
+function planBaselineFor(pri, container, planId) {
+  const versions = (container && container.versions) || [];
+  const v = versions.find(x => x.id === planId);
+  if (v && v.demandDate && (pri.dates || []).includes(v.demandDate)) {
+    return { kind: 'date', date: v.demandDate, name: v.name,
+             valueFor: (row) => +((row.v || {})[v.demandDate]) || 0 };
+  }
+  if (v) {
+    return { kind: 'plan-column', name: v.name, noDate: true,
+             valueFor: (row) => +row.plan || 0 };
+  }
+  return { kind: 'plan-column', valueFor: (row) => +row.plan || 0 };
+}
+
 function planDemandFrom(pri, role) {
   const rows = ((pri.roles || {})[role] || {}).rows || [];
   const out = {};
@@ -4654,11 +4674,11 @@ function nextWeekday(fromISO) {
   return d.toISOString().slice(0, 10);
 }
 
-function regionCut(rows, date) {
+function regionCut(rows, date, baseline) {
   const out = {};
   DATA.regions_ordered.forEach(r => { out[r] = { locs: 0, vac: 0 }; });
   (rows || []).forEach(row => {
-    const n = date === 'plan' ? (row.plan || 0) : (row.v && row.v[date]);
+    const n = date === 'plan' ? (baseline ? baseline.valueFor(row) : (row.plan || 0)) : (row.v && row.v[date]);
     if (!out[row.region] || !(n > 0)) return;
     out[row.region].locs += 1;
     out[row.region].vac += n;
@@ -4793,7 +4813,7 @@ function MonthPaste({ role, pri, onApply, month }) {
 }
 
 // ---- the SMR / Patrol grid ----
-function PriorityGrid({ role, pri, setPri, month }) {
+function PriorityGrid({ role, pri, setPri, month, baseline }) {
   const rows = (pri.roles[role] || {}).rows || [];
   const dates = pri.dates || [];
   const shown = dates.slice(-8);
@@ -4811,8 +4831,9 @@ function PriorityGrid({ role, pri, setPri, month }) {
     return next;
   });
 
-  const totLocs = d => rows.filter(r => (d === 'plan' ? r.plan : r.v[d]) > 0).length;
-  const totVac = d => rows.reduce((s, r) => s + ((d === 'plan' ? r.plan : r.v[d]) || 0), 0);
+  const planOf = r => (baseline ? baseline.valueFor(r) : (r.plan || 0));
+  const totLocs = d => rows.filter(r => (d === 'plan' ? planOf(r) : r.v[d]) > 0).length;
+  const totVac = d => rows.reduce((s, r) => s + ((d === 'plan' ? planOf(r) : r.v[d]) || 0), 0);
 
   return (
     <div>
@@ -4871,7 +4892,7 @@ function PriorityGrid({ role, pri, setPri, month }) {
                   <tr key={i}>
                     <td className="stick loc">{row.location}</td>
                     <td className="reg">{row.region}</td>
-                    <td className="plan-col mono">{row.plan || 0}</td>
+                    <td className="plan-col mono">{baseline ? baseline.valueFor(row) : (row.plan || 0)}</td>
                     {shown.map((d, j) => {
                       const prev = j > 0 ? row.v[shown[j - 1]] : null;
                       const val = row.v[d];
@@ -4894,7 +4915,7 @@ function PriorityGrid({ role, pri, setPri, month }) {
 }
 
 // ---- What changed ----
-function WhatChanged({ pri, from, to, role }) {
+function WhatChanged({ pri, from, to, role, baseline }) {
   return (
     <div>
       {[role].map(role => {
@@ -4937,14 +4958,14 @@ function WhatChanged({ pri, from, to, role }) {
 }
 
 // ---- Trends ----
-function TrendsView({ pri, role }) {
+function TrendsView({ pri, role, baseline }) {
   const dates = pri.dates || [];
   return (
     <div>
       {[role].map(role => {
         const rows = (pri.roles[role] || {}).rows || [];
         const cuts = {}; dates.forEach(d => { cuts[d] = regionCut(rows, d); });
-        const planCut = regionCut(rows, 'plan');
+        const planCut = regionCut(rows, 'plan', baseline);
         const blocks = [
           { key: 'locs', title: 'live locations', get: (c, r) => c[r].locs },
           { key: 'vac', title: 'live vacancies', get: (c, r) => c[r].vac },
@@ -5151,6 +5172,7 @@ function MonthOnMonth({ ws, month, role }) {
 function PrioritiesTool({ container, patchMonth, month, ws }) {
   const [role, setRole] = useState('SMR');
   const [view, setView] = useState('grid');
+  const baseline = planBaselineFor(priorityFor(month, container), container, container.planBaselineId);
   const pri = priorityFor(month, container);
   const dates = pri.dates || [];
   const [from, setFrom] = useState(dates.length > 1 ? dates[dates.length - 2] : dates[0]);
@@ -5206,8 +5228,13 @@ function PrioritiesTool({ container, patchMonth, month, ws }) {
       <div className="banner banner-info">
         <div className="banner-icon">i</div>
         <div>
-          Paste the whole tab back in each day, for each role. The whole month, not just the new day.
-          Locations match on name, so the order doesn't matter.
+          Paste the whole tab back in each day, for each role, straight from RAC's file. The whole month,
+          not just the new day. Locations match on name, so the order doesn't matter.
+          {' '}{baseline.kind === 'date'
+            ? 'The Plan column is the open roles as at ' + fmtDay(baseline.date) + ', which is what ' + baseline.name + ' was built on.'
+            : baseline.noDate
+              ? 'The Plan column is RAC\u2019s own, because ' + baseline.name + ' has no date recorded against it.'
+              : 'The Plan column is RAC\u2019s own. Pick a saved plan above to compare against what that plan was built on instead.'}
         </div>
       </div>
 
@@ -5222,6 +5249,18 @@ function PrioritiesTool({ container, patchMonth, month, ws }) {
             <button key={id} className={id === view ? 'active' : ''} onClick={() => setView(id)}>{label}</button>
           ))}
         </div>
+        {(container.versions || []).length > 0 && view !== 'mom' && (
+          <div className="mb-group">
+            <label>Compare against</label>
+            <select value={container.planBaselineId || ''}
+              onChange={e => patchMonth({ planBaselineId: e.target.value || null })}>
+              <option value="">RAC's plan column</option>
+              {(container.versions || []).map(v => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         {view === 'changed' && (
           <div className="mb-group">
             <label>Compare</label>
@@ -5236,9 +5275,9 @@ function PrioritiesTool({ container, patchMonth, month, ws }) {
         )}
       </div>
 
-      {view === 'grid' && <PriorityGrid role={role} pri={pri} setPri={setPri} month={month} />}
-      {view === 'changed' && <WhatChanged pri={pri} from={from} to={to} role={role} />}
-      {view === 'trends' && <TrendsView pri={pri} role={role} />}
+      {view === 'grid' && <PriorityGrid role={role} pri={pri} setPri={setPri} month={month} baseline={baseline} />}
+      {view === 'changed' && <WhatChanged pri={pri} from={from} to={to} role={role} baseline={baseline} />}
+      {view === 'trends' && <TrendsView pri={pri} role={role} baseline={baseline} />}
       {view === 'mom' && <MonthOnMonth ws={ws} month={month} role={role} />}
     </div>
   );
