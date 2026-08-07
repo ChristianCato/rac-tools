@@ -628,9 +628,14 @@ function setBenchWindow(w) {
   Object.keys(_platformCPACache).forEach(k => delete _platformCPACache[k]);
   return true;
 }
-function benchLabel() {
-  if (!BENCH_WINDOW) return 'all time';
-  return monthShort(BENCH_WINDOW.from) + ' to ' + monthShort(BENCH_WINDOW.to);
+function benchLabel(w) {
+  const x = w === undefined ? BENCH_WINDOW : w;
+  if (!x) return 'all time';
+  return monthShort(x.from) + ' to ' + monthShort(x.to);
+}
+// The period a role is planned on, whatever is selected on screen.
+function benchFor(state, role) {
+  return (state && state.bench && state.bench[role]) || null;
 }
 
 // Everything that plans reads this. Windowing it here means the engine, the
@@ -1294,6 +1299,9 @@ function rolePlatformBand(plat, role) {
 //   budget needed to hit the target is a direct calculation, not a search.
 function buildFundingPlan(role, p) {
   setCapMultiple(p.capMultiple);
+  // Each role carries its own period, so the figures cannot depend on what
+  // happens to be selected on screen.
+  setBenchWindow(p.bench);
   const daysInMonth = p.daysInMonth || 30;
   // Off by default. Stress tested across sixteen demand shapes and it never
   // moved the worst-off location by more than about thirty pounds: a location
@@ -1883,6 +1891,7 @@ function planParams(role, s) {
     regionMax: (s.regionMax && s.regionMax[role]) || {},
     daysInMonth: (DATA.days_in_month && DATA.days_in_month[s.planMonth]) || 30,
     capMultiple: s.capMultiple || 1.0,
+    bench: (s.bench && s.bench[role]) || null,
   };
 }
 
@@ -3035,11 +3044,15 @@ const monthShort = mo => {
   return new Date(Date.UTC(+y, +m - 1, 1)).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
 };
 
-function BenchmarksTab({ state, ws, setBench }) {
+function BenchmarksTab({ state, setState }) {
   const [roleView, setRoleView] = useState('SMR');
   const role = roleView;
   const months = useMemo(() => dataMonths(), []);
-  const w = (ws && ws.bench) || null;
+  // Everything read below goes through the module window, so point it at the
+  // role being looked at before anything is worked out.
+  setBenchWindow(benchFor(state, roleView));
+  const w = benchFor(state, roleView);
+  const setBench = (b) => setState(st => ({ ...st, bench: { ...(st.bench || {}), [roleView]: b } }));
   const from = (w && w.from) || months[0];
   const to = (w && w.to) || months[months.length - 1];
   const setWindow = (f, t) => {
@@ -3407,10 +3420,11 @@ async function exportWorkings(state, role) {
   wb.created = new Date();
 
   const params = { ...planParams(role, state), appTarget: state.appTarget[role] || 0 };
-  const plan = buildFundingPlan(role, params);
+  const plan = buildFundingPlan(role, params);   // sets the window for this role
   const monthLabel = (DATA.month_labels && DATA.month_labels[state.planMonth]) || state.planMonth;
-  const win = BENCH_WINDOW;
-  const winLabel = benchLabel();
+  const win = benchFor(state, role);
+  const winLabel = benchLabel(win);
+  setBenchWindow(win);
   const FX = f => ({ formula: f });
   const style = (row, cols, opts) => {
     const o = opts || {};
@@ -3666,7 +3680,7 @@ function exportPlanPDF(state, roleFilter) {
       if (subtitle) pdf.text(subtitle, margin, 17);
       pdf.text('Prepared by Enhance Media  \u00B7  ' + monthLabel, pageW - margin, 13, { align: 'right' });
       pdf.setFontSize(7.5); setColor(MUTED);
-      pdf.text('Based on performance data: ' + benchLabel(), pageW - margin, 18.5, { align: 'right' });
+      pdf.text('Based on performance data: ' + benchLabel(benchFor(state, roles[0])), pageW - margin, 18.5, { align: 'right' });
     }
 
     function footer(pageNum, pageTotal) {
@@ -4202,7 +4216,10 @@ function exportPlanPDF(state, roleFilter) {
 // the plans or the data. Newest first. Dated, no version numbers.
 // ====================================================================
 const CHANGELOG = [
-  { date: '28 Jul', items: [
+  { date: '3 Aug', items: [
+    'The data period is part of the plan and each role holds its own, so SMR can sit on the last three months while Patrol sits on all time. A saved plan keeps the periods it was built on and cannot change afterwards: before this, changing the period on screen silently changed what a saved plan predicted.',
+    'The header and the plan selector name both periods rather than one, and the PDF and the workings export each use the period for the role they are for.',
+    'Changelog entries are dated by the day they were made. Everything up to 2 August had been landing under 28 July, which is when the entry above it happened to be written.',
     'Fixed the master sheet reading a day short and losing the first of the month. Dates come out of the spreadsheet reader at midnight local time, and the code was reading them in UTC, which is an hour earlier through British Summer Time. So 31 July read as 30 July, and 1 July read as 30 June and dropped out of the month altogether. On the July file that was 382 rows and 6,000 pounds of spend missing. This affected every master sheet load between late March and late October.',
     'The In platform data heading names the master sheet file it read and the last day in it. Downloads all share a name with a number on the end, so it was easy to load an older one and not notice.',
     'Took the last mention of matching the master sheet dates out of the two export boxes.',
@@ -4211,6 +4228,8 @@ const CHANGELOG = [
     'Fixed nothing having saved to the server since 28 July. The functions that read and write the shared copy had been deleted by an edit and the tool carried on against the copy in your browser without saying so. That is also why Performance Pacing kept losing what you had pasted: the reload was pulling a five day old copy over the top of it. Restored, and the test suite now fails the build if anything is called that does not exist.',
     'Removed the loading screen in front of the tool. It waited on the folded-in benchmarks before rendering anything, so a slow or failed request left it sat there. The tool opens straight away and the benchmarks fold in when they arrive.',
     'Trends is shaded day to day. Green where a location gained roles on the day before, red where it lost them, one role pale and four or more dark. A location that closed that day is solid red and one that opened is solid green. No change stays white. The first column is shaded against the plan, since that is the day before it. Depth is the number of roles that moved rather than a percentage, because one role off five is an ordinary day rather than a twenty per cent event.',
+  ] },
+  { date: '28 Jul to 2 Aug', items: [
     'Location priorities can compare against a saved plan. Pick one in Compare against and the Plan column becomes the open roles as at the day that plan was built on, so the grid, What changed and Trends all show how the month has moved against the plan rather than against RAC\u2019s own plan column. It works per location rather than per region, because the plan records its date and the counts for that day are already in the month\u2019s own history.',
     'A plan saved without a date recorded falls back to RAC\u2019s plan column, and the banner says which of the two is in use.',
     'A plan can be built on the open roles as at any day RAC have sent, picked on Setup, instead of typing the counts in by hand. The working plan keeps the date rather than the numbers, so it stays true to their file if they revise a day. Saving a version freezes the counts as they stood and records which date they came from, shown next to the plan.',
@@ -4378,6 +4397,7 @@ function defaultPlannerState() {
     hireTarget: { SMR: 26, Patrol: 26 },
     coverageFloor: 1000,
     capMultiple: 1.0,
+    bench: { SMR: null, Patrol: null },
     coveragePct: 0,
     premiumCampaigns: { SMR: 3, Patrol: 3 },
     acReserve: { SMR: AC_RESERVE_DEFAULT, Patrol: AC_RESERVE_DEFAULT },
@@ -7552,7 +7572,7 @@ function DataTool() {
 // CHANGELOG VIEW
 // ====================================================================
 
-function MethodTab() {
+function MethodTab({ state }) {
   const months = dataMonths();
   const first = months[0], last = months[months.length - 1];
   return (
@@ -7645,7 +7665,9 @@ function MethodTab() {
       <div className="card">
         <div className="card-head">
           <div className="card-title">Which data this is built on</div>
-          <div className="card-sub">Currently {benchLabel()}</div>
+          <div className="card-sub">
+            SMR {benchLabel(benchFor(state, 'SMR'))} &middot; Patrol {benchLabel(benchFor(state, 'Patrol'))}
+          </div>
         </div>
         <div className="card-body method-body">
           <p>
@@ -7660,7 +7682,7 @@ function MethodTab() {
           </p>
           <p>
             The dataset runs {monthShort(first)} to {monthShort(last)}. The window it plans on is set on the
-            Benchmarks tab and is currently <strong>{benchLabel()}</strong>. Changing it changes the cost per
+            Benchmarks tab, and each role can sit on its own period. Changing it changes the cost per
             application, the range, and every figure that follows from them.
           </p>
         </div>
@@ -7939,11 +7961,6 @@ function App() {
     });
   };
 
-  // Keep the engine on whatever window the workspace holds, before anything
-  // is worked out from it.
-  const benchChanged = setBenchWindow(ws.bench);
-  const setBench = (b) => setWs(w => ({ ...w, bench: b }));
-
   const [tool, setTool] = useState('planner');
   const [exportRole, setExportRole] = useState('SMR');
   const [tab, setTab] = useState('setup');
@@ -7968,7 +7985,7 @@ function App() {
     working: typeof updater === 'function' ? updater(container.working) : updater,
   });
 
-  const plannerState = useMemo(() => composePlannerState(month, container), [month, container, ws.bench]);
+  const plannerState = useMemo(() => composePlannerState(month, container), [month, container]);
   // The planner writes back its own fields only. Demand, live locations and
   // the application target are derived, so they are stripped on the way in.
   const setPlannerState = (updater) => setPlanner(w => {
@@ -7995,7 +8012,7 @@ function App() {
     const entry = { id, name, note: '', saved: new Date().toISOString(),
       planner: JSON.parse(JSON.stringify(container.working)),
       demand: JSON.parse(JSON.stringify((container.working && container.working.demandOverride) || container.demand || {})),
-      bench: ws.bench || null,
+      bench: JSON.parse(JSON.stringify((container.working && container.working.bench) || {})),
       demandDate: (container.working && container.working.demandDate) || null };
     patchMonth({ versions: [...versions, entry], loaded: id });
   };
@@ -8033,9 +8050,10 @@ function App() {
       planner.demandOverride = JSON.parse(JSON.stringify(v.demand));
     }
     planner.demandDate = v.demandDate || null;
+    // The window is part of the plan, so it comes back with it.
+    if (v.bench) planner.bench = JSON.parse(JSON.stringify(v.bench));
     setWs(w => ({
       ...w,
-      bench: v.bench ? { ...v.bench } : null,
       months: { ...w.months, [month]: { ...(w.months[month] || newMonth(w, month)), working: planner, loaded: id } },
     }));
   };
@@ -8057,7 +8075,11 @@ function App() {
         <div className="logo-mark">R</div>
         <div>
           <h1>RAC Planning Tools</h1>
-          <div className="sub">Enhance Media &middot; {monthLabel} &middot; benchmarks {benchLabel()}</div>
+          <div className="sub">
+            Enhance Media &middot; {monthLabel}
+            {' '}&middot; SMR {benchLabel(benchFor(plannerState, 'SMR'))}
+            {' '}&middot; Patrol {benchLabel(benchFor(plannerState, 'Patrol'))}
+          </div>
         </div>
         <div className="spacer" />
         <a href="#" className="link-inline" style={{ marginRight: 12, fontSize: 12 }}
@@ -8154,13 +8176,11 @@ function App() {
                 {loadedVersion && loadedVersion.demandDate && (
                   <span className="version-note">roles as at {fmtDay(loadedVersion.demandDate)}</span>
                 )}
-                {loadedVersion && loadedVersion.bench && (
+                {loadedVersion && (
                   <span className="version-note">
-                    built on {monthShort(loadedVersion.bench.from)} to {monthShort(loadedVersion.bench.to)}
+                    SMR {benchLabel((loadedVersion.bench || {}).SMR || null)},
+                    {' '}Patrol {benchLabel((loadedVersion.bench || {}).Patrol || null)}
                   </span>
-                )}
-                {loadedVersion && !loadedVersion.bench && (
-                  <span className="version-note">built on all time</span>
                 )}
                 <span className="version-note">
                   {versions.length === 0
@@ -8192,8 +8212,8 @@ function App() {
                   onOpenPriorities={() => setTool('priorities')} />}
                 {tab === 'plan' && <PlanTab state={plannerState} setState={setPlannerState} />}
                 {tab === 'platforms' && <PlatformsTab state={plannerState} />}
-                {tab === 'benchmarks' && <BenchmarksTab state={plannerState} ws={ws} setBench={setBench} />}
-                {tab === 'method' && <MethodTab />}
+                {tab === 'benchmarks' && <BenchmarksTab state={plannerState} setState={setPlannerState} />}
+                {tab === 'method' && <MethodTab state={plannerState} />}
               </>
             )}
             {tool === 'priorities' && (
