@@ -2565,20 +2565,10 @@ function PlanTab({ state, setState }) {
   const role = roleView;
   const days = (DATA.days_in_month && DATA.days_in_month[state.planMonth]) || 30;
 
+  // One builder, so the data period and the spend ceiling cannot be left off.
   const plan = useMemo(() => buildFundingPlan(role, {
-    budget: state.budget[role] || 0,
+    ...planParams(role, state),
     appTarget: state.appTarget[role] || 0,
-    liveRegions: state.liveRegions[role] || [],
-    vacancies: (state.vacancies && state.vacancies[role]) || {},
-    coveragePct: state.coveragePct,
-    premiumCampaigns: (state.premiumCampaigns && state.premiumCampaigns[role]) || 0,
-    acReserve: (state.acReserve && state.acReserve[role]) || 0,
-    platMin: (state.platMin && state.platMin[role]) || {},
-    platMax: (state.platMax && state.platMax[role]) || {},
-    coverage: (state.coverage && state.coverage[role]) || {},
-    regionMin: (state.regionMin && state.regionMin[role]) || {},
-    regionMax: (state.regionMax && state.regionMax[role]) || {},
-    daysInMonth: days,
   }), [role, state]);
 
   const budget = state.budget[role] || 0;
@@ -2853,20 +2843,10 @@ function PlatformsTab({ state }) {
   const role = roleView;
   const days = (DATA.days_in_month && DATA.days_in_month[state.planMonth]) || 30;
 
+  // One builder, so the data period and the spend ceiling cannot be left off.
   const plan = useMemo(() => buildFundingPlan(role, {
-    budget: state.budget[role] || 0,
+    ...planParams(role, state),
     appTarget: state.appTarget[role] || 0,
-    liveRegions: state.liveRegions[role] || [],
-    vacancies: (state.vacancies && state.vacancies[role]) || {},
-    coveragePct: state.coveragePct,
-    premiumCampaigns: (state.premiumCampaigns && state.premiumCampaigns[role]) || 0,
-    acReserve: (state.acReserve && state.acReserve[role]) || 0,
-    platMin: (state.platMin && state.platMin[role]) || {},
-    platMax: (state.platMax && state.platMax[role]) || {},
-    coverage: (state.coverage && state.coverage[role]) || {},
-    regionMin: (state.regionMin && state.regionMin[role]) || {},
-    regionMax: (state.regionMax && state.regionMax[role]) || {},
-    daysInMonth: days,
   }), [role, state]);
 
   const liveCount = plan.totalCount;
@@ -4217,6 +4197,7 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '3 Aug', items: [
+    'Fixed the data period making almost no difference to the budget. The Plan and Platforms tabs built their figures from a hand-written list of settings that predated the period being a setting at all, so they quietly used whatever was last selected rather than the period the plan holds. Everything now goes through one builder. On the same target the two periods are about 38 per cent apart, where before they came out within 3 per cent of each other.',
     'The data period is part of the plan and each role holds its own, so SMR can sit on the last three months while Patrol sits on all time. A saved plan keeps the periods it was built on and cannot change afterwards: before this, changing the period on screen silently changed what a saved plan predicted.',
     'The header and the plan selector name both periods rather than one, and the PDF and the workings export each use the period for the role they are for.',
     'Changelog entries are dated by the day they were made. Everything up to 2 August had been landing under 28 July, which is when the entry above it happened to be written.',
