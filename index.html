@@ -1966,6 +1966,13 @@ function buildFundingPlan(role, p) {
 // ====================================================================
 
 // Build the argument object the funding engine expects for one role.
+function commentaryPoints(state, role) {
+  const raw = (state && state.commentary && state.commentary[role]) || '';
+  return raw.split('\n')
+    .map(l => l.replace(/^\s*(?:[-*\u2022]|\d+[.)])\s*/, '').trim())
+    .filter(Boolean);
+}
+
 function planParams(role, s) {
   return {
     budget: s.budget[role] || 0,
@@ -2535,6 +2542,19 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
                 </div>
               );
             })()}
+            <div className="section-label">Commentary for the plan document</div>
+            <div className="help-text" style={{ marginBottom: 6 }}>
+              One point per line. It appears as its own page in the PDF, and saves with the plan.
+            </div>
+            <textarea className="paste-box" rows={4}
+              placeholder={'Limited the three most expensive locations to \u00a312k\nCapped locations with few open roles so predicted hires do not exceed live roles'}
+              value={(state.commentary && state.commentary[role]) || ''}
+              onChange={e => update({ commentary: { ...(state.commentary || {}), [role]: e.target.value } })} />
+            <div className="help-text" style={{ marginTop: 4, marginBottom: 16 }}>
+              {commentaryPoints(state, role).length} point{commentaryPoints(state, role).length === 1 ? '' : 's'}.
+              {commentaryPoints(state, role).length === 0 ? ' Leave it empty and the page is left out.' : ''}
+            </div>
+
             <div className="section-label">How the budget splits across platforms</div>
             <div className="help-text" style={{ marginBottom: 10 }}>
               Each location's budget goes to the platforms where hires cost the least.
@@ -3843,7 +3863,9 @@ function exportPlanPDF(state, roleFilter) {
       return pages;
     }
     const GLOSSARY_PAGES = countGlossaryPages();
-    const TOTAL_PAGES = roles.length + 1 + REGION_CHANNEL_PAGES + GLOSSARY_PAGES; // role pages + By channel + region x channel + glossary
+    // A commentary page per role, but only where something has been written.
+    const COMMENTARY_ROLES = roles.filter(r => commentaryPoints(state, r).length > 0);
+    const TOTAL_PAGES = roles.length + COMMENTARY_ROLES.length + 1 + REGION_CHANNEL_PAGES + GLOSSARY_PAGES;
 
     // ---- one page per role -----------------------------------------------
     ROLES.forEach((role, roleIdx) => {
@@ -4062,6 +4084,29 @@ function exportPlanPDF(state, roleFilter) {
       footer(roleIdx + 1, TOTAL_PAGES);
     });
 
+    // ---- commentary, one page per role that has any -----------------------
+    COMMENTARY_ROLES.forEach((role) => {
+      pdf.addPage();
+      header('Notes on this plan', role === 'SMR' ? 'SMR: Mobile Vehicle Tech' : 'Patrol: Roadside Technician');
+      let y = 34;
+      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9.5); setColor(MUTED);
+      pdf.text('How this plan was put together, and the choices behind it.', margin, y);
+      y += 12;
+      commentaryPoints(state, role).forEach((pt, i) => {
+        const lines = pdf.splitTextToSize(pt, pageW - margin * 2 - 14);
+        const blockH = lines.length * 5.4 + 6;
+        if (y + blockH > pageH - 26) return;   // one page, deliberately
+        setColor(ORANGE);
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(10);
+        pdf.text(String(i + 1) + '.', margin, y);
+        setColor(INK);
+        pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10);
+        lines.forEach((l, k) => pdf.text(l, margin + 10, y + k * 5.4));
+        y += blockH;
+      });
+      footer(roles.length + COMMENTARY_ROLES.indexOf(role) + 1, TOTAL_PAGES);
+    });
+
     // ---- By channel page -------------------------------------------------
     // Per-role channel summary the client can copy straight into their tracker.
     // Each role gets a small table: Platform, Spend, Share, Predicted apps, CPA, Range.
@@ -4169,7 +4214,7 @@ function exportPlanPDF(state, roleFilter) {
       cy += 14;
     });
 
-    footer(roles.length + 1, TOTAL_PAGES);
+    footer(roles.length + COMMENTARY_ROLES.length + 1, TOTAL_PAGES);
 
     // ---- Region x channel pages -----------------------------------------
     // For each role and platform, a table of all 12 regions with spend,
@@ -4268,7 +4313,7 @@ function exportPlanPDF(state, roleFilter) {
     ROLES.forEach(role => {
       PLATFORMS.forEach(plat => { rcTables.push({ role, plat }); });
     });
-    let rcPageNum = 4;
+    let rcPageNum = roles.length + COMMENTARY_ROLES.length + 2;
     rcTables.forEach(tbl => {
       pdf.addPage();
       header('By region and channel', null);
@@ -4282,7 +4327,7 @@ function exportPlanPDF(state, roleFilter) {
     header('Glossary', null);
 
     const gColA = margin, gColB = margin + gColW + 6;
-    let gy = 30, gCol = 0, gPageNum = roles.length + 1 + REGION_CHANNEL_PAGES + 1;
+    let gy = 30, gCol = 0, gPageNum = roles.length + COMMENTARY_ROLES.length + 1 + REGION_CHANNEL_PAGES + 1;
     terms.forEach(t => {
       pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5);
       const split = pdf.splitTextToSize(t[1], gColW - 4);
@@ -4313,6 +4358,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '3 Aug', items: [
+    'Added commentary to the plan. There is a box on Setup, one point per line, and it comes out as its own page in the PDF headed Notes on this plan. It saves and freezes with the plan like everything else, so exporting an older version brings back the notes that went with it. Leave it empty and the page is left out.',
+    'Points can be typed with numbers, dashes or bullets, or none at all. Whatever is typed, the page reads as a clean numbered list.',
     'Fixed the PDF disagreeing with the screen. It built its figures from its own list of settings and never passed the data period or the spend ceiling, so it silently used all time whatever was picked. On an SMR plan that read 2,077 applications and 38.2 hires against 1,667 and 30.1 on screen. Every place that builds a plan now goes through the one builder.',
     'Fixed the Benchmarks tables not changing when the period changed. The tables were still reading a from and to range, which only means anything on a custom range, so every other option left them on the full history and only the label moved.',
     'Fixed weighting inflating the volumes. A month counting three times was contributing three times its real spend and applications, so the weighted option showed more applications than the whole history. The ratios were never affected, but spend and applications read too high and the data quality labels were reading off inflated counts.',
@@ -4504,6 +4551,7 @@ function defaultPlannerState() {
     coverageFloor: 1000,
     capMultiple: 1.0,
     bench: { SMR: null, Patrol: null },
+    commentary: { SMR: '', Patrol: '' },
     coveragePct: 0,
     premiumCampaigns: { SMR: 3, Patrol: 3 },
     acReserve: { SMR: AC_RESERVE_DEFAULT, Patrol: AC_RESERVE_DEFAULT },
