@@ -1340,11 +1340,35 @@ function platformBlendedCVR(plat, role, locs) {
 // (CVR x 0.933, CPH / 0.933) at ingest, so the value read here is already the
 // right one for the role. Returns null where RAC has no data for the region
 // (North East, Wales, Northern Ireland).
+// Which set of hire rates the tool is using. Null means the ones the data
+// file ships with, which is what every plan before 18 August was built on.
+//   { at, note, rates: { SMR: { London: { indeed: 0.0038, ... } } } }
+// Anything edited by hand lands in the same object, so a hand-set rate and a
+// pasted one are read the same way.
+let HIRE_OVERRIDE = null;
+function setHireOverride(o) {
+  HIRE_OVERRIDE = (o && o.rates) ? o : null;
+  Object.keys(_platformCPACache).forEach(k => delete _platformCPACache[k]);
+  _planCache.clear();
+}
+function hireOverrideFor(plat, region, role) {
+  if (!HIRE_OVERRIDE) return null;
+  const v = ((HIRE_OVERRIDE.rates[role] || {})[region] || {})[plat];
+  return (typeof v === 'number' && isFinite(v)) ? v : null;
+}
+
 function regionPlatformHireCVR(plat, region, role) {
+  const o = hireOverrideFor(plat, region, role);
+  if (o !== null) return o;
   const s = getStats(plat, region, role);
   return s && s.hireCvr != null ? s.hireCvr : null;
 }
 function regionPlatformCPH(plat, region, role) {
+  const o = hireOverrideFor(plat, region, role);
+  if (o !== null) {
+    const cpa = effectiveCPA(plat, region, role);
+    return (cpa && cpa.cpa && o > 0) ? cpa.cpa / o : null;
+  }
   const s = getStats(plat, region, role);
   return s && s.cph != null ? s.cph : null;
 }
@@ -4149,8 +4173,8 @@ function exportPlanPDF(state, roleFilter) {
         ['Monthly budget', fmtGBP(plan.budget)],
         ['Predicted hires', plan.predictedHires.toFixed(1) + '  (' +
           plan.predictedHiresLow.toFixed(1) + '\u2013' + plan.predictedHiresHigh.toFixed(1) + ')'],
+        ['Cost per application', plan.predictedApps > 0 ? fmtGBP(plan.deployable / plan.predictedApps) : '-'],
         ['Cost per hire', plan.predictedHires > 0 ? fmtGBP(plan.deployable / plan.predictedHires) : '-'],
-        ['Performance data', benchLabel(benchFor(state, role))],
       ];
       const tw = (pageW - margin * 2 - gap * (tiles.length - 1)) / tiles.length;
       tiles.forEach(([k, v], i) => {
@@ -4171,42 +4195,50 @@ function exportPlanPDF(state, roleFilter) {
       const rowsN = Math.ceil(pts.length / cols);
       const cardW = (pageW - margin * 2 - (cols - 1) * gap) / cols;
 
-      // Largest type where every row still fits the space available.
-      let size = 13, lead = 0, rowH = [];
+      // Largest type where every row still fits, then the rows are stretched
+      // to fill the page so a short list does not float in the middle.
+      const avail = gridBottom - gridTop;
+      let size = 14.5, lead = 0, natural = [];
       for (; size > 7; size -= 0.5) {
         lead = size * 0.46;
-        rowH = [];
+        natural = [];
         for (let r = 0; r < rowsN; r++) {
           let tallest = 1;
           for (let c = 0; c < cols; c++) {
             const pt = pts[r * cols + c];
             if (!pt) continue;
             pdf.setFontSize(size);
-            tallest = Math.max(tallest, pdf.splitTextToSize(pt, cardW - 22).length);
+            tallest = Math.max(tallest, pdf.splitTextToSize(pt, cardW - 24).length);
           }
-          rowH.push(Math.max(20, tallest * lead + 14));
+          natural.push(tallest * lead + 16);
         }
-        const total = rowH.reduce((a, h) => a + h, 0) + (rowsN - 1) * gap;
-        if (total <= gridBottom - gridTop) break;
+        if (natural.reduce((a, h) => a + h, 0) + (rowsN - 1) * gap <= avail) break;
       }
-      const blockH = rowH.reduce((a, h) => a + h, 0) + (rowsN - 1) * gap;
-      let y = gridTop + Math.max(0, (gridBottom - gridTop - blockH) / 2);
+
+      // Share out whatever is left so the cards reach the bottom of the page.
+      const used = natural.reduce((a, h) => a + h, 0) + (rowsN - 1) * gap;
+      const spare = Math.max(0, avail - used);
+      const rowH = natural.map(h => h + spare / rowsN);
 
       pts.forEach((pt, i) => {
         const c = i % cols, r = Math.floor(i / cols);
         const x = margin + c * (cardW + gap);
-        const yy = y + rowH.slice(0, r).reduce((a, h) => a + h + gap, 0);
+        const yy = gridTop + rowH.slice(0, r).reduce((a, h) => a + h + gap, 0);
         const h = rowH[r];
         setFill(LIGHT); pdf.rect(x, yy, cardW, h, 'F');
-        setFill(i % 2 === 0 ? ORANGE : BLUE); pdf.rect(x, yy, cardW, 1.4, 'F');
+        setFill(i % 2 === 0 ? ORANGE : BLUE); pdf.rect(x, yy, cardW, 1.6, 'F');
+        pdf.setFontSize(size);
+        const lines = pdf.splitTextToSize(pt, cardW - 24);
+        // Text sits in the middle of its card, so uneven rows still look level.
+        const textH = lines.length * lead;
+        const ty = yy + (h - textH) / 2 + lead * 0.72;
         setFill(i % 2 === 0 ? ORANGE : BLUE);
-        pdf.circle(x + 10, yy + 11, 4.8, 'F');
+        pdf.circle(x + 11, yy + h / 2, Math.min(6, size * 0.42), 'F');
         pdf.setTextColor(255, 255, 255);
-        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(Math.min(9, size * 0.72));
-        pdf.text(String(i + 1), x + 10, yy + 12.7, { align: 'center' });
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(Math.min(11, size * 0.6));
+        pdf.text(String(i + 1), x + 11, yy + h / 2 + Math.min(11, size * 0.6) * 0.36, { align: 'center' });
         setColor(INK); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(size);
-        pdf.splitTextToSize(pt, cardW - 22).forEach((l, k) =>
-          pdf.text(l, x + 19, yy + 10.5 + k * lead));
+        lines.forEach((l, k) => pdf.text(l, x + 21, ty + k * lead));
       });
 
       footer(pageNum, TOTAL_PAGES);
@@ -4463,8 +4495,11 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '3 Aug', items: [
-    'Commentary is now the opening page of the plan and reads as cards rather than a list, with the budget, predicted hires, cost per hire and the data period across the top so the notes sit against the figures they are about.',
-    'It always fits one page. The cards are only as tall as their own text, the block is centred, and the type sizes itself down until everything fits. Checked at one point and at ten.',
+    'Hire rates can be replaced without touching what is already in use. There is a Hire rates panel on the Data tab: paste the Pivot tab from RAC\u2019s hire data workbook and it reads the SMR and Patrol tables into an editable grid. Nothing changes until Use these rates is pressed, and Back to the original rates undoes it.',
+    'Every rate in the grid can also be typed by hand, whether it came from a paste or from the rates already in use. A hand-set rate wins, and anything left blank falls back to what the data file ships with.',
+    'The chosen rates save for everyone like plans and benchmarks do, so nobody is planning on a different set to the person next to them.',
+    'Commentary is now the opening page of the plan and reads as cards rather than a list, with the budget, predicted hires, cost per application and cost per hire across the top so the notes sit against the figures they are about. The data period is already in the header, so it does not take a tile.',
+    'It always fits one page and always fills it. The cards stretch to reach the bottom rather than floating in the middle, the text sits in the middle of its card, and the type sizes itself to whatever has been written. Checked at two points and at ten.',
     'Fixed the planner lagging while typing. Every keystroke anywhere on Setup rebuilt both roles from scratch, including the budget solver, which is 148 milliseconds of work per role. A built plan is now kept against the settings that produced it, so a change the figures do not read costs nothing. Repeat builds went from 148 milliseconds to 3.',
     'The commentary box keeps its text to itself while you type and only tells the plan when you click away. Typing went from 38 milliseconds a keystroke to under 2.',
     'The budget solver stops once it is inside the fifty pounds the answer is rounded to, rather than always running a fixed twenty six passes.',
@@ -7423,6 +7458,44 @@ function sheetDay(raw) {
   return { y: dt.getFullYear(), m: dt.getMonth() + 1, d: dt.getDate() };
 }
 
+// Hire rates pasted from the Pivot tab of RAC's hire data workbook. The sheet
+// holds three tables one under another: everything combined, then SMR, then
+// Patrol. Each is a grid of source down the side and location across the top.
+// Only the two role tables are read; the combined one is ignored.
+function parseHirePaste(text) {
+  const rows = String(text || '').split(/\r?\n/).map(l => splitCsvLine(l, sniffDelimiter(text)));
+  const SRC = { appcast: 'appcast', google: 'google', indeed: 'indeed', meta: 'meta' };
+  const out = { SMR: {}, Patrol: {} };
+  let role = null, cols = null, found = 0, unmatched = [];
+  rows.forEach(cells => {
+    const first = String(cells[0] || '').trim();
+    const low = first.toLowerCase();
+    if (low === 'smr') { role = 'SMR'; cols = null; return; }
+    if (low === 'patrol') { role = 'Patrol'; cols = null; return; }
+    if (low === 'row labels') {
+      cols = cells.map((c, i) => (i === 0 ? null : priorityRegion(String(c || '').trim())));
+      return;
+    }
+    if (!role || !cols) return;
+    const plat = SRC[low];
+    if (!plat) { if (low && low !== 'grand total' && low !== '(blank)') unmatched.push(first); return; }
+    cells.forEach((v, i) => {
+      const region = cols[i];
+      if (!region) return;
+      const n = Number(String(v).replace(/[^0-9.eE-]/g, ''));
+      if (!isFinite(n)) return;
+      out[role][region] = out[role][region] || {};
+      out[role][region][plat] = n;
+      found += 1;
+    });
+  });
+  const roles = ['SMR', 'Patrol'].filter(r => Object.keys(out[r]).length);
+  if (!roles.length) {
+    return { error: 'No SMR or Patrol table found. Copy the whole Pivot tab, including the SMR and Patrol headings.' };
+  }
+  return { rates: out, cells: found, roles, unmatched: [...new Set(unmatched)] };
+}
+
 function normHeader(h) { return String(h || '').toLowerCase().replace(/[^a-z]/g, ''); }
 
 // Turn the Raw Data Export into monthly cells. Returns the cells plus a
@@ -7552,6 +7625,164 @@ function applyMonths(months, cells) {
     DATA.data_current_through = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
   }
   DATA.generated_at = todayISO();
+}
+
+function HireRates() {
+  const live = window.__RAC_HIRE__ || null;
+  const [draft, setDraft] = useState(live);
+  const [text, setText] = useState('');
+  const [role, setRole] = useState('SMR');
+  const [saving, setSaving] = useState('');
+  const parsed = useMemo(() => (text.trim() ? parseHirePaste(text) : null), [text]);
+
+  const usingNew = !!draft;
+  const rateAt = (r, p) => {
+    if (draft) {
+      const v = ((draft.rates[role] || {})[r] || {})[p];
+      return (typeof v === 'number' && isFinite(v)) ? v : null;
+    }
+    return regionPlatformHireCVR(p, r, role);
+  };
+  const setRate = (r, p, pct) => {
+    const n = parseFloat(String(pct).replace(/[^0-9.]/g, ''));
+    setDraft(d => {
+      const next = d ? JSON.parse(JSON.stringify(d))
+        : { at: todayISO(), note: 'Set by hand', rates: { SMR: {}, Patrol: {} } };
+      next.rates[role] = next.rates[role] || {};
+      next.rates[role][r] = next.rates[role][r] || {};
+      if (isFinite(n)) next.rates[role][r][p] = n / 100; else delete next.rates[role][r][p];
+      return next;
+    });
+  };
+
+  const apply = async (obj) => {
+    setDraft(obj);
+    window.__RAC_HIRE__ = obj;
+    setHireOverride(obj);
+    setSaving('saving');
+    try { await sbSet('hire_rates', obj); setSaving('saved'); }
+    catch (e) { setSaving('failed'); }
+  };
+
+  const startFromCurrent = () => {
+    const rates = { SMR: {}, Patrol: {} };
+    ROLES.forEach(rl => DATA.regions_ordered.forEach(r => {
+      PLATFORMS.forEach(p => {
+        const v = regionPlatformHireCVR(p, r, rl);
+        if (v != null) { rates[rl][r] = rates[rl][r] || {}; rates[rl][r][p] = v; }
+      });
+    }));
+    setDraft({ at: todayISO(), note: 'Started from the rates in use', rates });
+  };
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <div className="card-title">Hire rates</div>
+        <div className="card-sub">
+          {usingNew
+            ? 'Using the set below' + (live && live.at ? ', saved ' + live.at : '') + '. Every plan and every pacing figure reads these.'
+            : 'Using the rates the data file ships with. Nothing has been replaced.'}
+        </div>
+      </div>
+      <div className="card-body">
+        {usingNew && (
+          <div className={'banner ' + (saving === 'failed' ? 'banner-bad' : 'banner-good')} style={{ marginBottom: 12 }}>
+            <div className="banner-icon">{saving === 'failed' ? '!' : '\u2713'}</div>
+            <div>
+              {saving === 'failed'
+                ? <>Applied here but not saved to the server, so everyone else is still on the old rates.</>
+                : <>{draft.note || 'In use'}{draft.at ? ', ' + draft.at : ''}.
+                    {saving === 'saving' ? ' Saving...' : ' Everyone signed in sees these.'}</>}
+            </div>
+          </div>
+        )}
+
+        <div className="section-label">Paste RAC's hire data</div>
+        <div className="help-text" style={{ marginBottom: 6 }}>
+          The Pivot tab, whole sheet. It holds a combined table then one for each role; only the
+          two role tables are read.
+        </div>
+        <textarea className="paste-box" rows={3} value={text}
+          placeholder="Paste the Pivot tab here"
+          onChange={e => setText(e.target.value)} />
+        {parsed && parsed.error && <div className="parse-bad" style={{ marginTop: 8 }}>{parsed.error}</div>}
+        {parsed && !parsed.error && (
+          <div className="parse-report" style={{ marginTop: 8 }}>
+            <div>
+              <strong>{parsed.cells} rates</strong> read for {parsed.roles.join(' and ')}.
+              {parsed.unmatched.length > 0 && ' Rows ignored: ' + parsed.unmatched.join(', ') + '.'}
+            </div>
+            <button className="btn btn-sm btn-primary" style={{ marginTop: 8 }}
+              onClick={() => { setDraft({ at: todayISO(), note: 'From RAC hire data', rates: parsed.rates }); setText(''); }}>
+              Load these into the table
+            </button>
+          </div>
+        )}
+
+        <div className="dial-row" style={{ marginTop: 16, marginBottom: 8 }}>
+          <div className="role-switch">
+            {ROLES.map(r => (
+              <button key={r} className={r === role ? 'active' : ''} onClick={() => setRole(r)}>{r}</button>
+            ))}
+          </div>
+          <div style={{ flex: 1 }} />
+          {!draft && <button className="btn btn-sm" onClick={startFromCurrent}>Edit the rates in use</button>}
+          {draft && (
+            <>
+              <button className="btn btn-sm" style={{ marginRight: 8 }}
+                onClick={() => { if (window.confirm('Go back to the rates the data file ships with?')) { setDraft(null); apply(null); } }}>
+                Back to the original rates
+              </button>
+              <button className="btn btn-sm btn-primary" onClick={() => apply(draft)}>Use these rates</button>
+            </>
+          )}
+        </div>
+
+        <div className="grid-scroll">
+          <table className="alloc-table">
+            <thead>
+              <tr>
+                <th>Location</th>
+                {PLATFORMS.map(p => <th key={p} style={{ textAlign: 'right' }}>{PLATFORM_LABELS[p]}</th>)}
+                <th style={{ textAlign: 'right' }}>Applications per hire</th>
+              </tr>
+            </thead>
+            <tbody>
+              {DATA.regions_ordered.map(r => {
+                const vals = PLATFORMS.map(p => rateAt(r, p));
+                const any = vals.filter(v => v > 0);
+                const avg = any.length ? any.reduce((a, b) => a + b, 0) / any.length : null;
+                return (
+                  <tr key={r}>
+                    <td>{r}</td>
+                    {PLATFORMS.map((p, i) => (
+                      <td key={p} style={{ textAlign: 'right' }}>
+                        {draft ? (
+                          <input className="text-input" style={{ width: 74, textAlign: 'right', padding: '3px 6px' }}
+                            value={vals[i] == null ? '' : (vals[i] * 100).toFixed(2)}
+                            onChange={e => setRate(r, p, e.target.value)} />
+                        ) : (
+                          <span className="mono">{vals[i] == null ? '-' : (vals[i] * 100).toFixed(2) + '%'}</span>
+                        )}
+                      </td>
+                    ))}
+                    <td className="mono" style={{ textAlign: 'right', color: 'var(--ink-55)' }}>
+                      {avg ? Math.round(1 / avg).toLocaleString() : '-'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="help-text" style={{ padding: '10px 0 0' }}>
+          Rates are a percentage of applications that become hires. Blank means no rate for that
+          location and platform, and no hires are predicted from it.
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function DataTool() {
@@ -7805,6 +8036,8 @@ function DataTool() {
           </div>
         </>
       )}
+
+      <HireRates />
 
       <div className="card">
         <div className="card-head">
@@ -8506,11 +8739,20 @@ function Root() {
     let live = true;
     (async () => {
       try {
-        const b = await sbGet('benchmarks');
-        if (!live || !b || !b.cells || !b.months) return;
-        window.__RAC_BENCH__ = b;
-        applyMonths(b.months, b.cells);
-        setBenchStamp(x => x + 1);
+        const [b, h] = await Promise.all([sbGet('benchmarks'), sbGet('hire_rates')]);
+        if (!live) return;
+        let moved = false;
+        if (b && b.cells && b.months) {
+          window.__RAC_BENCH__ = b;
+          applyMonths(b.months, b.cells);
+          moved = true;
+        }
+        if (h && h.rates) {
+          window.__RAC_HIRE__ = h;
+          setHireOverride(h);
+          moved = true;
+        }
+        if (moved) setBenchStamp(x => x + 1);
       } catch (e) { /* carry on with the numbers the file ships with */ }
     })();
     return () => { live = false; };
