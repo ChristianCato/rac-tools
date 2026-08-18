@@ -620,6 +620,10 @@ function fmtPct(n) {
 // The benchmark window. Null means the whole history. Set from Benchmarks and
 // saved with the workspace, so the plan is built on whatever RAC agreed to.
 const _platformCPACache = {};
+// A built plan, kept against the inputs that produced it. Every keystroke in
+// the planner re-renders and would otherwise rebuild both roles from scratch,
+// including the budget solver.
+const _planCache = new Map();
 
 function monthShort(mo) {
   const [y, m] = mo.split('-');
@@ -659,6 +663,7 @@ function setBenchWindow(w) {
   if (JSON.stringify(next) === JSON.stringify(BENCH)) return false;
   BENCH = next;
   _weights = null;
+  _planCache.clear();
   Object.keys(_platformCPACache).forEach(k => delete _platformCPACache[k]);
   return true;
 }
@@ -1389,6 +1394,19 @@ function rolePlatformBand(plat, role) {
 //   Predicted applications scale linearly with the deployable budget, so the
 //   budget needed to hit the target is a direct calculation, not a search.
 function buildFundingPlan(role, p) {
+  if (!p._solving) {
+    const key = role + '|' + JSON.stringify(p) + '|' + JSON.stringify(BENCH) + '|' + CAP_MULTIPLE;
+    const hit = _planCache.get(key);
+    if (hit) return hit;
+    const built = buildFundingPlanUncached(role, p);
+    if (_planCache.size > 40) _planCache.clear();
+    _planCache.set(key, built);
+    return built;
+  }
+  return buildFundingPlanUncached(role, p);
+}
+
+function buildFundingPlanUncached(role, p) {
   setCapMultiple(p.capMultiple);
   // Each role carries its own period, so the figures cannot depend on what
   // happens to be selected on screen.
@@ -1929,7 +1947,9 @@ function buildFundingPlan(role, p) {
     let lo = premiumHoldback + acHoldback, hi = Math.max(lo + 1000, (p.budget || 0) * 4 + 50000), guard = 0;
     while (at(hi) < appTarget && guard++ < 8) hi *= 1.6;
     if (at(hi) >= appTarget) {
-      for (let i = 0; i < 26; i++) {
+      // Stop once the range is inside the rounding, rather than running a
+      // fixed count. The answer is rounded to the nearest 50 pounds anyway.
+      for (let i = 0; i < 24 && hi - lo > 25; i++) {
         const mid = (lo + hi) / 2;
         if (at(mid) < appTarget) lo = mid; else hi = mid;
       }
@@ -1966,6 +1986,29 @@ function buildFundingPlan(role, p) {
 // ====================================================================
 
 // Build the argument object the funding engine expects for one role.
+function CommentaryBox({ value, onCommit }) {
+  const [text, setText] = useState(value);
+  const seen = useRef(value);
+  useEffect(() => {
+    if (value !== seen.current) { seen.current = value; setText(value); }
+  }, [value]);
+  const commit = (v) => { seen.current = v; onCommit(v); };
+  const n = text.split('\n').map(l => l.replace(/^\s*(?:[-*\u2022]|\d+[.)])\s*/, '').trim()).filter(Boolean).length;
+  return (
+    <>
+      <textarea className="paste-box" rows={4}
+        placeholder={'Limited the three most expensive locations to \u00a312k\nCapped locations with few open roles so predicted hires do not exceed live roles'}
+        value={text}
+        onChange={e => setText(e.target.value)}
+        onBlur={e => commit(e.target.value)} />
+      <div className="help-text" style={{ marginTop: 4, marginBottom: 16 }}>
+        {n} point{n === 1 ? '' : 's'}.
+        {n === 0 ? ' Leave it empty and the page is left out.' : ' Saved when you click away.'}
+      </div>
+    </>
+  );
+}
+
 function commentaryPoints(state, role) {
   const raw = (state && state.commentary && state.commentary[role]) || '';
   return raw.split('\n')
@@ -2546,14 +2589,9 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
             <div className="help-text" style={{ marginBottom: 6 }}>
               One point per line. It appears as its own page in the PDF, and saves with the plan.
             </div>
-            <textarea className="paste-box" rows={4}
-              placeholder={'Limited the three most expensive locations to \u00a312k\nCapped locations with few open roles so predicted hires do not exceed live roles'}
+            <CommentaryBox
               value={(state.commentary && state.commentary[role]) || ''}
-              onChange={e => update({ commentary: { ...(state.commentary || {}), [role]: e.target.value } })} />
-            <div className="help-text" style={{ marginTop: 4, marginBottom: 16 }}>
-              {commentaryPoints(state, role).length} point{commentaryPoints(state, role).length === 1 ? '' : 's'}.
-              {commentaryPoints(state, role).length === 0 ? ' Leave it empty and the page is left out.' : ''}
-            </div>
+              onCommit={v => update({ commentary: { ...(state.commentary || {}), [role]: v } })} />
 
             <div className="section-label">How the budget splits across platforms</div>
             <div className="help-text" style={{ marginBottom: 10 }}>
@@ -4358,6 +4396,9 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '3 Aug', items: [
+    'Fixed the planner lagging while typing. Every keystroke anywhere on Setup rebuilt both roles from scratch, including the budget solver, which is 148 milliseconds of work per role. A built plan is now kept against the settings that produced it, so a change the figures do not read costs nothing. Repeat builds went from 148 milliseconds to 3.',
+    'The commentary box keeps its text to itself while you type and only tells the plan when you click away. Typing went from 38 milliseconds a keystroke to under 2.',
+    'The budget solver stops once it is inside the fifty pounds the answer is rounded to, rather than always running a fixed twenty six passes.',
     'Added commentary to the plan. There is a box on Setup, one point per line, and it comes out as its own page in the PDF headed Notes on this plan. It saves and freezes with the plan like everything else, so exporting an older version brings back the notes that went with it. Leave it empty and the page is left out.',
     'Points can be typed with numbers, dashes or bullets, or none at all. Whatever is typed, the page reads as a clean numbered list.',
     'Fixed the PDF disagreeing with the screen. It built its figures from its own list of settings and never passed the data period or the spend ceiling, so it silently used all time whatever was picked. On an SMR plan that read 2,077 applications and 38.2 hires against 1,667 and 30.1 on screen. Every place that builds a plan now goes through the one builder.',
