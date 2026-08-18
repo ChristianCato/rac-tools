@@ -3798,20 +3798,11 @@ function exportPlanPDF(state, roleFilter) {
     // ---- build plans for both roles up front -----------------------------
     const plans = {};
     ROLES.forEach(role => {
+      // The one builder, so the period and the ceiling cannot be left off and
+      // the document cannot disagree with the screen.
       plans[role] = buildFundingPlan(role, {
-        budget: state.budget[role] || 0,
+        ...planParams(role, state),
         appTarget: state.appTarget[role] || 0,
-        liveRegions: state.liveRegions[role] || [],
-        vacancies: (state.vacancies && state.vacancies[role]) || {},
-        coveragePct: cov,
-        premiumCampaigns: (state.premiumCampaigns && state.premiumCampaigns[role]) || 0,
-        acReserve: (state.acReserve && state.acReserve[role]) || 0,
-        platMin: (state.platMin && state.platMin[role]) || {},
-        platMax: (state.platMax && state.platMax[role]) || {},
-        coverage: (state.coverage && state.coverage[role]) || {},
-        regionMin: (state.regionMin && state.regionMin[role]) || {},
-        regionMax: (state.regionMax && state.regionMax[role]) || {},
-        daysInMonth: days,
       });
     });
     // Pages: SMR, Patrol, By channel, then region x channel pages
@@ -4322,6 +4313,7 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '3 Aug', items: [
+    'Fixed the PDF disagreeing with the screen. It built its figures from its own list of settings and never passed the data period or the spend ceiling, so it silently used all time whatever was picked. On an SMR plan that read 2,077 applications and 38.2 hires against 1,667 and 30.1 on screen. Every place that builds a plan now goes through the one builder.',
     'Fixed the Benchmarks tables not changing when the period changed. The tables were still reading a from and to range, which only means anything on a custom range, so every other option left them on the full history and only the label moved.',
     'Fixed weighting inflating the volumes. A month counting three times was contributing three times its real spend and applications, so the weighted option showed more applications than the whole history. The ratios were never affected, but spend and applications read too high and the data quality labels were reading off inflated counts.',
     'Fixed the Benchmarks tab going blank. When I added the five period options I replaced the buttons but an edit to the code behind them did not apply, and I did not check. So the new buttons were reading a value the old code never created. All five options, the multiplier and both roles now render.',
