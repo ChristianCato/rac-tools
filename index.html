@@ -3904,10 +3904,17 @@ function exportPlanPDF(state, roleFilter) {
     // A commentary page per role, but only where something has been written.
     const COMMENTARY_ROLES = roles.filter(r => commentaryPoints(state, r).length > 0);
     const TOTAL_PAGES = roles.length + COMMENTARY_ROLES.length + 1 + REGION_CHANNEL_PAGES + GLOSSARY_PAGES;
+    // jsPDF opens with a page already, so the first thing drawn must not add
+    // one. Everything after does.
+    let pageStarted = false;
 
     // ---- one page per role -----------------------------------------------
+    // Commentary first: it frames everything that follows.
+    COMMENTARY_ROLES.forEach((role, i) => commentaryPage(role, i + 1));
+
     ROLES.forEach((role, roleIdx) => {
-      if (roleIdx > 0) pdf.addPage();
+      if (pageStarted) pdf.addPage();
+      pageStarted = true;
       header('RAC ' + monthLabel + ' Plan, ' + role + ': ' + ROLE_FULL[role],
         'Your budget, where it goes, and how many applications it is predicted to deliver');
 
@@ -4119,31 +4126,91 @@ function exportPlanPDF(state, roleFilter) {
       // If the note doesn't fit, it's dropped silently - the table is what
       // matters and the glossary on the final page explains the same logic.
 
-      footer(roleIdx + 1, TOTAL_PAGES);
+      footer(COMMENTARY_ROLES.length + roleIdx + 1, TOTAL_PAGES);
     });
 
     // ---- commentary, one page per role that has any -----------------------
-    COMMENTARY_ROLES.forEach((role) => {
-      pdf.addPage();
-      header('Notes on this plan', role === 'SMR' ? 'SMR: Mobile Vehicle Tech' : 'Patrol: Roadside Technician');
-      let y = 34;
-      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9.5); setColor(MUTED);
-      pdf.text('How this plan was put together, and the choices behind it.', margin, y);
-      y += 12;
-      commentaryPoints(state, role).forEach((pt, i) => {
-        const lines = pdf.splitTextToSize(pt, pageW - margin * 2 - 14);
-        const blockH = lines.length * 5.4 + 6;
-        if (y + blockH > pageH - 26) return;   // one page, deliberately
-        setColor(ORANGE);
-        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(10);
-        pdf.text(String(i + 1) + '.', margin, y);
-        setColor(INK);
-        pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10);
-        lines.forEach((l, k) => pdf.text(l, margin + 10, y + k * 5.4));
-        y += blockH;
+    // ---- commentary, the opening page --------------------------------------
+    // Cards on a grid rather than a list, and the type is sized down until it
+    // fits, because this has to be one page whatever gets written on it.
+    function commentaryPage(role, pageNum) {
+      const pts = commentaryPoints(state, role);
+      if (!pts.length) return;
+      if (pageStarted) pdf.addPage();
+      pageStarted = true;
+      header('Notes on this plan', role === 'SMR' ? 'SMR: Mobile Vehicle Tech'
+                                                 : 'Patrol: Roadside Technician');
+      const plan = plans[role];
+      const top = 30;
+
+      // A strip of the three figures the notes are about.
+      const stripH = 24, gap = 5;
+      const tiles = [
+        ['Monthly budget', fmtGBP(plan.budget)],
+        ['Predicted hires', plan.predictedHires.toFixed(1) + '  (' +
+          plan.predictedHiresLow.toFixed(1) + '\u2013' + plan.predictedHiresHigh.toFixed(1) + ')'],
+        ['Cost per hire', plan.predictedHires > 0 ? fmtGBP(plan.deployable / plan.predictedHires) : '-'],
+        ['Performance data', benchLabel(benchFor(state, role))],
+      ];
+      const tw = (pageW - margin * 2 - gap * (tiles.length - 1)) / tiles.length;
+      tiles.forEach(([k, v], i) => {
+        const x = margin + i * (tw + gap);
+        setFill(LIGHT); pdf.rect(x, top, tw, stripH, 'F');
+        setFill(i === 0 ? ORANGE : (i === 1 ? BLUE : NAVY)); pdf.rect(x, top, 1.6, stripH, 'F');
+        setColor(MID); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(6.4);
+        pdf.text(String(k).toUpperCase(), x + 5, top + 8);
+        setColor(NAVY); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11);
+        pdf.text(String(v), x + 5, top + 17.5);
       });
-      footer(roles.length + COMMENTARY_ROLES.indexOf(role) + 1, TOTAL_PAGES);
-    });
+
+      // Cards, two across, each only as tall as its own text needs, with the
+      // block centred so a short list does not sit awkwardly at the top.
+      const gridTop = top + stripH + 12;
+      const gridBottom = pageH - 18;
+      const cols = pts.length > 3 ? 2 : 1;
+      const rowsN = Math.ceil(pts.length / cols);
+      const cardW = (pageW - margin * 2 - (cols - 1) * gap) / cols;
+
+      // Largest type where every row still fits the space available.
+      let size = 13, lead = 0, rowH = [];
+      for (; size > 7; size -= 0.5) {
+        lead = size * 0.46;
+        rowH = [];
+        for (let r = 0; r < rowsN; r++) {
+          let tallest = 1;
+          for (let c = 0; c < cols; c++) {
+            const pt = pts[r * cols + c];
+            if (!pt) continue;
+            pdf.setFontSize(size);
+            tallest = Math.max(tallest, pdf.splitTextToSize(pt, cardW - 22).length);
+          }
+          rowH.push(Math.max(20, tallest * lead + 14));
+        }
+        const total = rowH.reduce((a, h) => a + h, 0) + (rowsN - 1) * gap;
+        if (total <= gridBottom - gridTop) break;
+      }
+      const blockH = rowH.reduce((a, h) => a + h, 0) + (rowsN - 1) * gap;
+      let y = gridTop + Math.max(0, (gridBottom - gridTop - blockH) / 2);
+
+      pts.forEach((pt, i) => {
+        const c = i % cols, r = Math.floor(i / cols);
+        const x = margin + c * (cardW + gap);
+        const yy = y + rowH.slice(0, r).reduce((a, h) => a + h + gap, 0);
+        const h = rowH[r];
+        setFill(LIGHT); pdf.rect(x, yy, cardW, h, 'F');
+        setFill(i % 2 === 0 ? ORANGE : BLUE); pdf.rect(x, yy, cardW, 1.4, 'F');
+        setFill(i % 2 === 0 ? ORANGE : BLUE);
+        pdf.circle(x + 10, yy + 11, 4.8, 'F');
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(Math.min(9, size * 0.72));
+        pdf.text(String(i + 1), x + 10, yy + 12.7, { align: 'center' });
+        setColor(INK); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(size);
+        pdf.splitTextToSize(pt, cardW - 22).forEach((l, k) =>
+          pdf.text(l, x + 19, yy + 10.5 + k * lead));
+      });
+
+      footer(pageNum, TOTAL_PAGES);
+    }
 
     // ---- By channel page -------------------------------------------------
     // Per-role channel summary the client can copy straight into their tracker.
@@ -4396,6 +4463,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '3 Aug', items: [
+    'Commentary is now the opening page of the plan and reads as cards rather than a list, with the budget, predicted hires, cost per hire and the data period across the top so the notes sit against the figures they are about.',
+    'It always fits one page. The cards are only as tall as their own text, the block is centred, and the type sizes itself down until everything fits. Checked at one point and at ten.',
     'Fixed the planner lagging while typing. Every keystroke anywhere on Setup rebuilt both roles from scratch, including the budget solver, which is 148 milliseconds of work per role. A built plan is now kept against the settings that produced it, so a change the figures do not read costs nothing. Repeat builds went from 148 milliseconds to 3.',
     'The commentary box keeps its text to itself while you type and only tells the plan when you click away. Typing went from 38 milliseconds a keystroke to under 2.',
     'The budget solver stops once it is inside the fifty pounds the answer is rounded to, rather than always running a fixed twenty six passes.',
