@@ -3144,25 +3144,17 @@ function BenchmarksTab({ state, setState }) {
   // Everything read below goes through the module window, so point it at the
   // role being looked at before anything is worked out.
   setBenchWindow(benchFor(state, roleView));
-  const w = benchFor(state, roleView);
+  const w = benchNorm(benchFor(state, roleView)) || { mode: 'all' };
+  const mode = w.mode || 'all';
   const setBench = (b) => setState(st => ({ ...st, bench: { ...(st.bench || {}), [roleView]: b } }));
-  const from = (w && w.from) || months[0];
-  const to = (w && w.to) || months[months.length - 1];
-  const setWindow = (f, t) => {
-    const all = f === months[0] && t === months[months.length - 1];
-    setBench(all ? null : { from: f, to: t });
-  };
-  const setFrom = (v) => setWindow(v > to ? to : v, to);
-  const setTo = (v) => setWindow(from, v < from ? from : v);
+  const from = w.from || months[0];
+  const to = w.to || months[months.length - 1];
+  const setFrom = (v) => setBench({ mode: 'custom', from: v > to ? to : v, to });
+  const setTo = (v) => setBench({ mode: 'custom', from, to: v < from ? from : v });
   const [open, setOpen] = useState({ byLocation: true, byPlatform: true });
   const [openPlat, setOpenPlat] = useState({});
-
-  const preset = (n) => {
-    if (!n) { setWindow(months[0], months[months.length - 1]); return; }
-    setWindow(months[Math.max(0, months.length - n)], months[months.length - 1]);
-  };
-  const spanLen = months.filter(m => m >= from && m <= to).length;
-  const isAll = from === months[0] && to === months[months.length - 1];
+  const spanLen = months.filter(m => benchWeight(m) > 0).length;
+  const isAll = mode === 'all';
 
   // Hire rates stay on the whole history whatever window is chosen: hires lag
   // by weeks and there is never enough of them in a short window to mean
@@ -4324,6 +4316,7 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '3 Aug', items: [
+    'Fixed the Benchmarks tab going blank. When I added the five period options I replaced the buttons but an edit to the code behind them did not apply, and I did not check. So the new buttons were reading a value the old code never created. All five options, the multiplier and both roles now render.',
     'Fixed the tool hanging the browser. The weighting worked out which months to use by scanning the whole dataset every single time it needed a month\u2019s weight, which is once per month, per location, per platform, on every plan build, and the budget solver runs the whole plan twenty six times. The weights are now worked out once per setting. One pass over the locations went from 113 milliseconds to 2, and the dataset is scanned once rather than 2,258 times.',
     'Fixed the tool failing to load. The function that names the data period was defined further down the file than the code calling it, and being a const rather than a function it does not hoist. Anything on a custom date range hit it before it existed and the page died. Only a saved custom range triggered it, which is why it looked fine on a fresh load.',
     'Benchmarks now offers all time, year to date, last 3 months, year to date with the last 3 months weighted, and a custom range. The weighted option takes a multiplier, so the last three months can count 2, 3, 4 times as much as the earlier months of the year while every month still contributes.',
