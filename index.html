@@ -4494,10 +4494,11 @@ function exportPlanPDF(state, roleFilter) {
 // the plans or the data. Newest first. Dated, no version numbers.
 // ====================================================================
 const CHANGELOG = [
-  { date: '3 Aug', items: [
-    'Hire rates can be replaced without touching what is already in use. There is a Hire rates panel on the Data tab: paste the Pivot tab from RAC\u2019s hire data workbook and it reads the SMR and Patrol tables into an editable grid. Nothing changes until Use these rates is pressed, and Back to the original rates undoes it.',
-    'Every rate in the grid can also be typed by hand, whether it came from a paste or from the rates already in use. A hand-set rate wins, and anything left blank falls back to what the data file ships with.',
-    'The chosen rates save for everyone like plans and benchmarks do, so nobody is planning on a different set to the person next to them.',
+  { date: '18 Aug', items: [
+    'Hire rates on the Data tab are a straight toggle between the original rates and RAC\u2019s updated data. Nothing changes until it is switched, so plans built before 18 August still reproduce.',
+    'On the updated data, a location and platform with nothing measured uses that platform\u2019s average across the locations that do, rather than predicting no hires at all. That fills 36 of the 96 combinations.',
+    'Any rate on the updated data can be typed over. The choice, and any hand-set rates, save for everyone like plans and benchmarks do.',
+    'The updated data covers both roles. Patrol has measured hire rates for the first time rather than SMR multiplied by 0.933.',
     'Commentary is now the opening page of the plan and reads as cards rather than a list, with the budget, predicted hires, cost per application and cost per hire across the top so the notes sit against the figures they are about. The data period is already in the header, so it does not take a tile.',
     'It always fits one page and always fills it. The cards stretch to reach the bottom rather than floating in the middle, the text sits in the middle of its card, and the type sizes itself to whatever has been written. Checked at two points and at ten.',
     'Fixed the planner lagging while typing. Every keystroke anywhere on Setup rebuilt both roles from scratch, including the budget solver, which is 148 milliseconds of work per role. A built plan is now kept against the settings that produced it, so a change the figures do not read costs nothing. Repeat builds went from 148 milliseconds to 3.',
@@ -4518,6 +4519,8 @@ const CHANGELOG = [
     'The data period is part of the plan and each role holds its own, so SMR can sit on the last three months while Patrol sits on all time. A saved plan keeps the periods it was built on and cannot change afterwards: before this, changing the period on screen silently changed what a saved plan predicted.',
     'The header and the plan selector name both periods rather than one, and the PDF and the workings export each use the period for the role they are for.',
     'Changelog entries are dated by the day they were made. Everything up to 2 August had been landing under 28 July, which is when the entry above it happened to be written.',
+  ] },
+  { date: '3 Aug', items: [
     'Fixed the master sheet reading a day short and losing the first of the month. Dates come out of the spreadsheet reader at midnight local time, and the code was reading them in UTC, which is an hour earlier through British Summer Time. So 31 July read as 30 July, and 1 July read as 30 June and dropped out of the month altogether. On the July file that was 382 rows and 6,000 pounds of spend missing. This affected every master sheet load between late March and late October.',
     'The In platform data heading names the master sheet file it read and the last day in it. Downloads all share a name with a number on the end, so it was easy to load an older one and not notice.',
     'Took the last mention of matching the master sheet dates out of the two export boxes.',
@@ -7458,44 +7461,6 @@ function sheetDay(raw) {
   return { y: dt.getFullYear(), m: dt.getMonth() + 1, d: dt.getDate() };
 }
 
-// Hire rates pasted from the Pivot tab of RAC's hire data workbook. The sheet
-// holds three tables one under another: everything combined, then SMR, then
-// Patrol. Each is a grid of source down the side and location across the top.
-// Only the two role tables are read; the combined one is ignored.
-function parseHirePaste(text) {
-  const rows = String(text || '').split(/\r?\n/).map(l => splitCsvLine(l, sniffDelimiter(text)));
-  const SRC = { appcast: 'appcast', google: 'google', indeed: 'indeed', meta: 'meta' };
-  const out = { SMR: {}, Patrol: {} };
-  let role = null, cols = null, found = 0, unmatched = [];
-  rows.forEach(cells => {
-    const first = String(cells[0] || '').trim();
-    const low = first.toLowerCase();
-    if (low === 'smr') { role = 'SMR'; cols = null; return; }
-    if (low === 'patrol') { role = 'Patrol'; cols = null; return; }
-    if (low === 'row labels') {
-      cols = cells.map((c, i) => (i === 0 ? null : priorityRegion(String(c || '').trim())));
-      return;
-    }
-    if (!role || !cols) return;
-    const plat = SRC[low];
-    if (!plat) { if (low && low !== 'grand total' && low !== '(blank)') unmatched.push(first); return; }
-    cells.forEach((v, i) => {
-      const region = cols[i];
-      if (!region) return;
-      const n = Number(String(v).replace(/[^0-9.eE-]/g, ''));
-      if (!isFinite(n)) return;
-      out[role][region] = out[role][region] || {};
-      out[role][region][plat] = n;
-      found += 1;
-    });
-  });
-  const roles = ['SMR', 'Patrol'].filter(r => Object.keys(out[r]).length);
-  if (!roles.length) {
-    return { error: 'No SMR or Patrol table found. Copy the whole Pivot tab, including the SMR and Patrol headings.' };
-  }
-  return { rates: out, cells: found, roles, unmatched: [...new Set(unmatched)] };
-}
-
 function normHeader(h) { return String(h || '').toLowerCase().replace(/[^a-z]/g, ''); }
 
 // Turn the Raw Data Export into monthly cells. Returns the cells plus a
@@ -7628,51 +7593,43 @@ function applyMonths(months, cells) {
 }
 
 function HireRates() {
+  const updated = window.__AVP_HIRE_2026_08__ || null;
   const live = window.__RAC_HIRE__ || null;
-  const [draft, setDraft] = useState(live);
-  const [text, setText] = useState('');
+  const on = !!live;
+  const [edits, setEdits] = useState(live && live.edited ? live.rates : null);
   const [role, setRole] = useState('SMR');
   const [saving, setSaving] = useState('');
-  const parsed = useMemo(() => (text.trim() ? parseHirePaste(text) : null), [text]);
 
-  const usingNew = !!draft;
-  const rateAt = (r, p) => {
-    if (draft) {
-      const v = ((draft.rates[role] || {})[r] || {})[p];
-      return (typeof v === 'number' && isFinite(v)) ? v : null;
+  const shown = (r, p) => {
+    if (!on) {
+      const s = (DATA[p] || {})[r + '__' + role];
+      return (s && s.all_time && s.all_time.hireCvr) || null;
     }
-    return regionPlatformHireCVR(p, r, role);
-  };
-  const setRate = (r, p, pct) => {
-    const n = parseFloat(String(pct).replace(/[^0-9.]/g, ''));
-    setDraft(d => {
-      const next = d ? JSON.parse(JSON.stringify(d))
-        : { at: todayISO(), note: 'Set by hand', rates: { SMR: {}, Patrol: {} } };
-      next.rates[role] = next.rates[role] || {};
-      next.rates[role][r] = next.rates[role][r] || {};
-      if (isFinite(n)) next.rates[role][r][p] = n / 100; else delete next.rates[role][r][p];
-      return next;
-    });
+    const src = edits || (updated && updated.rates) || {};
+    const v = ((src[role] || {})[r] || {})[p];
+    return (typeof v === 'number' && isFinite(v)) ? v : null;
   };
 
   const apply = async (obj) => {
-    setDraft(obj);
     window.__RAC_HIRE__ = obj;
     setHireOverride(obj);
     setSaving('saving');
     try { await sbSet('hire_rates', obj); setSaving('saved'); }
     catch (e) { setSaving('failed'); }
   };
-
-  const startFromCurrent = () => {
-    const rates = { SMR: {}, Patrol: {} };
-    ROLES.forEach(rl => DATA.regions_ordered.forEach(r => {
-      PLATFORMS.forEach(p => {
-        const v = regionPlatformHireCVR(p, r, rl);
-        if (v != null) { rates[rl][r] = rates[rl][r] || {}; rates[rl][r][p] = v; }
-      });
-    }));
-    setDraft({ at: todayISO(), note: 'Started from the rates in use', rates });
+  const toggle = (useUpdated) => {
+    if (!useUpdated) { setEdits(null); apply(null); return; }
+    apply({ ...updated, edited: false });
+  };
+  const setRate = (r, p, pct) => {
+    const n = parseFloat(String(pct).replace(/[^0-9.]/g, ''));
+    const base = edits || JSON.parse(JSON.stringify((updated && updated.rates) || { SMR: {}, Patrol: {} }));
+    const next = JSON.parse(JSON.stringify(base));
+    next[role] = next[role] || {};
+    next[role][r] = next[role][r] || {};
+    if (isFinite(n)) next[role][r][p] = n / 100; else delete next[role][r][p];
+    setEdits(next);
+    apply({ at: todayISO(), note: 'Updated data, some rates set by hand', edited: true, rates: next });
   };
 
   return (
@@ -7680,63 +7637,32 @@ function HireRates() {
       <div className="card-head">
         <div className="card-title">Hire rates</div>
         <div className="card-sub">
-          {usingNew
-            ? 'Using the set below' + (live && live.at ? ', saved ' + live.at : '') + '. Every plan and every pacing figure reads these.'
-            : 'Using the rates the data file ships with. Nothing has been replaced.'}
+          {on ? (live.note || 'Using the updated data') : 'Using the original rates. Nothing has changed.'}
         </div>
       </div>
       <div className="card-body">
-        {usingNew && (
-          <div className={'banner ' + (saving === 'failed' ? 'banner-bad' : 'banner-good')} style={{ marginBottom: 12 }}>
-            <div className="banner-icon">{saving === 'failed' ? '!' : '\u2713'}</div>
-            <div>
-              {saving === 'failed'
-                ? <>Applied here but not saved to the server, so everyone else is still on the old rates.</>
-                : <>{draft.note || 'In use'}{draft.at ? ', ' + draft.at : ''}.
-                    {saving === 'saving' ? ' Saving...' : ' Everyone signed in sees these.'}</>}
-            </div>
-          </div>
-        )}
-
-        <div className="section-label">Paste RAC's hire data</div>
-        <div className="help-text" style={{ marginBottom: 6 }}>
-          The Pivot tab, whole sheet. It holds a combined table then one for each role; only the
-          two role tables are read.
-        </div>
-        <textarea className="paste-box" rows={3} value={text}
-          placeholder="Paste the Pivot tab here"
-          onChange={e => setText(e.target.value)} />
-        {parsed && parsed.error && <div className="parse-bad" style={{ marginTop: 8 }}>{parsed.error}</div>}
-        {parsed && !parsed.error && (
-          <div className="parse-report" style={{ marginTop: 8 }}>
-            <div>
-              <strong>{parsed.cells} rates</strong> read for {parsed.roles.join(' and ')}.
-              {parsed.unmatched.length > 0 && ' Rows ignored: ' + parsed.unmatched.join(', ') + '.'}
-            </div>
-            <button className="btn btn-sm btn-primary" style={{ marginTop: 8 }}
-              onClick={() => { setDraft({ at: todayISO(), note: 'From RAC hire data', rates: parsed.rates }); setText(''); }}>
-              Load these into the table
+        <div className="dial-row" style={{ marginBottom: 12 }}>
+          <div className="role-switch">
+            <button className={!on ? 'active' : ''} onClick={() => toggle(false)}>Original rates</button>
+            <button className={on ? 'active' : ''} onClick={() => toggle(true)} disabled={!updated}>
+              Updated data
             </button>
           </div>
-        )}
-
-        <div className="dial-row" style={{ marginTop: 16, marginBottom: 8 }}>
+          <div style={{ flex: 1 }} />
           <div className="role-switch">
             {ROLES.map(r => (
               <button key={r} className={r === role ? 'active' : ''} onClick={() => setRole(r)}>{r}</button>
             ))}
           </div>
-          <div style={{ flex: 1 }} />
-          {!draft && <button className="btn btn-sm" onClick={startFromCurrent}>Edit the rates in use</button>}
-          {draft && (
-            <>
-              <button className="btn btn-sm" style={{ marginRight: 8 }}
-                onClick={() => { if (window.confirm('Go back to the rates the data file ships with?')) { setDraft(null); apply(null); } }}>
-                Back to the original rates
-              </button>
-              <button className="btn btn-sm btn-primary" onClick={() => apply(draft)}>Use these rates</button>
-            </>
-          )}
+          {saving && <span className="help-text" style={{ marginLeft: 10 }}>
+            {saving === 'saving' ? 'Saving...' : saving === 'failed' ? 'Not saved to the server' : 'Saved for everyone'}
+          </span>}
+        </div>
+
+        <div className="help-text" style={{ marginBottom: 10 }}>
+          {on
+            ? (updated ? updated.note : '') + ' Every figure below can be typed over, and every plan and pacing figure reads these.'
+            : 'The rates every plan up to 18 August was built on. Switch to the updated data to see what changes.'}
         </div>
 
         <div className="grid-scroll">
@@ -7750,7 +7676,7 @@ function HireRates() {
             </thead>
             <tbody>
               {DATA.regions_ordered.map(r => {
-                const vals = PLATFORMS.map(p => rateAt(r, p));
+                const vals = PLATFORMS.map(p => shown(r, p));
                 const any = vals.filter(v => v > 0);
                 const avg = any.length ? any.reduce((a, b) => a + b, 0) / any.length : null;
                 return (
@@ -7758,7 +7684,7 @@ function HireRates() {
                     <td>{r}</td>
                     {PLATFORMS.map((p, i) => (
                       <td key={p} style={{ textAlign: 'right' }}>
-                        {draft ? (
+                        {on ? (
                           <input className="text-input" style={{ width: 74, textAlign: 'right', padding: '3px 6px' }}
                             value={vals[i] == null ? '' : (vals[i] * 100).toFixed(2)}
                             onChange={e => setRate(r, p, e.target.value)} />
@@ -7777,8 +7703,8 @@ function HireRates() {
           </table>
         </div>
         <div className="help-text" style={{ padding: '10px 0 0' }}>
-          Rates are a percentage of applications that become hires. Blank means no rate for that
-          location and platform, and no hires are predicted from it.
+          The share of applications that become hires. On the updated data, a location and platform with
+          nothing measured uses that platform's average across the locations that do.
         </div>
       </div>
     </div>
