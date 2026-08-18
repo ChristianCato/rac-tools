@@ -4187,58 +4187,58 @@ function exportPlanPDF(state, roleFilter) {
         pdf.text(String(v), x + 5, top + 17.5);
       });
 
-      // Cards, two across, each only as tall as its own text needs, with the
-      // block centred so a short list does not sit awkwardly at the top.
+      // One column. Two columns forces the type down to fit and the point of
+      // the page is that it reads easily, not that it looks designed.
       const gridTop = top + stripH + 12;
       const gridBottom = pageH - 18;
-      const cols = pts.length > 3 ? 2 : 1;
-      const rowsN = Math.ceil(pts.length / cols);
-      const cardW = (pageW - margin * 2 - (cols - 1) * gap) / cols;
-
-      // Largest type where every row still fits, then the rows are stretched
-      // to fill the page so a short list does not float in the middle.
       const avail = gridBottom - gridTop;
-      let size = 14.5, lead = 0, natural = [];
-      for (; size > 7; size -= 0.5) {
-        lead = size * 0.46;
-        natural = [];
-        for (let r = 0; r < rowsN; r++) {
-          let tallest = 1;
-          for (let c = 0; c < cols; c++) {
-            const pt = pts[r * cols + c];
-            if (!pt) continue;
-            pdf.setFontSize(size);
-            tallest = Math.max(tallest, pdf.splitTextToSize(pt, cardW - 24).length);
-          }
-          natural.push(tallest * lead + 16);
-        }
-        if (natural.reduce((a, h) => a + h, 0) + (rowsN - 1) * gap <= avail) break;
+      const numW = 12;                       // room for the number, left of the rule
+      const textX = margin + numW + 6;
+      const textW = pageW - margin - textX - 4;
+
+      // Largest readable type where the whole list still fits.
+      let size = 14, lead = 0, rowH = [], padY = 0;
+      for (; size >= 8; size -= 0.25) {
+        // The page is in millimetres and the size is in points, so a line of
+        // 13pt text is about 5.5mm, not 16mm.
+        lead = size * 0.42;
+        padY = Math.max(4, size * 0.3);
+        rowH = pts.map(pt => {
+          pdf.setFontSize(size);
+          return pdf.splitTextToSize(pt, textW).length * lead + padY * 2;
+        });
+        if (rowH.reduce((a, h) => a + h, 0) + (pts.length - 1) * 4 <= avail) break;
       }
+      if (rowH.reduce((a, h) => a + h, 0) + (pts.length - 1) * 4 > avail) {
+        // Even at the floor it does not fit, so squeeze the padding instead.
+        padY = 3; lead = size * 0.38;
+        rowH = pts.map(pt => {
+          pdf.setFontSize(size);
+          return pdf.splitTextToSize(pt, textW).length * lead + padY * 2;
+        });
+      }
+      // Share out only what is genuinely spare, so the list cannot run off
+      // the bottom of the page.
+      const rowGap = 4;
+      const used = rowH.reduce((a, h) => a + h, 0) + (pts.length - 1) * rowGap;
+      const extra = Math.max(0, avail - used) / pts.length;
 
-      // Share out whatever is left so the cards reach the bottom of the page.
-      const used = natural.reduce((a, h) => a + h, 0) + (rowsN - 1) * gap;
-      const spare = Math.max(0, avail - used);
-      const rowH = natural.map(h => h + spare / rowsN);
-
+      let y = gridTop;
       pts.forEach((pt, i) => {
-        const c = i % cols, r = Math.floor(i / cols);
-        const x = margin + c * (cardW + gap);
-        const yy = gridTop + rowH.slice(0, r).reduce((a, h) => a + h + gap, 0);
-        const h = rowH[r];
-        setFill(LIGHT); pdf.rect(x, yy, cardW, h, 'F');
-        setFill(i % 2 === 0 ? ORANGE : BLUE); pdf.rect(x, yy, cardW, 1.6, 'F');
+        const h = rowH[i] + extra;
+        setFill(LIGHT); pdf.rect(margin, y, pageW - margin * 2, h, 'F');
+        setFill(i % 2 === 0 ? ORANGE : BLUE); pdf.rect(margin, y, 2.2, h, 'F');
         pdf.setFontSize(size);
-        const lines = pdf.splitTextToSize(pt, cardW - 24);
-        // Text sits in the middle of its card, so uneven rows still look level.
-        const textH = lines.length * lead;
-        const ty = yy + (h - textH) / 2 + lead * 0.72;
-        setFill(i % 2 === 0 ? ORANGE : BLUE);
-        pdf.circle(x + 11, yy + h / 2, Math.min(6, size * 0.42), 'F');
-        pdf.setTextColor(255, 255, 255);
-        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(Math.min(11, size * 0.6));
-        pdf.text(String(i + 1), x + 11, yy + h / 2 + Math.min(11, size * 0.6) * 0.36, { align: 'center' });
+        const lines = pdf.splitTextToSize(pt, textW);
+        // First line of text and the number share a baseline, so they line up
+        // however many lines follow.
+        const firstBaseline = y + (h - lines.length * lead) / 2 + size * 0.72;
+        setColor(i % 2 === 0 ? ORANGE : BLUE);
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(size);
+        pdf.text(String(i + 1) + '.', margin + numW, firstBaseline, { align: 'right' });
         setColor(INK); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(size);
-        lines.forEach((l, k) => pdf.text(l, x + 21, ty + k * lead));
+        lines.forEach((l, k) => pdf.text(l, textX, firstBaseline + k * lead));
+        y += h + rowGap;
       });
 
       footer(pageNum, TOTAL_PAGES);
@@ -4500,7 +4500,8 @@ const CHANGELOG = [
     'Any rate on the updated data can be typed over. The choice, and any hand-set rates, save for everyone like plans and benchmarks do.',
     'The updated data covers both roles. Patrol has measured hire rates for the first time rather than SMR multiplied by 0.933.',
     'Commentary is now the opening page of the plan and reads as cards rather than a list, with the budget, predicted hires, cost per application and cost per hire across the top so the notes sit against the figures they are about. The data period is already in the header, so it does not take a tile.',
-    'It always fits one page and always fills it. The cards stretch to reach the bottom rather than floating in the middle, the text sits in the middle of its card, and the type sizes itself to whatever has been written. Checked at two points and at ten.',
+    'Commentary reads as one column of full-width rows rather than a two column grid. Two columns forced the type down to fit and the point of the page is that it reads easily. The numbers sit on the same baseline as the first line of their text, so they line up however many lines follow.',
+    'Fixed the commentary page running off the bottom. Line heights were being worked out as if the page were measured in points when it is measured in millimetres, so every row was about three times taller than it needed to be. Checked at two, four, eight and ten points.',
     'Fixed the planner lagging while typing. Every keystroke anywhere on Setup rebuilt both roles from scratch, including the budget solver, which is 148 milliseconds of work per role. A built plan is now kept against the settings that produced it, so a change the figures do not read costs nothing. Repeat builds went from 148 milliseconds to 3.',
     'The commentary box keeps its text to itself while you type and only tells the plan when you click away. Typing went from 38 milliseconds a keystroke to under 2.',
     'The budget solver stops once it is inside the fifty pounds the answer is rounded to, rather than always running a fixed twenty six passes.',
