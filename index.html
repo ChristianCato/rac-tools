@@ -621,6 +621,11 @@ function fmtPct(n) {
 // saved with the workspace, so the plan is built on whatever RAC agreed to.
 const _platformCPACache = {};
 
+function monthShort(mo) {
+  const [y, m] = mo.split('-');
+  return new Date(Date.UTC(+y, +m - 1, 1)).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
+}
+
 // How the tool decides which months to plan on, and how much each counts.
 //
 //   { mode: 'all' }                     every month on record, equal
@@ -3114,10 +3119,7 @@ function windowStats(plat, region, role, from, to) {
     cvrWindowed: clicks > 0 };
 }
 
-const monthShort = mo => {
-  const [y, m] = mo.split('-');
-  return new Date(Date.UTC(+y, +m - 1, 1)).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
-};
+
 
 function BenchmarksTab({ state, setState }) {
   const [roleView, setRoleView] = useState('SMR');
@@ -4306,6 +4308,7 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '3 Aug', items: [
+    'Fixed the tool failing to load. The function that names the data period was defined further down the file than the code calling it, and being a const rather than a function it does not hoist. Anything on a custom date range hit it before it existed and the page died. Only a saved custom range triggered it, which is why it looked fine on a fresh load.',
     'Benchmarks now offers all time, year to date, last 3 months, year to date with the last 3 months weighted, and a custom range. The weighted option takes a multiplier, so the last three months can count 2, 3, 4 times as much as the earlier months of the year while every month still contributes.',
     'Weighting rather than a hard cut-off, because a window drops a month from counting fully to counting nothing overnight and a thin location can lose most of its evidence in one step. Tested on January to July: planning on the full year under-predicted cost per application in all eight months across both roles, and weighting the last three at three times the rest cuts that bias. The improvement flattens after about 3 times.',
     'The prediction range and the platform tables follow the weighting too, so nothing is left reading the old period.',
