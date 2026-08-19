@@ -1886,6 +1886,36 @@ function buildFundingPlanUncached(role, p) {
     };
   });
 
+  // Per-region summary, the same shape as channelSummary so the PDF can render
+  // the two tables from one set of columns. Everything here is already carried
+  // on the location, apart from the blended apply CVR, which is spend-weighted
+  // across that location's platforms exactly as the channel one is
+  // spend-weighted across locations.
+  const regionSummary = locs.map(l => {
+    let w = 0, wSum = 0;
+    PLATFORMS.forEach(plat => {
+      const sp = (l.platSpend && l.platSpend[plat]) || 0;
+      const cv = regionPlatformCVR(plat, l.region, role);
+      if (sp > 0 && cv > 0) { wSum += cv * sp; w += sp; }
+    });
+    const cvr = w > 0 ? wSum / w : 0;
+    const b = (l.bandPct || 0) / 100;
+    return {
+      region: l.region,
+      vacancies: l.vacancies,
+      spend: l.spend,
+      share: deployable > 0 ? l.spend / deployable : 0,
+      cvr, cvrLow: cvr * (1 - b), cvrHigh: cvr * (1 + b),
+      predApps: l.predApps, predLow: l.predLow, predHigh: l.predHigh,
+      cpa: l.cpa, cpaLow: l.cpa * (1 - b), cpaHigh: l.cpa * (1 + b),
+      hireCvr: l.hireCvr,
+      predHires: l.predHires,
+      predHiresLow: l.predHiresLow, predHiresHigh: l.predHiresHigh,
+      cph: l.cph,
+      bandPct: l.bandPct,
+    };
+  });
+
   // Region x channel breakdown: for every platform, a row per region (all 12,
   // including regions with no live vacancy this month - those show zeros).
   // Each row carries spend, predicted apps, CVR, CPA and the likely range, so
@@ -1909,6 +1939,8 @@ function buildFundingPlanUncached(role, p) {
         cvr: regionPlatformCVR(plat, region, role),
         hireCvr,                       // null where RAC has no data
         predHires: hires,
+        predHiresLow: hires * (1 - bandInfo.pct / 100),
+        predHiresHigh: hires * (1 + bandInfo.pct / 100),
         cph: regionPlatformCPH(plat, region, role),
         cpa: apps > 0 ? spend / apps : (spend > 0 ? cpaInfo.cpa : 0),
         predLow: apps * (1 - bandInfo.pct / 100),
@@ -1986,7 +2018,7 @@ function buildFundingPlanUncached(role, p) {
     role, daysInMonth, coverageRate,
     premiumHoldback, acHoldback, deployable,
     coverageReserve, demandPool,
-    locations: locs, totalVac, totalCount: M, platformTotals, channelSummary, regionChannel,
+    locations: locs, totalVac, totalCount: M, platformTotals, channelSummary, regionSummary, regionChannel,
     platBreaches, platClamped: clamped, platMin, platMax,
     regionMin, regionMax, regionClamped, unplacedBudget,
     appTarget, predictedApps, predLow, predHigh, aggBandPct, aggBandMonths, predictedHires,
@@ -2868,7 +2900,11 @@ function PlanTab({ state, setState }) {
           <div className="kpi kpi-accent-navy">
             <div className="kpi-label">Application target</div>
             <div className="kpi-value mono">{fmtInt(plan.appTarget)}</div>
-            <div className="kpi-sub">{plan.appTarget > 0 ? 'plan delivers ' + pct + '%' : 'set this on the Setup tab'}</div>
+            <div className="kpi-sub">{plan.appTarget > 0
+              ? ((chanceOfHittingTarget(plan.predictedApps, plan.appTarget, plan.aggBandPct) != null)
+                  ? chanceOfHittingTarget(plan.predictedApps, plan.appTarget, plan.aggBandPct) + '% chance the plan delivers 100%'
+                  : 'plan delivers ' + pct + '%')
+              : 'set this on the Setup tab'}</div>
           </div>
           <div className="kpi kpi-accent-blue">
             <div className="kpi-label">Total open roles</div>
@@ -3827,6 +3863,54 @@ async function exportWorkings(state, role) {
 // ====================================================================
 // PDF EXPORT
 // ====================================================================
+// The chance the plan lands on or above the application target.
+//
+// The plan's range is one standard deviation of the role's blended cost per
+// application, measured month by month across the benchmark window. That same
+// figure gives a probability, not only a range. Applications move inversely
+// with cost, so the plan hits the target when the cost lands at or below the
+// deployable budget divided by the target, which is the same as saying the
+// cost lands at or below its own mean times predicted over target.
+//
+// Clamped to 1 and 99, because nothing here is ever certain in either
+// direction and a plan should not claim it is.
+function chanceOfHittingTarget(predictedApps, appTarget, bandPct) {
+  if (!(predictedApps > 0) || !(appTarget > 0) || !(bandPct > 0)) return null;
+  const z = (predictedApps / appTarget - 1) / (bandPct / 100);
+  return Math.max(1, Math.min(99, Math.round(normalCdf(z) * 100)));
+}
+
+// Abramowitz and Stegun 26.2.17. Good to about seven decimal places, which is
+// far more than a percentage rounded to the nearest whole number needs.
+function normalCdf(z) {
+  const sign = z < 0 ? -1 : 1;
+  const x = Math.abs(z) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * x);
+  const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t
+    - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return 0.5 * (1 + sign * y);
+}
+
+// The plan's blended apply CVR, weighted by spend across every location and
+// platform cell at once.
+//
+// This has to be measured at the cell, not by blending platforms and then
+// blending those, or by blending locations and then blending those. Nesting it
+// either way drops cells with no CVR out of the inner average but leaves their
+// spend in the outer weight, and the two orders then disagree. On a test plan
+// they came out 3.3% and 3.2% for the same money.
+function planBlendedCVR(plan, role) {
+  let w = 0, wSum = 0;
+  (plan.locations || []).forEach(l => {
+    PLATFORMS.forEach(plat => {
+      const sp = (l.platSpend && l.platSpend[plat]) || 0;
+      const cv = regionPlatformCVR(plat, l.region, role);
+      if (sp > 0 && cv > 0) { wSum += cv * sp; w += sp; }
+    });
+  });
+  return w > 0 ? wSum / w : 0;
+}
+
 function exportPDF(state, role) {
   // One role at a time. RAC want them as separate documents anyway, and
   // exporting both when you only wanted one meant deleting a file every time.
@@ -3943,7 +4027,10 @@ function exportPlanPDF(state, roleFilter) {
     }
     const COMMENTARY_PAGES = COMMENTARY_ROLES
       .reduce((s, r) => s + commentaryChunks(r).length, 0);
-    const TOTAL_PAGES = roles.length + COMMENTARY_PAGES + 1 + REGION_CHANNEL_PAGES + GLOSSARY_PAGES;
+    // By channel is one page for the whole export. By region is a page per
+    // role, because twelve locations at a row each will not share.
+    const SUMMARY_PAGES = 1 + roles.length;
+    const TOTAL_PAGES = roles.length + COMMENTARY_PAGES + SUMMARY_PAGES + REGION_CHANNEL_PAGES + GLOSSARY_PAGES;
     // jsPDF opens with a page already, so the first thing drawn must not add
     // one. Everything after does.
     let pageStarted = false;
@@ -4030,7 +4117,10 @@ function exportPlanPDF(state, roleFilter) {
       row('Combined Activity', 'Held back for brand-level activity',
         fmtGBP(plan.acHoldback)); by += lineGap;
       pdf.setDrawColor(LINE[0], LINE[1], LINE[2]);
-      pdf.line(leftX + 5, by - 2.5, leftX + colW - 5, by - 2.5);
+      // The rule sat on the cap height of the line below it. Drop it a little
+      // and push the row down so the two are not touching.
+      pdf.line(leftX + 5, by - 3.6, leftX + colW - 5, by - 3.6);
+      by += 1.6;
       row('Deployable budget', 'What we actually distribute across locations',
         fmtGBP(plan.deployable), { bold: true }); by += lineGap;
       row('Split across ' + plan.totalCount + ' locations',
@@ -4038,8 +4128,8 @@ function exportPlanPDF(state, roleFilter) {
         fmtGBP(plan.demandPool));
       if (plan.beyondProven > 1) {
         by += lineGap;
-        row('Of which above proven spend',
-          'No month at this level has been run in these locations, so this part is less certain',
+        row('Of which more than has been spent before',
+          'These locations have never run a month this big, so we are less sure what this part will bring in',
           fmtGBP(plan.beyondProven));
       }
 
@@ -4062,9 +4152,12 @@ function exportPlanPDF(state, roleFilter) {
       }
       tile(rightX, blockTop, 'Predicted applications', fmtInt(plan.predictedApps),
         'likely ' + fmtInt(plan.predLow) + '\u2013' + fmtInt(plan.predHigh), ORANGE);
+      const chance = chanceOfHittingTarget(plan.predictedApps, plan.appTarget, plan.aggBandPct);
       tile(rightX + tileW + colGap, blockTop, 'Application target',
         plan.appTarget > 0 ? fmtInt(plan.appTarget) : 'Not set',
-        plan.appTarget > 0 ? 'plan delivers ' + pct + '%' : 'not set', NAVY);
+        plan.appTarget > 0
+          ? (chance != null ? chance + '% chance the plan delivers 100%' : 'plan delivers ' + pct + '%')
+          : 'not set', NAVY);
       tile(rightX, blockTop + tileH + colGap, 'Predicted hires', plan.predictedHires.toFixed(1),
         plan.predictedHires > 0
           ? 'likely ' + plan.predictedHiresLow.toFixed(1) + '\u2013' + plan.predictedHiresHigh.toFixed(1)
@@ -4084,7 +4177,7 @@ function exportPlanPDF(state, roleFilter) {
       pdf.text('Where the budget goes: by location and platform', margin, y);
       pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8);
       setColor(MID);
-      pdf.text('Each location\u2019s budget goes to the platforms where hires cost the least, capped at the biggest month that location and platform has already spent.',
+      pdf.text('Each location\u2019s budget goes to the platforms where hires cost the least, with a soft cap at the highest amount historically spent.',
         margin, y + 4);
       y += 7;
 
@@ -4309,28 +4402,34 @@ function exportPlanPDF(state, roleFilter) {
       cy += 9;
 
       // Column positions (landscape page, eight columns including hire metrics)
+      // Predicted apps sits before Apply CVR, which is also the order the
+      // region and channel detail pages use.
       const cc = {
         plat:   margin + 2,
         spend:  margin + 42,
-        share:  margin + 78,
-        apps:   margin + 104,
+        apps:   margin + 78,
+        share:  margin + 104,
         cpa:    margin + 134,
         hcvr:   margin + 170,
         hires:  margin + 200,
         cph:    margin + 226,
       };
-      // Header row
-      setFill(NAVY); pdf.rect(margin, cy, pageW - margin * 2, 7, 'F');
+      // Header row. Apps and hires carry a second line so they can be named in
+      // full without running into the column beside them.
+      const CHHEAD = 9.5;
+      setFill(NAVY); pdf.rect(margin, cy, pageW - margin * 2, CHHEAD, 'F');
       pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8);
-      pdf.text('Platform',        cc.plat,  cy + 4.7);
-      pdf.text('Spend',           cc.spend, cy + 4.7);
-      pdf.text('Apply CVR',       cc.share, cy + 4.7);
-      pdf.text('Apps',            cc.apps,  cy + 4.7);
-      pdf.text('Cost / app',      cc.cpa,   cy + 4.7);
-      pdf.text('Hire CVR',        cc.hcvr,  cy + 4.7);
-      pdf.text('Hires',           cc.hires, cy + 4.7);
-      pdf.text('Cost / hire',     cc.cph,   cy + 4.7);
-      cy += 7;
+      pdf.text('Platform',        cc.plat,  cy + 6.2);
+      pdf.text('Spend',           cc.spend, cy + 6.2);
+      pdf.text('Predicted',       cc.apps,  cy + 3.9);
+      pdf.text('apps',            cc.apps,  cy + 7.7);
+      pdf.text('Apply CVR',       cc.share, cy + 6.2);
+      pdf.text('Cost / app',      cc.cpa,   cy + 6.2);
+      pdf.text('Hire CVR',        cc.hcvr,  cy + 6.2);
+      pdf.text('Predicted',       cc.hires, cy + 3.9);
+      pdf.text('hires',           cc.hires, cy + 7.7);
+      pdf.text('Cost / hire',     cc.cph,   cy + 6.2);
+      cy += CHHEAD;
 
       // Rows
       pdf.setFont('helvetica', 'normal'); setColor(INK);
@@ -4370,12 +4469,9 @@ function exportPlanPDF(state, roleFilter) {
       pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8.5);
       pdf.text('Total', cc.plat, cy + 4.7);
       pdf.text(fmtGBP(plan.deployable), cc.spend, cy + 4.7);
-      // Spend-weighted blended apply CVR across the role's platforms
-      let cvrW = 0, cvrWsum = 0;
-      (plan.channelSummary || []).forEach(ch => {
-        if (ch.cvr > 0 && ch.spend > 0) { cvrWsum += ch.cvr * ch.spend; cvrW += ch.spend; }
-      });
-      const blendedCvr = cvrW > 0 ? cvrWsum / cvrW : 0;
+      // Spend-weighted blended apply CVR, measured at the cell so this agrees
+      // with the same figure on By region.
+      const blendedCvr = planBlendedCVR(plan, role);
       pdf.text(blendedCvr > 0 ? (blendedCvr * 100).toFixed(1) + '%' : 'n/a', cc.share, cy + 4.7);
       pdf.text(fmtInt(totalApps), cc.apps, cy + 4.7);
       const blendedCpa = totalApps > 0 ? plan.deployable / totalApps : 0;
@@ -4401,21 +4497,124 @@ function exportPlanPDF(state, roleFilter) {
 
     footer(roles.length + COMMENTARY_PAGES + 1, TOTAL_PAGES);
 
+    // ---- By region pages -------------------------------------------------
+    // The same columns as By channel, a row per live location instead of a row
+    // per platform. Both are drawn from summaries built in the plan, so neither
+    // table can drift away from the location page.
+    ROLES.forEach((role, idx) => {
+      pdf.addPage();
+      header('By region', null);
+      const plan = plans[role];
+      let ry = 30;
+
+      setColor(NAVY); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11);
+      pdf.text(role + ': ' + ROLE_FULL[role], margin, ry);
+      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5); setColor(MID);
+      pdf.text('Spend by location, with predicted applications and cost per application at each location\u2019s historic rate for this role.',
+        margin, ry + 4.5);
+      ry += 9;
+
+      // Same column positions as By channel, so the two tables read as a pair.
+      const rc = {
+        loc:    margin + 2,
+        spend:  margin + 42,
+        apps:   margin + 78,
+        share:  margin + 104,
+        cpa:    margin + 134,
+        hcvr:   margin + 170,
+        hires:  margin + 200,
+        cph:    margin + 226,
+      };
+      const RHEAD = 9.5;
+      setFill(NAVY); pdf.rect(margin, ry, pageW - margin * 2, RHEAD, 'F');
+      pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8);
+      pdf.text('Location',       rc.loc,   ry + 6.2);
+      pdf.text('Spend',          rc.spend, ry + 6.2);
+      pdf.text('Predicted',      rc.apps,  ry + 3.9);
+      pdf.text('apps',           rc.apps,  ry + 7.7);
+      pdf.text('Apply CVR',      rc.share, ry + 6.2);
+      pdf.text('Cost / app',     rc.cpa,   ry + 6.2);
+      pdf.text('Hire CVR',       rc.hcvr,  ry + 6.2);
+      pdf.text('Predicted',      rc.hires, ry + 3.9);
+      pdf.text('hires',          rc.hires, ry + 7.7);
+      pdf.text('Cost / hire',    rc.cph,   ry + 6.2);
+      ry += RHEAD;
+
+      // Same order as the location table on the plan page, so a reader moving
+      // between the two is not made to hunt.
+      const regionRows = (plan.regionSummary || []).slice()
+        .sort((a, b) => (b.vacancies - a.vacancies) || (b.predApps - a.predApps));
+
+      pdf.setFont('helvetica', 'normal'); setColor(INK);
+      const RROW = 10;
+      let rTotApps = 0, rTotHires = 0;
+      regionRows.forEach((rg, i) => {
+        if (i % 2 === 1) { setFill(LIGHT); pdf.rect(margin, ry, pageW - margin * 2, RROW, 'F'); }
+        setColor(INK); pdf.setFontSize(8.5);
+        pdf.text(rg.region, rc.loc, ry + 4.4);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(fmtGBP(rg.spend), rc.spend, ry + 4.4);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(rg.cvr > 0 ? (rg.cvr * 100).toFixed(1) + '%' : 'n/a', rc.share, ry + 4.4);
+        pdf.text(fmtInt(rg.predApps), rc.apps, ry + 4.4);
+        pdf.text(rg.cpa > 0 ? fmtGBP(rg.cpa) : 'n/a', rc.cpa, ry + 4.4);
+        pdf.text(rg.hireCvr > 0 ? (rg.hireCvr * 100).toFixed(2) + '%' : 'n/a', rc.hcvr, ry + 4.4);
+        pdf.text(rg.predHires >= 0 ? rg.predHires.toFixed(1) : '0', rc.hires, ry + 4.4);
+        pdf.text(rg.cph ? fmtGBP(rg.cph) : 'n/a', rc.cph, ry + 4.4);
+        pdf.setFontSize(6.6); setColor(MUTED);
+        if (rg.cvr > 0) pdf.text((rg.cvrLow * 100).toFixed(1) + '\u2013' + (rg.cvrHigh * 100).toFixed(1) + '%', rc.share, ry + 8.4);
+        if (rg.predApps > 0) pdf.text(fmtInt(rg.predLow) + '\u2013' + fmtInt(rg.predHigh), rc.apps, ry + 8.4);
+        if (rg.cpa > 0) pdf.text(fmtGBP(rg.cpaLow) + '\u2013' + fmtGBP(rg.cpaHigh), rc.cpa, ry + 8.4);
+        if (rg.predHires > 0) pdf.text(rg.predHiresLow.toFixed(1) + '\u2013' + rg.predHiresHigh.toFixed(1), rc.hires, ry + 8.4);
+        setColor(INK); pdf.setFontSize(8.5);
+        rTotApps += rg.predApps; rTotHires += rg.predHires;
+        ry += RROW;
+      });
+
+      // Total row. The same figures as the channel total, arrived at the other
+      // way round, which is the point of showing both.
+      setFill(NAVY); pdf.rect(margin, ry, pageW - margin * 2, 11, 'F');
+      pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8.5);
+      pdf.text('Total', rc.loc, ry + 4.7);
+      pdf.text(fmtGBP(plan.deployable), rc.spend, ry + 4.7);
+      const rBlendedCvr = planBlendedCVR(plan, role);
+      pdf.text(rBlendedCvr > 0 ? (rBlendedCvr * 100).toFixed(1) + '%' : 'n/a', rc.share, ry + 4.7);
+      pdf.text(fmtInt(rTotApps), rc.apps, ry + 4.7);
+      const rBlendedCpa = rTotApps > 0 ? plan.deployable / rTotApps : 0;
+      pdf.text(fmtGBP(rBlendedCpa), rc.cpa, ry + 4.7);
+      pdf.text(rTotApps > 0 ? (rTotHires / rTotApps * 100).toFixed(2) + '%' : 'n/a', rc.hcvr, ry + 4.7);
+      pdf.text(rTotHires.toFixed(1), rc.hires, ry + 4.7);
+      pdf.text(rTotHires > 0 ? fmtGBP(plan.deployable / rTotHires) : 'n/a', rc.cph, ry + 4.7);
+      const rabp = plan.aggBandPct || 35;
+      pdf.setFontSize(6.6); pdf.setTextColor(200, 208, 220);
+      if (rBlendedCvr > 0) pdf.text((rBlendedCvr * (1 - rabp / 100) * 100).toFixed(1) + '\u2013' + (rBlendedCvr * (1 + rabp / 100) * 100).toFixed(1) + '%', rc.share, ry + 8.4);
+      if (rTotApps > 0) pdf.text(fmtInt(rTotApps * (1 - rabp / 100)) + '\u2013' + fmtInt(rTotApps * (1 + rabp / 100)), rc.apps, ry + 8.4);
+      if (rBlendedCpa > 0) pdf.text(fmtGBP(rBlendedCpa * (1 - rabp / 100)) + '\u2013' + fmtGBP(rBlendedCpa * (1 + rabp / 100)), rc.cpa, ry + 8.4);
+      if (rTotHires > 0) pdf.text((rTotHires * (1 - rabp / 100)).toFixed(1) + '\u2013' + (rTotHires * (1 + rabp / 100)).toFixed(1), rc.hires, ry + 8.4);
+
+      footer(roles.length + COMMENTARY_PAGES + 2 + idx, TOTAL_PAGES);
+    });
+
     // ---- Region x channel pages -----------------------------------------
     // For each role and platform, a table of all 12 regions with spend,
-    // predicted apps, apply CVR, CPA, hire CVR, hires, cost per hire and the
-    // likely apps range. Regions with no live vacancy show zeros; the three
+    // predicted apps, apply CVR, CPA, hire CVR, hires and cost per hire, with
+    // the likely ranges under the figures they belong to. Regions with no live
+    // vacancy show zeros; the three
     // regions RAC has no hire data for show "no data" in the hire columns.
+    // The likely-apps range used to sit in a column of its own at the far
+    // right, a long way from the number it belonged to. It now sits under the
+    // predicted apps figure, the same way the apply CVR and cost per app
+    // ranges already did. Predicted hires carries its range the same way. That
+    // frees a column, so the rest are spread wider.
     const rcCols = {
       region: margin + 2,
-      spend:  margin + 44,
-      apps:   margin + 76,
-      cvr:    margin + 100,
-      cpa:    margin + 124,
-      hcvr:   margin + 150,
-      hires:  margin + 178,
-      cph:    margin + 200,
-      range:  margin + 228,
+      spend:  margin + 48,
+      apps:   margin + 84,
+      cvr:    margin + 114,
+      cpa:    margin + 144,
+      hcvr:   margin + 176,
+      hires:  margin + 208,
+      cph:    margin + 236,
     };
     function drawRegionChannelTable(role, plat, startY) {
       let ry = startY;
@@ -4441,7 +4640,7 @@ function exportPlanPDF(state, roleFilter) {
       pdf.text('Hire CVR',    rcCols.hcvr,   ry + 6.8);
       pdf.text('Cost / hire', rcCols.cph,    ry + 6.8);
       pdf.setFontSize(7.4);
-      [[rcCols.apps, 'apps'], [rcCols.hires, 'hires'], [rcCols.range, 'range']].forEach(([x, w]) => {
+      [[rcCols.apps, 'apps'], [rcCols.hires, 'hires']].forEach(([x, w]) => {
         pdf.text('Predicted', x, ry + 3.6);
         pdf.text(w, x, ry + 7.6);
       });
@@ -4469,30 +4668,39 @@ function exportPlanPDF(state, roleFilter) {
           pdf.text(r.predHires.toFixed(1), rcCols.hires, ry + 5.6);
           pdf.text(r.cph ? fmtGBP(r.cph) : '\u2013', rcCols.cph, ry + 5.6);
         }
-        pdf.text(r.predApps > 0 ? fmtInt(r.predLow) + '\u2013' + fmtInt(r.predHigh) : '\u2013', rcCols.range, ry + 5.6);
-        // Range sub-lines for apply CVR and cost per app on live rows
+        // Range sub-lines on live rows: predicted apps, apply CVR, cost per
+        // app and predicted hires, each under its own figure.
         if (r.spend > 0) {
           pdf.setFontSize(6.4); setColor(MUTED);
+          if (r.predApps > 0) pdf.text(fmtInt(r.predLow) + '\u2013' + fmtInt(r.predHigh), rcCols.apps, ry + 9.2);
           if (r.cvr > 0) pdf.text((r.cvrLow * 100).toFixed(1) + '\u2013' + (r.cvrHigh * 100).toFixed(1) + '%', rcCols.cvr, ry + 9.2);
           if (r.cpa > 0) pdf.text(fmtGBP(r.cpaLow) + '\u2013' + fmtGBP(r.cpaHigh), rcCols.cpa, ry + 9.2);
+          if (r.hireCvr != null && r.predHires > 0) {
+            pdf.text(r.predHiresLow.toFixed(1) + '\u2013' + r.predHiresHigh.toFixed(1), rcCols.hires, ry + 9.2);
+          }
           pdf.setFontSize(8.5);
         }
         tSpend += r.spend; tApps += r.predApps; tHires += r.predHires;
         ry += RH;
       });
-      // Total
-      setFill(NAVY); pdf.rect(margin, ry, pageW - margin * 2, 8, 'F');
+      // Total. Taller than it was, so the apps and hires ranges can sit under
+      // their figures here too rather than only on the rows.
+      const tBand = (rows[0] && rows[0].bandPct) || 0;
+      setFill(NAVY); pdf.rect(margin, ry, pageW - margin * 2, 11, 'F');
       pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8.5);
       pdf.text('Total', rcCols.region, ry + 5.4);
       pdf.text(fmtGBP(tSpend), rcCols.spend, ry + 5.4);
       pdf.text(fmtInt(tApps), rcCols.apps, ry + 5.4);
-      pdf.text('', rcCols.cvr, ry + 5.4);
       pdf.text(tApps > 0 ? fmtGBP(tSpend / tApps) : '\u2013', rcCols.cpa, ry + 5.4);
       pdf.text(tApps > 0 ? (tHires / tApps * 100).toFixed(2) + '%' : '\u2013', rcCols.hcvr, ry + 5.4);
       pdf.text(tHires.toFixed(1), rcCols.hires, ry + 5.4);
       pdf.text(tHires > 0 ? fmtGBP(tSpend / tHires) : '\u2013', rcCols.cph, ry + 5.4);
-      pdf.text('', rcCols.range, ry + 5.4);
-      ry += 8;
+      if (tBand > 0) {
+        pdf.setFontSize(6.4); pdf.setTextColor(200, 208, 220);
+        if (tApps > 0) pdf.text(fmtInt(tApps * (1 - tBand / 100)) + '\u2013' + fmtInt(tApps * (1 + tBand / 100)), rcCols.apps, ry + 9.0);
+        if (tHires > 0) pdf.text((tHires * (1 - tBand / 100)).toFixed(1) + '\u2013' + (tHires * (1 + tBand / 100)).toFixed(1), rcCols.hires, ry + 9.0);
+      }
+      ry += 11;
       return ry;
     }
 
@@ -4502,7 +4710,7 @@ function exportPlanPDF(state, roleFilter) {
     ROLES.forEach(role => {
       PLATFORMS.forEach(plat => { rcTables.push({ role, plat }); });
     });
-    let rcPageNum = roles.length + COMMENTARY_PAGES + 2;
+    let rcPageNum = roles.length + COMMENTARY_PAGES + SUMMARY_PAGES + 1;
     rcTables.forEach(tbl => {
       pdf.addPage();
       header('By region and channel', null);
@@ -4516,7 +4724,7 @@ function exportPlanPDF(state, roleFilter) {
     header('Glossary', null);
 
     const gColA = margin, gColB = margin + gColW + 6;
-    let gy = 30, gCol = 0, gPageNum = roles.length + COMMENTARY_PAGES + 1 + REGION_CHANNEL_PAGES + 1;
+    let gy = 30, gCol = 0, gPageNum = roles.length + COMMENTARY_PAGES + SUMMARY_PAGES + REGION_CHANNEL_PAGES + 1;
     terms.forEach(t => {
       pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5);
       const split = pdf.splitTextToSize(t[1], gColW - 4);
@@ -4547,7 +4755,15 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'On the By region and channel pages, the likely apps range no longer has a column of its own at the far right. It sits under the predicted apps figure instead, the way the apply CVR and cost per app ranges already did. Predicted hires now carries its range underneath in the same way, and the totals row shows both. Dropping a column let the rest spread wider.',
+    'Swapped the Predicted apps and Apply CVR columns on By channel and By region, so predicted apps comes first. That is also the order the region and channel detail pages already used, so the whole document now reads the same way.',
+    'Added a By region page to the PDF, sitting straight after By channel and using the same columns: spend, apply CVR, predicted apps, cost per application, hire CVR, predicted hires and cost per hire. Locations are in the same order as the table on the plan page. The totals match By channel exactly, which is the point of having both.',
+    'While adding it I found the blended apply CVR on the By channel total was worked out by averaging platforms and then averaging those. Doing the same by location gave a different answer for the same money, 3.3% against 3.2% on a test plan, because a cell with no conversion rate was dropped from the inner average but its spend stayed in the outer weight. Both totals are now measured across every location and platform at once, so they agree.',
     'The notes page in the PDF now runs onto a second or third page instead of shrinking the type to fit. Six points is the most that will go on a page. Where a role has more than that, they are shared out evenly rather than filling the first page and leaving one point stranded on its own, and the numbering carries on across the pages so a point is point 7 wherever it lands. The four figures across the top stay on the opening page only. Page numbers and the total at the foot of every page count the extra pages.',
+    'The Application target box now says how likely the plan is to hit it, for example "62% chance the plan delivers 100%", instead of just restating the percentage of the target the plan covers. The figure comes from the same range the plan already carries, which is one standard deviation of how much the cost per application has moved month to month. Worth knowing that a plan sitting exactly on target reads 50%, because a middle estimate is as likely to land under as over. It shows the same way on screen and in the PDF.',
+    'Moved the dividing line above Deployable budget down a couple of millimetres. It was sitting on top of the text.',
+    'On the By channel page of the PDF, the Apps and Hires columns are now headed Predicted apps and Predicted hires, on two lines so the full name fits.',
+    'Reworded two lines on the plan page into plainer English. The budget row that used to read "Of which above proven spend" now reads "Of which more than has been spent before", and explains that these locations have never run a month this big so we are less sure what that part will bring in. The line above the location table now says the budget goes to the platforms where hires cost the least, with a soft cap at the highest amount historically spent.',
   ]},
   { date: '18 Aug', items: [
     'Hire rates on the Data tab are a straight toggle between the original rates and RAC\u2019s updated data. Nothing changes until it is switched, so plans built before 18 August still reproduce.',
