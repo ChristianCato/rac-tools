@@ -3927,14 +3927,33 @@ function exportPlanPDF(state, roleFilter) {
     const GLOSSARY_PAGES = countGlossaryPages();
     // A commentary page per role, but only where something has been written.
     const COMMENTARY_ROLES = roles.filter(r => commentaryPoints(state, r).length > 0);
-    const TOTAL_PAGES = roles.length + COMMENTARY_ROLES.length + 1 + REGION_CHANNEL_PAGES + GLOSSARY_PAGES;
+    // At most six points to a page. More than that and the type has to shrink
+    // below the point of being read. Where a role spills over, the points are
+    // shared evenly rather than filling the first page and leaving one orphan
+    // on the second.
+    const COMMENTARY_PER_PAGE = 6;
+    function commentaryChunks(role) {
+      const pts = commentaryPoints(state, role);
+      if (!pts.length) return [];
+      const pages = Math.ceil(pts.length / COMMENTARY_PER_PAGE);
+      const per = Math.ceil(pts.length / pages);
+      const out = [];
+      for (let i = 0; i < pts.length; i += per) out.push(pts.slice(i, i + per));
+      return out;
+    }
+    const COMMENTARY_PAGES = COMMENTARY_ROLES
+      .reduce((s, r) => s + commentaryChunks(r).length, 0);
+    const TOTAL_PAGES = roles.length + COMMENTARY_PAGES + 1 + REGION_CHANNEL_PAGES + GLOSSARY_PAGES;
     // jsPDF opens with a page already, so the first thing drawn must not add
     // one. Everything after does.
     let pageStarted = false;
 
     // ---- one page per role -----------------------------------------------
     // Commentary first: it frames everything that follows.
-    COMMENTARY_ROLES.forEach((role, i) => commentaryPage(role, i + 1));
+    let commentaryPageNum = 1;
+    COMMENTARY_ROLES.forEach(role => {
+      commentaryPageNum += commentaryPage(role, commentaryPageNum);
+    });
 
     ROLES.forEach((role, roleIdx) => {
       if (pageStarted) pdf.addPage();
@@ -4150,7 +4169,7 @@ function exportPlanPDF(state, roleFilter) {
       // If the note doesn't fit, it's dropped silently - the table is what
       // matters and the glossary on the final page explains the same logic.
 
-      footer(COMMENTARY_ROLES.length + roleIdx + 1, TOTAL_PAGES);
+      footer(COMMENTARY_PAGES + roleIdx + 1, TOTAL_PAGES);
     });
 
     // ---- commentary, one page per role that has any -----------------------
@@ -4158,99 +4177,119 @@ function exportPlanPDF(state, roleFilter) {
     // Cards on a grid rather than a list, and the type is sized down until it
     // fits, because this has to be one page whatever gets written on it.
     function commentaryPage(role, pageNum) {
-      const pts = commentaryPoints(state, role);
-      if (!pts.length) return;
-      if (pageStarted) pdf.addPage();
-      pageStarted = true;
-      header('Notes on this plan', role === 'SMR' ? 'SMR: Mobile Vehicle Tech'
-                                                 : 'Patrol: Roadside Technician');
-      const plan = plans[role];
-      const top = 30;
+      const chunks = commentaryChunks(role);
+      if (!chunks.length) return 0;
+      const roleSub = role === 'SMR' ? 'SMR: Mobile Vehicle Tech'
+                                     : 'Patrol: Roadside Technician';
+      let numberedFrom = 0;
 
-      // A strip of the three figures the notes are about.
-      const stripH = 24, gap = 5;
-      const tiles = [
-        ['Monthly budget', fmtGBP(plan.budget)],
-        ['Predicted hires', plan.predictedHires.toFixed(1) + '  (' +
-          plan.predictedHiresLow.toFixed(1) + '\u2013' + plan.predictedHiresHigh.toFixed(1) + ')'],
-        ['Cost per application', plan.predictedApps > 0 ? fmtGBP(plan.deployable / plan.predictedApps) : '-'],
-        ['Cost per hire', plan.predictedHires > 0 ? fmtGBP(plan.deployable / plan.predictedHires) : '-'],
-      ];
-      const tw = (pageW - margin * 2 - gap * (tiles.length - 1)) / tiles.length;
-      tiles.forEach(([k, v], i) => {
-        const x = margin + i * (tw + gap);
-        setFill(LIGHT); pdf.rect(x, top, tw, stripH, 'F');
-        setFill(i === 0 ? ORANGE : (i === 1 ? BLUE : NAVY)); pdf.rect(x, top, 1.6, stripH, 'F');
-        setColor(MID); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(6.4);
-        pdf.text(String(k).toUpperCase(), x + 5, top + 8);
-        setColor(NAVY); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11);
-        pdf.text(String(v), x + 5, top + 17.5);
+      chunks.forEach((pts, chunkIdx) => {
+        if (pageStarted) pdf.addPage();
+        pageStarted = true;
+        const first = chunkIdx === 0;
+        header(first ? 'Notes on this plan' : 'Notes on this plan (continued)', roleSub);
+        const plan = plans[role];
+        const top = 30;
+
+        // The figure strip belongs with the opening page. Repeating it on a
+        // continuation only eats the space the overflow needed in the first
+        // place.
+        let stripH = 0;
+        if (first) {
+          stripH = 24;
+          const gap = 5;
+          const tiles = [
+            ['Monthly budget', fmtGBP(plan.budget)],
+            ['Predicted hires', plan.predictedHires.toFixed(1) + '  (' +
+              plan.predictedHiresLow.toFixed(1) + '\u2013' + plan.predictedHiresHigh.toFixed(1) + ')'],
+            ['Cost per application', plan.predictedApps > 0 ? fmtGBP(plan.deployable / plan.predictedApps) : '-'],
+            ['Cost per hire', plan.predictedHires > 0 ? fmtGBP(plan.deployable / plan.predictedHires) : '-'],
+          ];
+          const tw = (pageW - margin * 2 - gap * (tiles.length - 1)) / tiles.length;
+          tiles.forEach(([k, v], i) => {
+            const x = margin + i * (tw + gap);
+            setFill(LIGHT); pdf.rect(x, top, tw, stripH, 'F');
+            setFill(i === 0 ? ORANGE : (i === 1 ? BLUE : NAVY)); pdf.rect(x, top, 1.6, stripH, 'F');
+            setColor(MID); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(6.4);
+            pdf.text(String(k).toUpperCase(), x + 5, top + 8);
+            setColor(NAVY); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11);
+            pdf.text(String(v), x + 5, top + 17.5);
+          });
+        }
+
+        // One column. Two columns forces the type down to fit and the point of
+        // the page is that it reads easily, not that it looks designed.
+        const gridTop = top + stripH + (first ? 12 : 2);
+        const gridBottom = pageH - 18;
+        const avail = gridBottom - gridTop;
+        const numW = 12;                       // room for the number, left of the rule
+        const textX = margin + numW + 6;
+        const textW = pageW - margin - textX - 4;
+
+        // Largest readable type where this page's points still fit.
+        let size = 14, lead = 0, rowH = [], padY = 0;
+        for (; size >= 8; size -= 0.25) {
+          // The page is in millimetres and the size is in points, so a line of
+          // 13pt text is about 5.5mm, not 16mm.
+          lead = size * 0.42;
+          padY = Math.max(4, size * 0.3);
+          rowH = pts.map(pt => {
+            pdf.setFontSize(size);
+            return pdf.splitTextToSize(pt, textW).length * lead + padY * 2;
+          });
+          if (rowH.reduce((a, h) => a + h, 0) + (pts.length - 1) * 4 <= avail) break;
+        }
+        if (rowH.reduce((a, h) => a + h, 0) + (pts.length - 1) * 4 > avail) {
+          // Even at the floor it does not fit, so squeeze the padding instead.
+          // With six points to a page this should now be unreachable unless a
+          // single point runs to a paragraph on its own.
+          padY = 3; lead = size * 0.38;
+          rowH = pts.map(pt => {
+            pdf.setFontSize(size);
+            return pdf.splitTextToSize(pt, textW).length * lead + padY * 2;
+          });
+        }
+        // Share out only what is genuinely spare, so the list cannot run off
+        // the bottom of the page.
+        // Spread the spare height across the rows, but only so far. A short
+        // list should breathe, not become two enormous boxes.
+        const rowGap = 4;
+        const used = rowH.reduce((a, h) => a + h, 0) + (pts.length - 1) * rowGap;
+        const extra = Math.min(Math.max(0, avail - used) / pts.length, 10);
+        const blockTotal = used + extra * pts.length;
+
+        // A short list sits just below the figures rather than adrift in the
+        // middle of the page.
+        let y = gridTop + Math.min(Math.max(0, (avail - blockTotal) / 2), 8);
+        pts.forEach((pt, i) => {
+          // Numbering runs on across the pages, so a point is point 7 wherever
+          // it lands.
+          const n = numberedFrom + i;
+          const h = rowH[i] + extra;
+          setFill(LIGHT); pdf.rect(margin, y, pageW - margin * 2, h, 'F');
+          setFill(n % 2 === 0 ? ORANGE : BLUE); pdf.rect(margin, y, 2.2, h, 'F');
+          pdf.setFontSize(size);
+          const lines = pdf.splitTextToSize(pt, textW);
+          // First line of text and the number share a baseline, so they line up
+          // however many lines follow.
+          // The text block sits in the middle of the row. The first baseline is
+          // the top of that block plus one ascender, in millimetres like
+          // everything else on the page.
+          const blockH = lines.length * lead;
+          const firstBaseline = y + (h - blockH) / 2 + lead * 0.76;
+          setColor(n % 2 === 0 ? ORANGE : BLUE);
+          pdf.setFont('helvetica', 'bold'); pdf.setFontSize(size);
+          pdf.text(String(n + 1) + '.', margin + numW, firstBaseline, { align: 'right' });
+          setColor(INK); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(size);
+          lines.forEach((l, k) => pdf.text(l, textX, firstBaseline + k * lead));
+          y += h + rowGap;
+        });
+
+        footer(pageNum + chunkIdx, TOTAL_PAGES);
+        numberedFrom += pts.length;
       });
 
-      // One column. Two columns forces the type down to fit and the point of
-      // the page is that it reads easily, not that it looks designed.
-      const gridTop = top + stripH + 12;
-      const gridBottom = pageH - 18;
-      const avail = gridBottom - gridTop;
-      const numW = 12;                       // room for the number, left of the rule
-      const textX = margin + numW + 6;
-      const textW = pageW - margin - textX - 4;
-
-      // Largest readable type where the whole list still fits.
-      let size = 14, lead = 0, rowH = [], padY = 0;
-      for (; size >= 8; size -= 0.25) {
-        // The page is in millimetres and the size is in points, so a line of
-        // 13pt text is about 5.5mm, not 16mm.
-        lead = size * 0.42;
-        padY = Math.max(4, size * 0.3);
-        rowH = pts.map(pt => {
-          pdf.setFontSize(size);
-          return pdf.splitTextToSize(pt, textW).length * lead + padY * 2;
-        });
-        if (rowH.reduce((a, h) => a + h, 0) + (pts.length - 1) * 4 <= avail) break;
-      }
-      if (rowH.reduce((a, h) => a + h, 0) + (pts.length - 1) * 4 > avail) {
-        // Even at the floor it does not fit, so squeeze the padding instead.
-        padY = 3; lead = size * 0.38;
-        rowH = pts.map(pt => {
-          pdf.setFontSize(size);
-          return pdf.splitTextToSize(pt, textW).length * lead + padY * 2;
-        });
-      }
-      // Share out only what is genuinely spare, so the list cannot run off
-      // the bottom of the page.
-      // Spread the spare height across the rows, but only so far. A short
-      // list should breathe, not become two enormous boxes.
-      const rowGap = 4;
-      const used = rowH.reduce((a, h) => a + h, 0) + (pts.length - 1) * rowGap;
-      const extra = Math.min(Math.max(0, avail - used) / pts.length, 10);
-      const blockTotal = used + extra * pts.length;
-
-      // A short list sits just below the figures rather than adrift in the
-      // middle of the page.
-      let y = gridTop + Math.min(Math.max(0, (avail - blockTotal) / 2), 8);
-      pts.forEach((pt, i) => {
-        const h = rowH[i] + extra;
-        setFill(LIGHT); pdf.rect(margin, y, pageW - margin * 2, h, 'F');
-        setFill(i % 2 === 0 ? ORANGE : BLUE); pdf.rect(margin, y, 2.2, h, 'F');
-        pdf.setFontSize(size);
-        const lines = pdf.splitTextToSize(pt, textW);
-        // First line of text and the number share a baseline, so they line up
-        // however many lines follow.
-        // The text block sits in the middle of the row. The first baseline is
-        // the top of that block plus one ascender, in millimetres like
-        // everything else on the page.
-        const blockH = lines.length * lead;
-        const firstBaseline = y + (h - blockH) / 2 + lead * 0.76;
-        setColor(i % 2 === 0 ? ORANGE : BLUE);
-        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(size);
-        pdf.text(String(i + 1) + '.', margin + numW, firstBaseline, { align: 'right' });
-        setColor(INK); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(size);
-        lines.forEach((l, k) => pdf.text(l, textX, firstBaseline + k * lead));
-        y += h + rowGap;
-      });
-
-      footer(pageNum, TOTAL_PAGES);
+      return chunks.length;
     }
 
     // ---- By channel page -------------------------------------------------
@@ -4360,7 +4399,7 @@ function exportPlanPDF(state, roleFilter) {
       cy += 14;
     });
 
-    footer(roles.length + COMMENTARY_ROLES.length + 1, TOTAL_PAGES);
+    footer(roles.length + COMMENTARY_PAGES + 1, TOTAL_PAGES);
 
     // ---- Region x channel pages -----------------------------------------
     // For each role and platform, a table of all 12 regions with spend,
@@ -4463,7 +4502,7 @@ function exportPlanPDF(state, roleFilter) {
     ROLES.forEach(role => {
       PLATFORMS.forEach(plat => { rcTables.push({ role, plat }); });
     });
-    let rcPageNum = roles.length + COMMENTARY_ROLES.length + 2;
+    let rcPageNum = roles.length + COMMENTARY_PAGES + 2;
     rcTables.forEach(tbl => {
       pdf.addPage();
       header('By region and channel', null);
@@ -4477,7 +4516,7 @@ function exportPlanPDF(state, roleFilter) {
     header('Glossary', null);
 
     const gColA = margin, gColB = margin + gColW + 6;
-    let gy = 30, gCol = 0, gPageNum = roles.length + COMMENTARY_ROLES.length + 1 + REGION_CHANNEL_PAGES + 1;
+    let gy = 30, gCol = 0, gPageNum = roles.length + COMMENTARY_PAGES + 1 + REGION_CHANNEL_PAGES + 1;
     terms.forEach(t => {
       pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5);
       const split = pdf.splitTextToSize(t[1], gColW - 4);
@@ -4507,6 +4546,9 @@ function exportPlanPDF(state, roleFilter) {
 // the plans or the data. Newest first. Dated, no version numbers.
 // ====================================================================
 const CHANGELOG = [
+  { date: '19 Aug', items: [
+    'The notes page in the PDF now runs onto a second or third page instead of shrinking the type to fit. Six points is the most that will go on a page. Where a role has more than that, they are shared out evenly rather than filling the first page and leaving one point stranded on its own, and the numbering carries on across the pages so a point is point 7 wherever it lands. The four figures across the top stay on the opening page only. Page numbers and the total at the foot of every page count the extra pages.',
+  ]},
   { date: '18 Aug', items: [
     'Hire rates on the Data tab are a straight toggle between the original rates and RAC\u2019s updated data. Nothing changes until it is switched, so plans built before 18 August still reproduce.',
     'On the updated data, a location and platform with nothing measured uses that platform\u2019s average across the locations that do, rather than predicting no hires at all. That fills 36 of the 96 combinations.',
