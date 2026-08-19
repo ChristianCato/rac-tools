@@ -4219,11 +4219,16 @@ function exportPlanPDF(state, roleFilter) {
       }
       // Share out only what is genuinely spare, so the list cannot run off
       // the bottom of the page.
+      // Spread the spare height across the rows, but only so far. A short
+      // list should breathe, not become two enormous boxes.
       const rowGap = 4;
       const used = rowH.reduce((a, h) => a + h, 0) + (pts.length - 1) * rowGap;
-      const extra = Math.max(0, avail - used) / pts.length;
+      const extra = Math.min(Math.max(0, avail - used) / pts.length, 10);
+      const blockTotal = used + extra * pts.length;
 
-      let y = gridTop;
+      // A short list sits just below the figures rather than adrift in the
+      // middle of the page.
+      let y = gridTop + Math.min(Math.max(0, (avail - blockTotal) / 2), 8);
       pts.forEach((pt, i) => {
         const h = rowH[i] + extra;
         setFill(LIGHT); pdf.rect(margin, y, pageW - margin * 2, h, 'F');
@@ -4232,7 +4237,11 @@ function exportPlanPDF(state, roleFilter) {
         const lines = pdf.splitTextToSize(pt, textW);
         // First line of text and the number share a baseline, so they line up
         // however many lines follow.
-        const firstBaseline = y + (h - lines.length * lead) / 2 + size * 0.72;
+        // The text block sits in the middle of the row. The first baseline is
+        // the top of that block plus one ascender, in millimetres like
+        // everything else on the page.
+        const blockH = lines.length * lead;
+        const firstBaseline = y + (h - blockH) / 2 + lead * 0.76;
         setColor(i % 2 === 0 ? ORANGE : BLUE);
         pdf.setFont('helvetica', 'bold'); pdf.setFontSize(size);
         pdf.text(String(i + 1) + '.', margin + numW, firstBaseline, { align: 'right' });
@@ -4382,18 +4391,22 @@ function exportPlanPDF(state, roleFilter) {
         margin, ry + 5);
       ry += 10;
       // Header
-      setFill(NAVY); pdf.rect(margin, ry, pageW - margin * 2, 8, 'F');
+      // The three predicted columns are stacked over two lines, because
+      // "Predicted hires" on one line runs into the column beside it.
+      setFill(NAVY); pdf.rect(margin, ry, pageW - margin * 2, 10, 'F');
       pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8.5);
-      pdf.text('Region',        rcCols.region, ry + 5.4);
-      pdf.text('Spend',         rcCols.spend,  ry + 5.4);
-      pdf.text('Apps',          rcCols.apps,   ry + 5.4);
-      pdf.text('Apply CVR',     rcCols.cvr,    ry + 5.4);
-      pdf.text('Cost / app',    rcCols.cpa,    ry + 5.4);
-      pdf.text('Hire CVR',      rcCols.hcvr,   ry + 5.4);
-      pdf.text('Hires',         rcCols.hires,  ry + 5.4);
-      pdf.text('Cost / hire',   rcCols.cph,    ry + 5.4);
-      pdf.text('Apps range',    rcCols.range,  ry + 5.4);
-      ry += 8;
+      pdf.text('Region',      rcCols.region, ry + 6.8);
+      pdf.text('Spend',       rcCols.spend,  ry + 6.8);
+      pdf.text('Apply CVR',   rcCols.cvr,    ry + 6.8);
+      pdf.text('Cost / app',  rcCols.cpa,    ry + 6.8);
+      pdf.text('Hire CVR',    rcCols.hcvr,   ry + 6.8);
+      pdf.text('Cost / hire', rcCols.cph,    ry + 6.8);
+      pdf.setFontSize(7.4);
+      [[rcCols.apps, 'apps'], [rcCols.hires, 'hires'], [rcCols.range, 'range']].forEach(([x, w]) => {
+        pdf.text('Predicted', x, ry + 3.6);
+        pdf.text(w, x, ry + 7.6);
+      });
+      ry += 10;
       // Rows
       pdf.setFont('helvetica', 'normal');
       let tSpend = 0, tApps = 0, tHires = 0;
@@ -4501,7 +4514,8 @@ const CHANGELOG = [
     'The updated data covers both roles. Patrol has measured hire rates for the first time rather than SMR multiplied by 0.933.',
     'Commentary is now the opening page of the plan and reads as cards rather than a list, with the budget, predicted hires, cost per application and cost per hire across the top so the notes sit against the figures they are about. The data period is already in the header, so it does not take a tile.',
     'Commentary reads as one column of full-width rows rather than a two column grid. Two columns forced the type down to fit and the point of the page is that it reads easily. The numbers sit on the same baseline as the first line of their text, so they line up however many lines follow.',
-    'Fixed the commentary page running off the bottom. Line heights were being worked out as if the page were measured in points when it is measured in millimetres, so every row was about three times taller than it needed to be. Checked at two, four, eight and ten points.',
+    'Fixed the commentary text sitting low in its row rather than in the middle. The offset from the top of the block to the first line of type was being added in points on a page measured in millimetres, so it pushed the text down by about a centimetre. Line heights had the same fault, which is what made the page run off the bottom.',
+    'A short list no longer stretches into a few enormous boxes. Rows take a limited share of the spare height and the list sits just under the figures. Checked at two, five, eight and ten points.',
     'Fixed the planner lagging while typing. Every keystroke anywhere on Setup rebuilt both roles from scratch, including the budget solver, which is 148 milliseconds of work per role. A built plan is now kept against the settings that produced it, so a change the figures do not read costs nothing. Repeat builds went from 148 milliseconds to 3.',
     'The commentary box keeps its text to itself while you type and only tells the plan when you click away. Typing went from 38 milliseconds a keystroke to under 2.',
     'The budget solver stops once it is inside the fifty pounds the answer is rounded to, rather than always running a fixed twenty six passes.',
