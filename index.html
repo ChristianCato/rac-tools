@@ -3469,11 +3469,11 @@ function BenchmarksTab({ state, setState }) {
       </div>
 
       <Section id="byLocation" title="By location, across all platforms"
-        sub={'Every platform blended together. ' + rangeLabel}>
+        sub={'Every platform blended together. ' + rangeLabel + ' Cost per application is what actually happened. Adjusted is that figure pulled toward the role average before the forecast uses it: the thinner the evidence, the further it moves. The plan\u2019s own cost per application for a location will differ again, because that falls out of how the budget splits across platforms.'}>
         <table className="alloc-table">
           <thead>
             <tr>
-              <th>Location</th><th>Cost per application</th><th>Cost per hire</th>
+              <th>Location</th><th>Cost per application</th><th>Adjusted</th><th>Cost per hire</th>
               <th>Hire rate</th><th>Apply rate</th><th>Months of data</th>
               <th>Applications</th><th>Spend</th>
             </tr>
@@ -3491,6 +3491,14 @@ function BenchmarksTab({ state, setState }) {
                 <tr key={region}>
                   <td>{region}</td>
                   <td className="mono">{cpa ? fmtGBP(cpa) : '-'}</td>
+                  <td className="mono">{(() => {
+                    const b = regionBlendedCPA(region, role);
+                    if (!b || !(b.cpa > 0) || b.rawCpa == null) return <span className="muted">-</span>;
+                    const gap = b.rawCpa > 0 ? (b.cpa - b.rawCpa) / b.rawCpa : 0;
+                    return <span title={'Pulled toward the role average on ' + fmtInt(b.apps) + ' applications of evidence'}>
+                      {fmtGBP(b.cpa)}{Math.abs(gap) >= 0.02 ? <span className="muted"> {(gap > 0 ? '+' : '') + Math.round(gap * 100)}%</span> : null}
+                    </span>;
+                  })()}</td>
                   <td className="mono">{cph(cpa, region) ? fmtGBP(cph(cpa, region)) : '-'}</td>
                   <td className="mono">{hr ? (hr * 100).toFixed(2) + '%' : 'no data'}</td>
                   <td className="mono">{applyRate(region) ? (applyRate(region) * 100).toFixed(2) + '%' : '-'}</td>
@@ -3505,11 +3513,11 @@ function BenchmarksTab({ state, setState }) {
       </Section>
 
       <Section id="byPlatform" title="By platform, across all locations"
-        sub={'Every location blended together. ' + rangeLabel}>
+        sub={'Every location blended together. ' + rangeLabel + ' Adjusted is the measured figure pulled toward the role average, which is the rate the forecast runs on.'}>
         <table className="alloc-table">
           <thead>
             <tr>
-              <th>Platform</th><th>Cost per application</th><th>Cost per hire</th>
+              <th>Platform</th><th>Cost per application</th><th>Adjusted</th><th>Cost per hire</th>
               <th>Hire rate</th><th>Apply rate</th><th>Locations with data</th>
               <th>Applications</th><th>Spend</th>
             </tr>
@@ -3524,6 +3532,12 @@ function BenchmarksTab({ state, setState }) {
                 <tr key={pl}>
                   <td>{PLATFORM_LABELS[pl]}</td>
                   <td className="mono">{ap > 0 ? fmtGBP(sp / ap) : '-'}</td>
+                  <td className="mono">{(() => {
+                    const b = rolePlatformCPA(pl, role);
+                    if (!b || !(b.cpa > 0) || b.rawCpa == null) return <span className="muted">-</span>;
+                    const gap = b.rawCpa > 0 ? (b.cpa - b.rawCpa) / b.rawCpa : 0;
+                    return <span>{fmtGBP(b.cpa)}{Math.abs(gap) >= 0.02 ? <span className="muted"> {(gap > 0 ? '+' : '') + Math.round(gap * 100)}%</span> : null}</span>;
+                  })()}</td>
                   <td className="mono">{platCph(pl, ap > 0 ? sp / ap : null) ? fmtGBP(platCph(pl, ap > 0 ? sp / ap : null)) : '-'}</td>
                   <td className="mono">{platHireRate(pl) ? (platHireRate(pl) * 100).toFixed(2) + '%' : '-'}</td>
                   <td className="mono">{platApplyRate(pl) ? (platApplyRate(pl) * 100).toFixed(2) + '%' : '-'}</td>
@@ -3559,7 +3573,7 @@ function BenchmarksTab({ state, setState }) {
                 <table className="alloc-table">
                   <thead>
                     <tr>
-                      <th>Location</th><th>Cost per application</th><th>Cost per hire</th>
+                      <th>Location</th><th>Cost per application</th><th>Adjusted</th><th>Cost per hire</th>
                       <th>Hire rate</th><th>Apply rate</th><th>Months of data</th>
                       <th>Applications</th><th>Spend</th><th>Data quality</th>
                     </tr>
@@ -3569,6 +3583,12 @@ function BenchmarksTab({ state, setState }) {
                       <tr key={region}>
                         <td>{region}</td>
                         <td className="mono">{cell.cpa ? fmtGBP(cell.cpa) : '-'}</td>
+                        <td className="mono">{(() => {
+                          const b = regionPlatformCPA(platform, region, role);
+                          if (!b || !(b.cpa > 0) || b.rawCpa == null) return <span className="muted">-</span>;
+                          const gap = b.rawCpa > 0 ? (b.cpa - b.rawCpa) / b.rawCpa : 0;
+                          return <span>{fmtGBP(b.cpa)}{Math.abs(gap) >= 0.02 ? <span className="muted"> {(gap > 0 ? '+' : '') + Math.round(gap * 100)}%</span> : null}</span>;
+                        })()}</td>
                         <td className="mono">{cellCph(cell.cpa, platform, region) ? fmtGBP(cellCph(cell.cpa, platform, region)) : '-'}</td>
                         <td className="mono">{(() => { const h = regionPlatformHireCVR(platform, region, role); return h ? (h * 100).toFixed(2) + '%' : '-'; })()}</td>
                         <td className="mono">{cell.cvr ? (cell.cvr * 100).toFixed(2) + '%' + (cell.cvrWindowed ? '' : '*') : '-'}</td>
@@ -4726,6 +4746,7 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'Added an Adjusted column to all three tables on the Benchmarks tab. Cost per application is still what actually happened. Adjusted is that figure pulled toward the role average before the forecast uses it, with the percentage move shown next to it where it is more than a couple of percent. Locations with plenty of history barely move: Indeed East Midlands has 329 applications behind it and does not shift at all. Thin ones move a lot: Meta Scotland has 7 applications and comes off a measured 203 pounds to 108. This is why a cost per application on this tab has never quite matched the one in a plan, and now both are on the page. Nothing about the forecast has changed.',
     'The Benchmarks tab now takes its hire rates from Scott\u2019s file, the same source the plan runs on. It was using the coarse three-band set built in April, which put every location into one of three rates. The two disagreed, worst of all in London, where the band said 1.70% and Scott\u2019s file says nearer 1%, so the tab was quoting a cost per hire thousands of pounds below what the plan quoted for the same location. The cost per hire inside each platform breakdown is now worked out from the rate shown next to it rather than the banded one, which was the source of the gap. No plan figures change: the banded set was only ever a fallback in the engine, and on the September SMR plan removing it entirely moved no location budgets at all.',
     'Took the coloured verdict banner off the top of the plan page. On track, close to target and falling short have gone. Every figure it carried is already in the tiles underneath it. The Application target tile now shows the target on its own, with nothing underneath it: no probability, and no percentage of target either.',
     'On the By region and channel pages, the likely apps range no longer has a column of its own at the far right. It sits under the predicted apps figure, the way the apply CVR and cost per app ranges already did. Predicted hires now carries its range underneath in the same way, and the totals row shows both. Dropping a column let the rest spread wider.',
