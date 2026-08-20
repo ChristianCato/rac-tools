@@ -3285,6 +3285,20 @@ function BenchmarksTab({ state, setState }) {
   // Scott's file says under 1%. Two screens in the same tool were quoting
   // costs per hire that were thousands of pounds apart for the same location.
   // Both now come off Scott's file.
+  // A location's cost per application, built from the very same per-cell rates
+  // the plan runs on and weighted by the spend each cell has historically
+  // taken. It will not equal the figure on the plan's By region page, because
+  // that one is weighted by where next month's budget actually goes.
+  const locPlanCPA = (region) => {
+    let w = 0, apps = 0;
+    PLATFORMS.forEach(pl => {
+      const st = weightedStats(pl, region, role);
+      const b = regionPlatformCPA(pl, region, role);
+      if (st.spend > 0 && b && b.cpa > 0) { w += st.spend; apps += st.spend / b.cpa; }
+    });
+    return apps > 0 ? w / apps : null;
+  };
+
   const locHireRate = (region) => {
     let w = 0, n = 0;
     PLATFORMS.forEach(pl => {
@@ -3469,11 +3483,11 @@ function BenchmarksTab({ state, setState }) {
       </div>
 
       <Section id="byLocation" title="By location, across all platforms"
-        sub={'Every platform blended together. ' + rangeLabel + ' Cost per application is what actually happened. Adjusted is that figure pulled toward the role average before the forecast uses it: the thinner the evidence, the further it moves. The plan\u2019s own cost per application for a location will differ again, because that falls out of how the budget splits across platforms.'}>
+        sub={'Every platform blended together. ' + rangeLabel + ' Cost per application is the rate the plan uses, blended across this location\u2019s platforms. The figure on a plan\u2019s By region page will differ a little, because that one is weighted by where next month\u2019s budget goes rather than by where spend has gone historically.'}>
         <table className="alloc-table">
           <thead>
             <tr>
-              <th>Location</th><th>Cost per application</th><th>Adjusted</th><th>Cost per hire</th>
+              <th>Location</th><th>Cost per application</th><th>Cost per hire</th>
               <th>Hire rate</th><th>Apply rate</th><th>Months of data</th>
               <th>Applications</th><th>Spend</th>
             </tr>
@@ -3490,15 +3504,7 @@ function BenchmarksTab({ state, setState }) {
               return (
                 <tr key={region}>
                   <td>{region}</td>
-                  <td className="mono">{cpa ? fmtGBP(cpa) : '-'}</td>
-                  <td className="mono">{(() => {
-                    const b = regionBlendedCPA(region, role);
-                    if (!b || !(b.cpa > 0) || b.rawCpa == null) return <span className="muted">-</span>;
-                    const gap = b.rawCpa > 0 ? (b.cpa - b.rawCpa) / b.rawCpa : 0;
-                    return <span title={'Pulled toward the role average on ' + fmtInt(b.apps) + ' applications of evidence'}>
-                      {fmtGBP(b.cpa)}{Math.abs(gap) >= 0.02 ? <span className="muted"> {(gap > 0 ? '+' : '') + Math.round(gap * 100)}%</span> : null}
-                    </span>;
-                  })()}</td>
+                  <td className="mono">{locPlanCPA(region) ? fmtGBP(locPlanCPA(region)) : (cpa ? fmtGBP(cpa) : '-')}</td>
                   <td className="mono">{cph(cpa, region) ? fmtGBP(cph(cpa, region)) : '-'}</td>
                   <td className="mono">{hr ? (hr * 100).toFixed(2) + '%' : 'no data'}</td>
                   <td className="mono">{applyRate(region) ? (applyRate(region) * 100).toFixed(2) + '%' : '-'}</td>
@@ -3513,11 +3519,11 @@ function BenchmarksTab({ state, setState }) {
       </Section>
 
       <Section id="byPlatform" title="By platform, across all locations"
-        sub={'Every location blended together. ' + rangeLabel + ' Adjusted is the measured figure pulled toward the role average, which is the rate the forecast runs on.'}>
+        sub={'Every location blended together. ' + rangeLabel + ' Cost per application is the rate the plan uses.'}>
         <table className="alloc-table">
           <thead>
             <tr>
-              <th>Platform</th><th>Cost per application</th><th>Adjusted</th><th>Cost per hire</th>
+              <th>Platform</th><th>Cost per application</th><th>Cost per hire</th>
               <th>Hire rate</th><th>Apply rate</th><th>Locations with data</th>
               <th>Applications</th><th>Spend</th>
             </tr>
@@ -3531,12 +3537,9 @@ function BenchmarksTab({ state, setState }) {
               return (
                 <tr key={pl}>
                   <td>{PLATFORM_LABELS[pl]}</td>
-                  <td className="mono">{ap > 0 ? fmtGBP(sp / ap) : '-'}</td>
                   <td className="mono">{(() => {
                     const b = rolePlatformCPA(pl, role);
-                    if (!b || !(b.cpa > 0) || b.rawCpa == null) return <span className="muted">-</span>;
-                    const gap = b.rawCpa > 0 ? (b.cpa - b.rawCpa) / b.rawCpa : 0;
-                    return <span>{fmtGBP(b.cpa)}{Math.abs(gap) >= 0.02 ? <span className="muted"> {(gap > 0 ? '+' : '') + Math.round(gap * 100)}%</span> : null}</span>;
+                    return (b && b.cpa > 0) ? fmtGBP(b.cpa) : (ap > 0 ? fmtGBP(sp / ap) : '-');
                   })()}</td>
                   <td className="mono">{platCph(pl, ap > 0 ? sp / ap : null) ? fmtGBP(platCph(pl, ap > 0 ? sp / ap : null)) : '-'}</td>
                   <td className="mono">{platHireRate(pl) ? (platHireRate(pl) * 100).toFixed(2) + '%' : '-'}</td>
@@ -3573,7 +3576,7 @@ function BenchmarksTab({ state, setState }) {
                 <table className="alloc-table">
                   <thead>
                     <tr>
-                      <th>Location</th><th>Cost per application</th><th>Adjusted</th><th>Cost per hire</th>
+                      <th>Location</th><th>Cost per application</th><th>Cost per hire</th>
                       <th>Hire rate</th><th>Apply rate</th><th>Months of data</th>
                       <th>Applications</th><th>Spend</th><th>Data quality</th>
                     </tr>
@@ -3582,12 +3585,9 @@ function BenchmarksTab({ state, setState }) {
                     {platRows.map(({ region, cell }) => (
                       <tr key={region}>
                         <td>{region}</td>
-                        <td className="mono">{cell.cpa ? fmtGBP(cell.cpa) : '-'}</td>
                         <td className="mono">{(() => {
                           const b = regionPlatformCPA(platform, region, role);
-                          if (!b || !(b.cpa > 0) || b.rawCpa == null) return <span className="muted">-</span>;
-                          const gap = b.rawCpa > 0 ? (b.cpa - b.rawCpa) / b.rawCpa : 0;
-                          return <span>{fmtGBP(b.cpa)}{Math.abs(gap) >= 0.02 ? <span className="muted"> {(gap > 0 ? '+' : '') + Math.round(gap * 100)}%</span> : null}</span>;
+                          return (b && b.cpa > 0) ? fmtGBP(b.cpa) : (cell.cpa ? fmtGBP(cell.cpa) : '-');
                         })()}</td>
                         <td className="mono">{cellCph(cell.cpa, platform, region) ? fmtGBP(cellCph(cell.cpa, platform, region)) : '-'}</td>
                         <td className="mono">{(() => { const h = regionPlatformHireCVR(platform, region, role); return h ? (h * 100).toFixed(2) + '%' : '-'; })()}</td>
@@ -4746,17 +4746,17 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
-    'Added an Adjusted column to all three tables on the Benchmarks tab. Cost per application is still what actually happened. Adjusted is that figure pulled toward the role average before the forecast uses it, with the percentage move shown next to it where it is more than a couple of percent. Locations with plenty of history barely move: Indeed East Midlands has 329 applications behind it and does not shift at all. Thin ones move a lot: Meta Scotland has 7 applications and comes off a measured 203 pounds to 108. This is why a cost per application on this tab has never quite matched the one in a plan, and now both are on the page. Nothing about the forecast has changed.',
-    'The Benchmarks tab now takes its hire rates from Scott\u2019s file, the same source the plan runs on. It was using the coarse three-band set built in April, which put every location into one of three rates. The two disagreed, worst of all in London, where the band said 1.70% and Scott\u2019s file says nearer 1%, so the tab was quoting a cost per hire thousands of pounds below what the plan quoted for the same location. The cost per hire inside each platform breakdown is now worked out from the rate shown next to it rather than the banded one, which was the source of the gap. No plan figures change: the banded set was only ever a fallback in the engine, and on the September SMR plan removing it entirely moved no location budgets at all.',
-    'Took the coloured verdict banner off the top of the plan page. On track, close to target and falling short have gone. Every figure it carried is already in the tiles underneath it. The Application target tile now shows the target on its own, with nothing underneath it: no probability, and no percentage of target either.',
+    'The Benchmarks tab now shows the cost per application the plan actually uses, rather than the raw historic rate. The two used to differ and there was no way to tell from the screen which one a plan was built on. Inside each platform breakdown the figure is now the same number that appears on the By region and channel pages of a PDF. The blended figures by location and by platform are built from those same cell rates, so they will still sit a little away from a plan\u2019s own, which is weighted by where next month\u2019s budget goes rather than by where spend has gone historically.',
+    'The Benchmarks tab also takes its hire rates from Scott\u2019s file now, the same source the plan runs on. It was using the coarse three-band set built in April. The two disagreed, worst of all in London, where the band said 1.70% and Scott\u2019s file says nearer 1%, so the tab was quoting a cost per hire thousands of pounds below what the plan quoted for the same location.',
+    'Took the coloured verdict banner off the top of the plan page. On track, close to target and falling short have gone. Every figure it carried is already in the tiles underneath it. The Application target tile now shows the target on its own, with nothing underneath it.',
     'On the By region and channel pages, the likely apps range no longer has a column of its own at the far right. It sits under the predicted apps figure, the way the apply CVR and cost per app ranges already did. Predicted hires now carries its range underneath in the same way, and the totals row shows both. Dropping a column let the rest spread wider.',
-    'Swapped the Predicted apps and Apply CVR columns on By channel and By region, so predicted apps comes first. That is also the order the region and channel detail pages already used, so the whole document now reads the same way.',
-    'Added a By region page to the PDF, sitting straight after By channel and using the same columns: spend, predicted apps, apply CVR, cost per application, hire CVR, predicted hires and cost per hire. Locations are in the same order as the table on the plan page. The totals match By channel exactly, which is the point of having both.',
+    'Swapped the Predicted apps and Apply CVR columns on By channel and By region, so predicted apps comes first. That is also the order the region and channel detail pages already used.',
+    'Added a By region page to the PDF, sitting straight after By channel and using the same columns. Locations are in the same order as the table on the plan page. The totals match By channel exactly, which is the point of having both.',
     'While adding it I found the blended apply CVR on the By channel total was worked out by averaging platforms and then averaging those. Doing the same by location gave a different answer for the same money, 3.3% against 3.2% on a test plan, because a cell with no conversion rate was dropped from the inner average but its spend stayed in the outer weight. Both totals are now measured across every location and platform at once, so they agree.',
-    'The notes page in the PDF now runs onto a second or third page instead of shrinking the type to fit. Six points is the most that will go on a page. Where a role has more than that, they are shared out evenly rather than filling the first page and leaving one point stranded on its own, and the numbering carries on across the pages so a point is point 7 wherever it lands. The four figures across the top stay on the opening page only. Page numbers and the total at the foot of every page count the extra pages.',
+    'The notes page in the PDF now runs onto a second or third page instead of shrinking the type to fit. Six points is the most that will go on a page. Where a role has more than that, they are shared out evenly rather than filling the first page and leaving one point stranded on its own, and the numbering carries on across the pages. The four figures across the top stay on the opening page only.',
     'Moved the dividing line above Deployable budget down a couple of millimetres. It was sitting on top of the text.',
-    'On the By channel page of the PDF, the Apps and Hires columns are now headed Predicted apps and Predicted hires, on two lines so the full name fits.',
-    'Reworded two lines on the plan page into plainer English. The budget row that used to read "Of which above proven spend" now reads "Of which more than has been spent before", and explains that these locations have never run a month this big so we are less sure what that part will bring in. The line above the location table now says the budget goes to the platforms where hires cost the least, with a soft cap at the highest amount historically spent.',
+    'On the By channel page, the Apps and Hires columns are now headed Predicted apps and Predicted hires, on two lines so the full name fits.',
+    'Reworded two lines on the plan page into plainer English. The budget row that used to read "Of which above proven spend" now reads "Of which more than has been spent before". The line above the location table now says the budget goes to the platforms where hires cost the least, with a soft cap at the highest amount historically spent.',
   ]},
   { date: '18 Aug', items: [
     'Hire rates on the Data tab are a straight toggle between the original rates and RAC\u2019s updated data. Nothing changes until it is switched, so plans built before 18 August still reproduce.',
