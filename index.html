@@ -8746,6 +8746,29 @@ function App() {
     });
   };
 
+  // Presence lives here rather than in Root, because the header that shows it
+  // is in this component. It was declared a level up and the header could not
+  // see it, which blanked the page.
+  const [present, setPresent] = useState([]);
+  useEffect(() => {
+    let live = true;
+    const beat = async () => {
+      await sbPresencePing(null);
+      if (!live) return;
+      const who = await sbPresenceList();
+      if (live) setPresent(who);
+    };
+    beat();
+    const id = setInterval(beat, PRESENCE_EVERY);
+    const onVis = () => { if (!document.hidden) beat(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      live = false;
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, []);
+
   const [tool, setTool] = useState(() => (routeFromHash() || {}).tool || 'planner');
   const [exportRole, setExportRole] = useState('SMR');
   const [tab, setTab] = useState(() => (routeFromHash() || {}).tab || 'setup');
@@ -9048,7 +9071,6 @@ function App() {
 
 function Root() {
   const [inSession, setInSession] = useState(() => { sbCatchSession(); return sbSignedIn(); });
-  const [present, setPresent] = useState([]);
   // Folded-in months live on the server so everyone gets them without anyone
   // republishing a file. They are applied as soon as they arrive rather than
   // held in front of the app: a slow or failed request should never leave the
@@ -9076,28 +9098,6 @@ function Root() {
       } catch (e) { /* carry on with the numbers the file ships with */ }
     })();
     return () => { live = false; };
-  }, [inSession]);
-
-  // Say I am here, and see who else is, every 25 seconds. Anyone who has not
-  // checked in for 75 seconds has closed the tab or gone to sleep.
-  useEffect(() => {
-    if (!inSession) return;
-    let live = true;
-    const beat = async () => {
-      await sbPresencePing(null);
-      if (!live) return;
-      const who = await sbPresenceList();
-      if (live) setPresent(who);
-    };
-    beat();
-    const id = setInterval(beat, PRESENCE_EVERY);
-    const onVis = () => { if (!document.hidden) beat(); };
-    document.addEventListener('visibilitychange', onVis);
-    return () => {
-      live = false;
-      clearInterval(id);
-      document.removeEventListener('visibilitychange', onVis);
-    };
   }, [inSession]);
 
   if (!inSession) return <SignIn onIn={() => setInSession(true)} />;
