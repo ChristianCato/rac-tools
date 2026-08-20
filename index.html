@@ -74,6 +74,15 @@ body {
 .app-header h1 { font-size: 15.5px; font-weight: 700; letter-spacing: -0.01em; }
 .app-header .sub { font-size: 11.5px; color: #9DB0CC; font-weight: 500; }
 .app-header .spacer { flex: 1; }
+.presence { display: flex; align-items: center; gap: 4px; margin-right: 14px; }
+.presence .who {
+  width: 25px; height: 25px; border-radius: 50%;
+  background: #2C4470; color: #fff;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em;
+  display: flex; align-items: center; justify-content: center;
+  border: 1.5px solid #1B2A45; cursor: default;
+}
+.presence .who.me { background: #F95813; }
 .app-header .month-badge {
   background: var(--rac-navy-2);
   border: 1px solid #2E436A;
@@ -2240,6 +2249,50 @@ async function sbSet(key, value) {
     throw new Error('Could not save ' + key + ': ' + r.status + detail);
   }
   return true;
+}
+
+// The signed-in address, read out of the access token.
+function sbEmail() {
+  try {
+    const b = JSON.parse(atob(SB_TOKEN.access_token.split('.')[1]));
+    return (b && b.email) || null;
+  } catch (e) { return null; }
+}
+
+// Initials for the header. christian.cato@ becomes CC, biraag.shah@ becomes
+// BS, a single-word address falls back to its first two letters.
+function initialsFor(email) {
+  const name = String(email || '').split('@')[0];
+  const parts = name.split(/[._-]+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+// Presence without a realtime client. Everyone writes their own row and reads
+// everyone else's, so two people can never overwrite each other the way the
+// single workspace row lets them.
+const PRESENCE_EVERY = 25000;   // how often to say I am still here
+const PRESENCE_STALE = 75000;   // how long before a quiet tab is dropped
+
+async function sbPresencePing(where) {
+  const email = sbEmail();
+  if (!email) return;
+  try {
+    await sbSet('presence:' + email, { email, where: where || null, at: Date.now() });
+  } catch (e) { /* presence is decoration, never let it interrupt anything */ }
+}
+
+async function sbPresenceList() {
+  try {
+    const r = await sbFetch(SB_URL + '?k=like.presence:*&select=k,v');
+    if (!r.ok) return [];
+    const rows = await r.json();
+    const now = Date.now();
+    return rows
+      .map(x => x.v)
+      .filter(v => v && v.email && now - (v.at || 0) < PRESENCE_STALE)
+      .sort((a, b) => a.email.localeCompare(b.email));
+  } catch (e) { return []; }
 }
 
 async function sbSendLink(email) {
@@ -4765,6 +4818,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'Added a row of initials at the top of the page showing who else is signed in right now. It checks in every 25 seconds and drops anyone who has not been seen for 75. Your own initials are the orange one. Hovering gives the full address. Everyone writes their own row rather than a shared one, so this cannot clash the way the workspace does.',
+    
     'Cost per hire is now worked out as cost per application divided by the hire rate, everywhere. It used to be read straight out of the data file, where it had come over from Scott\u2019s sheet alongside the hire rate. Only the rate travelled cleanly. The spend behind his cost per hire was not the spend our platforms are running, so the two never belonged in the same row: the SMR Indeed page showed North West at 54 pounds an application and a 1.46% hire rate, then claimed a 979 pound hire, where those two figures give 3,699. Every location outside London and the South East was understated, and understated most in the northern locations the model has been pushing budget toward. The corrected figures are higher: North West 979 becomes 3,866, Yorkshire 666 becomes 3,145, East Midlands 2,742 becomes 5,255, London 10,525 becomes 11,614. Hire rates are unchanged and still Scott\u2019s. No budget moves, because the allocation never used the stored figure.',
     
     'The Benchmarks tab now shows the cost per application the plan actually uses, rather than the raw historic rate. The two used to differ and there was no way to tell from the screen which one a plan was built on. Inside each platform breakdown the figure is now the same number that appears on the By region and channel pages of a PDF. The blended figures by location and by platform are built from those same cell rates, so they will still sit a little away from a plan\u2019s own, which is weighted by where next month\u2019s budget goes rather than by where spend has gone historically.',
@@ -8792,6 +8847,17 @@ function App() {
           </div>
         </div>
         <div className="spacer" />
+        {present.length > 0 && (
+          <div className="presence" title="Signed in right now">
+            {present.map(w => (
+              <div key={w.email}
+                className={'who' + (w.email === sbEmail() ? ' me' : '')}
+                title={w.email + (w.where ? ' \u00B7 ' + w.where : '')}>
+                {initialsFor(w.email)}
+              </div>
+            ))}
+          </div>
+        )}
         <a href="#" className="link-inline" style={{ marginRight: 12, fontSize: 12 }}
           title="Download everything in this browser as a file"
           onClick={e => {
@@ -8942,6 +9008,7 @@ function App() {
 
 function Root() {
   const [inSession, setInSession] = useState(() => { sbCatchSession(); return sbSignedIn(); });
+  const [present, setPresent] = useState([]);
   // Folded-in months live on the server so everyone gets them without anyone
   // republishing a file. They are applied as soon as they arrive rather than
   // held in front of the app: a slow or failed request should never leave the
@@ -8969,6 +9036,28 @@ function Root() {
       } catch (e) { /* carry on with the numbers the file ships with */ }
     })();
     return () => { live = false; };
+  }, [inSession]);
+
+  // Say I am here, and see who else is, every 25 seconds. Anyone who has not
+  // checked in for 75 seconds has closed the tab or gone to sleep.
+  useEffect(() => {
+    if (!inSession) return;
+    let live = true;
+    const beat = async () => {
+      await sbPresencePing(null);
+      if (!live) return;
+      const who = await sbPresenceList();
+      if (live) setPresent(who);
+    };
+    beat();
+    const id = setInterval(beat, PRESENCE_EVERY);
+    const onVis = () => { if (!document.hidden) beat(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      live = false;
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [inSession]);
 
   if (!inSession) return <SignIn onIn={() => setInSession(true)} />;
