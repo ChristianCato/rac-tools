@@ -2900,7 +2900,7 @@ function PlanTab({ state, setState }) {
           <div className="kpi kpi-accent-navy">
             <div className="kpi-label">Application target</div>
             <div className="kpi-value mono">{fmtInt(plan.appTarget)}</div>
-            <div className="kpi-sub">{plan.appTarget > 0 ? 'plan delivers ' + pct + '%' : 'set this on the Setup tab'}</div>
+            <div className="kpi-sub">{plan.appTarget > 0 ? '' : 'set this on the Setup tab'}</div>
           </div>
           <div className="kpi kpi-accent-blue">
             <div className="kpi-label">Total open roles</div>
@@ -3276,13 +3276,40 @@ function BenchmarksTab({ state, setState }) {
   const spanLen = months.filter(m => benchWeight(m) > 0).length;
   const isAll = mode === 'all';
 
+  // A location's hire rate, blended across the platforms that have one, and
+  // weighted by applications the same way platHireRate is.
+  //
+  // This used to read cvr_benchmarks, the coarse three-band set built in April
+  // from the 2026 proposal. That disagreed with the per-platform rates the
+  // plan itself runs on, most of all in London, where the band says 1.70% and
+  // Scott's file says under 1%. Two screens in the same tool were quoting
+  // costs per hire that were thousands of pounds apart for the same location.
+  // Both now come off Scott's file.
+  const locHireRate = (region) => {
+    let w = 0, n = 0;
+    PLATFORMS.forEach(pl => {
+      const h = regionPlatformHireCVR(pl, region, role);
+      const st = weightedStats(pl, region, role);
+      if (h > 0 && st.completes > 0) { w += h * st.completes; n += st.completes; }
+    });
+    return n > 0 ? w / n : null;
+  };
+
   // Hire rates stay on the whole history whatever window is chosen: hires lag
   // by weeks and there is never enough of them in a short window to mean
   // anything. So cost per hire is the windowed cost per application divided
   // by the all-time hire rate.
   const cph = (cpa, region) => {
     if (!cpa) return null;
-    const r = (DATA.cvr_benchmarks && DATA.cvr_benchmarks[role] && DATA.cvr_benchmarks[role][region]) || 0;
+    const r = locHireRate(region);
+    return r > 0 ? cpa / r : null;
+  };
+
+  // The same figure for a single platform in a single location, so the drill-
+  // down's cost per hire is worked out from the very rate shown beside it.
+  const cellCph = (cpa, plat, region) => {
+    if (!cpa) return null;
+    const r = regionPlatformHireCVR(plat, region, role);
     return r > 0 ? cpa / r : null;
   };
 
@@ -3459,7 +3486,7 @@ function BenchmarksTab({ state, setState }) {
               const mFirst = cells.map(c => c.first).filter(Boolean).sort()[0];
               const mLast = cells.map(c => c.last).filter(Boolean).sort().pop();
               const nMonths = mFirst ? months.filter(m => m >= mFirst && m <= mLast && m >= from && m <= to).length : 0;
-              const hr = (DATA.cvr_benchmarks && DATA.cvr_benchmarks[role] && DATA.cvr_benchmarks[role][region]) || 0;
+              const hr = locHireRate(region) || 0;
               return (
                 <tr key={region}>
                   <td>{region}</td>
@@ -3542,7 +3569,7 @@ function BenchmarksTab({ state, setState }) {
                       <tr key={region}>
                         <td>{region}</td>
                         <td className="mono">{cell.cpa ? fmtGBP(cell.cpa) : '-'}</td>
-                        <td className="mono">{cph(cell.cpa, region) ? fmtGBP(cph(cell.cpa, region)) : '-'}</td>
+                        <td className="mono">{cellCph(cell.cpa, platform, region) ? fmtGBP(cellCph(cell.cpa, platform, region)) : '-'}</td>
                         <td className="mono">{(() => { const h = regionPlatformHireCVR(platform, region, role); return h ? (h * 100).toFixed(2) + '%' : '-'; })()}</td>
                         <td className="mono">{cell.cvr ? (cell.cvr * 100).toFixed(2) + '%' + (cell.cvrWindowed ? '' : '*') : '-'}</td>
                         <td>{cell.months ? cell.months + ', ' + monthShort(cell.first) + ' to ' + monthShort(cell.last) : '-'}</td>
@@ -4017,7 +4044,6 @@ function exportPlanPDF(state, roleFilter) {
         'Your budget, where it goes, and how many applications it is predicted to deliver');
 
       const plan = plans[role];
-      const pct = Math.round(plan.pctOfTarget * 100);
       const premiumCamp = (state.premiumCampaigns && state.premiumCampaigns[role]) || 0;
 
       // The verdict banner that used to sit here (green on track, amber close,
@@ -4102,7 +4128,7 @@ function exportPlanPDF(state, roleFilter) {
         'likely ' + fmtInt(plan.predLow) + '\u2013' + fmtInt(plan.predHigh), ORANGE);
       tile(rightX + tileW + colGap, blockTop, 'Application target',
         plan.appTarget > 0 ? fmtInt(plan.appTarget) : 'Not set',
-        plan.appTarget > 0 ? 'plan delivers ' + pct + '%' : 'not set', NAVY);
+        plan.appTarget > 0 ? '' : 'not set', NAVY);
       tile(rightX, blockTop + tileH + colGap, 'Predicted hires', plan.predictedHires.toFixed(1),
         plan.predictedHires > 0
           ? 'likely ' + plan.predictedHiresLow.toFixed(1) + '\u2013' + plan.predictedHiresHigh.toFixed(1)
@@ -4700,7 +4726,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
-    'Took the coloured verdict banner off the top of the plan page. On track, close to target and falling short have gone. Every figure it carried is already in the tiles underneath it. The Application target tile shows what share of the target the plan delivers, with no probability attached to it.',
+    'The Benchmarks tab now takes its hire rates from Scott\u2019s file, the same source the plan runs on. It was using the coarse three-band set built in April, which put every location into one of three rates. The two disagreed, worst of all in London, where the band said 1.70% and Scott\u2019s file says nearer 1%, so the tab was quoting a cost per hire thousands of pounds below what the plan quoted for the same location. The cost per hire inside each platform breakdown is now worked out from the rate shown next to it rather than the banded one, which was the source of the gap. No plan figures change: the banded set was only ever a fallback in the engine, and on the September SMR plan removing it entirely moved no location budgets at all.',
+    'Took the coloured verdict banner off the top of the plan page. On track, close to target and falling short have gone. Every figure it carried is already in the tiles underneath it. The Application target tile now shows the target on its own, with nothing underneath it: no probability, and no percentage of target either.',
     'On the By region and channel pages, the likely apps range no longer has a column of its own at the far right. It sits under the predicted apps figure, the way the apply CVR and cost per app ranges already did. Predicted hires now carries its range underneath in the same way, and the totals row shows both. Dropping a column let the rest spread wider.',
     'Swapped the Predicted apps and Apply CVR columns on By channel and By region, so predicted apps comes first. That is also the order the region and channel detail pages already used, so the whole document now reads the same way.',
     'Added a By region page to the PDF, sitting straight after By channel and using the same columns: spend, predicted apps, apply CVR, cost per application, hire CVR, predicted hires and cost per hire. Locations are in the same order as the table on the plan page. The totals match By channel exactly, which is the point of having both.',
