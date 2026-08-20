@@ -4060,13 +4060,17 @@ function planBlendedCVR(plan, role) {
   return w > 0 ? wSum / w : 0;
 }
 
-function exportPDF(state, role) {
+function exportPDF(state, role, opts) {
   // One role at a time. RAC want them as separate documents anyway, and
   // exporting both when you only wanted one meant deleting a file every time.
-  exportPlanPDF(state, [role]);
+  exportPlanPDF(state, [role], opts);
 }
 
-function exportPlanPDF(state, roleFilter) {
+// opts.notes false leaves both commentary sections out. Everything else about
+// the document is identical, including the page count and the numbering, so
+// the two versions can be put side by side.
+function exportPlanPDF(state, roleFilter, opts) {
+  const withNotes = !(opts && opts.notes === false);
   const ROLES_ALL = ['SMR', 'Patrol'];
   const roles = (roleFilter && roleFilter.length ? roleFilter : ROLES_ALL)
     .filter(r => ROLES_ALL.includes(r));
@@ -4176,7 +4180,7 @@ function exportPlanPDF(state, roleFilter) {
     // Every section that has something written in it, in the order they print:
     // each role's plan notes, then each role's legacy notes.
     const COMMENTARY_SECTIONS = [];
-    COMMENTARY_KINDS.forEach(k => {
+    if (withNotes) COMMENTARY_KINDS.forEach(k => {
       roles.forEach(r => {
         const chunks = commentaryChunks(r, k.key);
         if (chunks.length) COMMENTARY_SECTIONS.push({ role: r, kind: k, chunks });
@@ -4877,7 +4881,8 @@ function exportPlanPDF(state, roleFilter) {
     footer(gPageNum, TOTAL_PAGES);
 
     const roleTag = roles.length === 1 ? '_' + roles[0] : '';
-    pdf.save('RAC_' + monthLabel.replace(' ', '_') + roleTag + '_Plan.pdf');
+    const notesTag = withNotes ? '' : '_No_Notes';
+    pdf.save('RAC_' + monthLabel.replace(' ', '_') + roleTag + '_Plan' + notesTag + '.pdf');
   } catch (e) {
     alert('PDF export failed: ' + e.message);
   }
@@ -4888,6 +4893,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'Added a second export button, PDF, no notes. It produces exactly the same document with both commentary sections left out, for when the plan is going to someone who does not need the reasoning or when the notes are still being agreed. Page numbering and the total on every page adjust to the shorter document. The file is named with No Notes on the end so the two do not sit in a folder looking identical.',
+    
     'Added a second commentary box on Setup, Commentary relating to legacy plan, alongside the existing one. It works exactly the same way, one point per line, saved and frozen with the plan. In the PDF it prints as its own section headed Notes on the legacy plan, ahead of the notes on this plan, and it breaks onto extra pages at six points each in its own right. Numbering restarts at 1 for the legacy section. The four figures across the top stay on the notes for this plan only, because they describe this plan and would say something untrue sitting above notes about a different one.',
     
     'A location can now be held at zero spend instead of the pound we have been putting in to keep it visible. Type N in its Max box on Setup. It stays in the plan and on every page of the PDF, funded at nothing, and it keeps its share of the application target so the unmet demand is still on the page. A cap of 0 still means no cap, as it always has, so nothing already saved changes.',
@@ -9010,7 +9017,14 @@ function App() {
               onClick={() => exportWorkings(plannerState, exportRole)}>
               Workings
             </button>
-            <button className="btn btn-sm btn-primary" onClick={() => exportPDF(plannerState, exportRole)}>
+            <button className="btn btn-sm" style={{ marginRight: 8 }}
+              title="The same document without the notes pages"
+              onClick={() => exportPDF(plannerState, exportRole, { notes: false })}>
+              PDF, no notes
+            </button>
+            <button className="btn btn-sm btn-primary"
+              title="The full document, including both commentary sections"
+              onClick={() => exportPDF(plannerState, exportRole)}>
               PDF
             </button>
           </>
