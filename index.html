@@ -2309,6 +2309,24 @@ async function sbSendLink(email) {
   }
 }
 
+// Which tool and tab the address bar is pointing at.
+//
+// #planner/benchmarks, #priorities, #pacing, #data, #changelog. The month is
+// deliberately not in here: it lives in the shared workspace, so a link that
+// set it would move everyone else's month too.
+const ROUTE_TOOLS = ['planner', 'priorities', 'pacing', 'data', 'changelog'];
+const ROUTE_TABS = ['setup', 'plan', 'platforms', 'benchmarks', 'method'];
+
+function routeFromHash() {
+  const h = (window.location.hash || '').replace(/^#\/?/, '');
+  // The sign-in link comes back with a token in the hash. Not a route.
+  if (!h || h.indexOf('access_token') !== -1) return null;
+  const bits = h.split('/');
+  if (ROUTE_TOOLS.indexOf(bits[0]) === -1) return null;
+  const tab = (bits[0] === 'planner' && ROUTE_TABS.indexOf(bits[1]) !== -1) ? bits[1] : null;
+  return { tool: bits[0], tab };
+}
+
 function sbCatchSession() {
   const h = window.location.hash || '';
   if (!h.includes('access_token')) return false;
@@ -4818,6 +4836,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'The address bar now follows where you are: #planner/benchmarks, #priorities, #pacing and so on. Refreshing puts you back on the tab you were on instead of Setup, the browser back button walks through the tabs rather than leaving the tool, and you can send someone a link to a particular view. The month is not in the address on purpose, because it lives in the shared workspace and a link that set it would move everyone else\u2019s month as well.',
+    
     'Added a row of initials at the top of the page showing who else is signed in right now. It checks in every 25 seconds and drops anyone who has not been seen for 75. Your own initials are the orange one. Hovering gives the full address. Everyone writes their own row rather than a shared one, so this cannot clash the way the workspace does.',
     
     'Cost per hire is now worked out as cost per application divided by the hire rate, everywhere. It used to be read straight out of the data file, where it had come over from Scott\u2019s sheet alongside the hire rate. Only the rate travelled cleanly. The spend behind his cost per hire was not the spend our platforms are running, so the two never belonged in the same row: the SMR Indeed page showed North West at 54 pounds an application and a 1.46% hire rate, then claimed a 979 pound hire, where those two figures give 3,699. Every location outside London and the South East was understated, and understated most in the northern locations the model has been pushing budget toward. The corrected figures are higher: North West 979 becomes 3,866, Yorkshire 666 becomes 3,145, East Midlands 2,742 becomes 5,255, London 10,525 becomes 11,614. Hire rates are unchanged and still Scott\u2019s. No budget moves, because the allocation never used the stored figure.',
@@ -8726,9 +8746,9 @@ function App() {
     });
   };
 
-  const [tool, setTool] = useState('planner');
+  const [tool, setTool] = useState(() => (routeFromHash() || {}).tool || 'planner');
   const [exportRole, setExportRole] = useState('SMR');
-  const [tab, setTab] = useState('setup');
+  const [tab, setTab] = useState(() => (routeFromHash() || {}).tab || 'setup');
   const [comparing, setComparing] = useState(false);
 
   const month = ws.current;
@@ -8822,6 +8842,26 @@ function App() {
       months: { ...w.months, [month]: { ...(w.months[month] || newMonth(w, month)), working: planner, loaded: id } },
     }));
   };
+
+  // Address bar follows the view, so refreshing lands you back where you were
+  // and a link points at something specific. Setting the hash pushes a history
+  // entry, which is what makes the back button walk through the tabs.
+  useEffect(() => {
+    const want = '#' + tool + (tool === 'planner' ? '/' + tab : '');
+    if (window.location.hash !== want) window.location.hash = want;
+  }, [tool, tab]);
+
+  // And the view follows the address bar, for back, forward and pasted links.
+  useEffect(() => {
+    const onHash = () => {
+      const r = routeFromHash();
+      if (!r) return;
+      setTool(r.tool);
+      if (r.tab) setTab(r.tab);
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   const tabs = [
     { id: 'setup', label: 'Setup' },
