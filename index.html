@@ -2116,13 +2116,15 @@ function CommentaryBox({ value, onCommit }) {
 // Two independent sets of notes per role: the plan itself, and the legacy
 // plan it is being compared against. Each gets its own box on Setup and its
 // own section in the PDF.
+// Print order: legacy notes first, then the notes on this plan.
 const COMMENTARY_KINDS = [
-  { key: 'plan',   field: 'commentary',       title: 'Notes on this plan' },
   { key: 'legacy', field: 'commentaryLegacy', title: 'Notes on the legacy plan' },
+  { key: 'plan',   field: 'commentary',       title: 'Notes on this plan' },
 ];
 
 function commentaryPoints(state, role, kind) {
-  const k = COMMENTARY_KINDS.find(x => x.key === (kind || 'plan')) || COMMENTARY_KINDS[0];
+  const k = COMMENTARY_KINDS.find(x => x.key === (kind || 'plan'))
+    || COMMENTARY_KINDS.find(x => x.key === 'plan');
   const raw = (state && state[k.field] && state[k.field][role]) || '';
   return raw.split('\n')
     .map(l => l.replace(/^\s*(?:[-*\u2022]|\d+[.)])\s*/, '').trim())
@@ -2763,7 +2765,7 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
             })()}
             <div className="section-label">Commentary for the plan document</div>
             <div className="help-text" style={{ marginBottom: 6 }}>
-              One point per line. It appears as its own page in the PDF, and saves with the plan.
+              One point per line. It appears as its own page in the PDF, after the legacy notes below, and saves with the plan.
             </div>
             <CommentaryBox
               value={(state.commentary && state.commentary[role]) || ''}
@@ -2771,7 +2773,7 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
 
             <div className="section-label">Commentary relating to legacy plan</div>
             <div className="help-text" style={{ marginBottom: 6 }}>
-              One point per line. It appears as its own page in the PDF, after the notes above, and saves with the plan.
+              One point per line. It appears as its own page in the PDF, before the notes above, and saves with the plan.
             </div>
             <CommentaryBox
               value={(state.commentaryLegacy && state.commentaryLegacy[role]) || ''}
@@ -4886,7 +4888,7 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
-    'Added a second commentary box on Setup, Commentary relating to legacy plan, alongside the existing one. It works exactly the same way, one point per line, saved and frozen with the plan. In the PDF it prints as its own section headed Notes on the legacy plan, straight after the notes on this plan, and it breaks onto extra pages at six points each in its own right. Numbering restarts at 1 for the legacy section. The four figures across the top stay on the notes for this plan only, because they describe this plan and would say something untrue sitting above notes about a different one.',
+    'Added a second commentary box on Setup, Commentary relating to legacy plan, alongside the existing one. It works exactly the same way, one point per line, saved and frozen with the plan. In the PDF it prints as its own section headed Notes on the legacy plan, ahead of the notes on this plan, and it breaks onto extra pages at six points each in its own right. Numbering restarts at 1 for the legacy section. The four figures across the top stay on the notes for this plan only, because they describe this plan and would say something untrue sitting above notes about a different one.',
     
     'A location can now be held at zero spend instead of the pound we have been putting in to keep it visible. Type N in its Max box on Setup. It stays in the plan and on every page of the PDF, funded at nothing, and it keeps its share of the application target so the unmet demand is still on the page. A cap of 0 still means no cap, as it always has, so nothing already saved changes.',
     
