@@ -789,6 +789,23 @@ const FALLBACK_MIN_APPS = 5;
 // (e.g. a £6 CPA on 1 month of spend) should not be projected at face value.
 const CPA_PRIOR_K = 35;
 
+// A region cap of exactly nothing. 0 already means "no cap", so zero spend
+// needs a value of its own. Shown and typed as N.
+const NO_SPEND = -1;
+
+function capToText(v) {
+  if (v === NO_SPEND) return 'N';
+  return '\u00A3' + (v || 0).toLocaleString('en-GB');
+}
+
+// N, n or a bare minus sign all mean zero spend. Anything else is read as a
+// number, and an empty box goes back to no cap.
+function capFromText(txt) {
+  const t = String(txt || '').trim();
+  if (/^[Nn\u00A3\s-]*[Nn-]/.test(t)) return NO_SPEND;
+  return parseInt(t.replace(/[^0-9]/g, ''), 10) || 0;
+}
+
 // Platform-level aggregate CPA, cached. This is the "prior" the engine
 // regresses thin or unusually cheap cell CPAs toward.
 function platformAvgCPA(platform, role) {
@@ -1585,7 +1602,13 @@ function buildFundingPlanUncached(role, p) {
 
   // ----- Apply per-region budget limits (GBP, per location) -----
   // regionMin/regionMax cap what a single location can take. 0 or undefined
-  // means no limit. Money trimmed off a capped location is redistributed to
+  // means no limit, which leaves no way to say "cap this at nothing". A cap of
+  // NO_SPEND (-1) means exactly that: hold the location open in the plan and
+  // every table, funded at zero. Typing N in the box on Setup sets it.
+  //
+  // A sentinel rather than switching 0 to mean zero spend, because every plan
+  // already saved stores 0 for "no limit" and reinterpreting it would silently
+  // zero out locations in old versions. Money trimmed off a capped location is redistributed to
   // the locations still below their cap, in proportion to their demand share.
   // Money needed to lift a location to its floor is taken from the others the
   // same way. The deployable total is preserved; if every location is capped
@@ -1595,9 +1618,10 @@ function buildFundingPlanUncached(role, p) {
   const regionClamped = {};
   let unplacedBudget = 0;
   const hasRegionLimits = locs.some(l =>
-    (regionMin[l.region] > 0) || (regionMax[l.region] > 0));
+    (regionMin[l.region] > 0) || (regionMax[l.region] > 0) || (regionMax[l.region] === NO_SPEND));
   if (hasRegionLimits && locs.length > 0) {
-    const capOf = l => (regionMax[l.region] > 0 ? regionMax[l.region] : Infinity);
+    const capOf = l => (regionMax[l.region] === NO_SPEND ? 0
+      : (regionMax[l.region] > 0 ? regionMax[l.region] : Infinity));
     const floorOf = l => (regionMin[l.region] > 0 ? regionMin[l.region] : 0);
     // Pass 1: clamp every location to its cap or floor, collecting the
     // difference in a pool (positive = money to place, negative = money owed).
@@ -2541,8 +2565,9 @@ function CoverageMatrix({ role, state, setState }) {
                     </td>
                     <td style={{ padding: '4px 6px', borderBottom: '1px solid var(--ink-04)', textAlign: 'center' }}>
                       <input className="text-input" style={{ width: 88, padding: '4px 6px', fontSize: 12, textAlign: 'right' }}
-                        value={'\u00A3' + (maxOf(region)).toLocaleString('en-GB')}
-                        onChange={e => setLimit('regionMax', region, parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0)} />
+                        value={capToText(maxOf(region))}
+                        title="A number caps the spend here. N funds it at nothing but keeps it in the plan."
+                        onChange={e => setLimit('regionMax', region, capFromText(e.target.value))} />
                     </td>
                   </tr>
                 ))}
@@ -4836,6 +4861,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'A location can now be held at zero spend instead of the pound we have been putting in to keep it visible. Type N in its Max box on Setup. It stays in the plan and on every page of the PDF, funded at nothing, and it keeps its share of the application target so the unmet demand is still on the page. A cap of 0 still means no cap, as it always has, so nothing already saved changes.',
+    
     'The address bar now follows where you are: #planner/benchmarks, #priorities, #pacing and so on. Refreshing puts you back on the tab you were on instead of Setup, the browser back button walks through the tabs rather than leaving the tool, and you can send someone a link to a particular view. The month is not in the address on purpose, because it lives in the shared workspace and a link that set it would move everyone else\u2019s month as well.',
     
     'Added a row of initials at the top of the page showing who else is signed in right now. It checks in every 25 seconds and drops anyone who has not been seen for 75. Your own initials are the orange one. Hovering gives the full address. Everyone writes their own row rather than a shared one, so this cannot clash the way the workspace does.',
