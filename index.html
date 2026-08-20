@@ -1363,14 +1363,25 @@ function regionPlatformHireCVR(plat, region, role) {
   const s = getStats(plat, region, role);
   return s && s.hireCvr != null ? s.hireCvr : null;
 }
+// Cost per hire for one platform in one location: this role's cost per
+// application there, divided by the rate at which those applications become
+// hires.
+//
+// It used to read the cph stored in the data file, which came over from
+// Scott's sheet alongside the hire rate. Only the rate travelled cleanly. The
+// spend behind his cost per hire was not the spend the ad platforms are
+// running, so the stored figures implied applications costing 13 to 30 pounds
+// in the northern locations while the platforms deliver them at 47 to 79. The
+// result was a row in the PDF whose three columns did not multiply out: North
+// West read 54 pounds an application at a 1.46% hire rate and then claimed a
+// 979 pound hire, where those two numbers give 3,699.
+//
+// The hire rate is still Scott's. Only the money is now ours.
 function regionPlatformCPH(plat, region, role) {
-  const o = hireOverrideFor(plat, region, role);
-  if (o !== null) {
-    const cpa = effectiveCPA(plat, region, role);
-    return (cpa && cpa.cpa && o > 0) ? cpa.cpa / o : null;
-  }
-  const s = getStats(plat, region, role);
-  return s && s.cph != null ? s.cph : null;
+  const rate = regionPlatformHireCVR(plat, region, role);
+  if (!(rate > 0)) return null;
+  const cpa = effectiveCPA(plat, region, role);
+  return (cpa && cpa.cpa > 0) ? cpa.cpa / rate : null;
 }
 
 // Predicted hires for one platform in one location: predicted apps for that
@@ -1941,7 +1952,11 @@ function buildFundingPlanUncached(role, p) {
         predHires: hires,
         predHiresLow: hires * (1 - bandInfo.pct / 100),
         predHiresHigh: hires * (1 + bandInfo.pct / 100),
-        cph: regionPlatformCPH(plat, region, role),
+        // Worked out from this row's own cost per application, so the three
+        // columns on the page agree with each other.
+        cph: (hireCvr > 0)
+          ? ((apps > 0 ? spend / apps : cpaInfo.cpa) / hireCvr)
+          : null,
         cpa: apps > 0 ? spend / apps : (spend > 0 ? cpaInfo.cpa : 0),
         predLow: apps * (1 - bandInfo.pct / 100),
         predHigh: apps * (1 + bandInfo.pct / 100),
@@ -3313,18 +3328,21 @@ function BenchmarksTab({ state, setState }) {
   // by weeks and there is never enough of them in a short window to mean
   // anything. So cost per hire is the windowed cost per application divided
   // by the all-time hire rate.
-  const cph = (cpa, region) => {
-    if (!cpa) return null;
+  // Cost per hire is the cost per application the plan uses, divided by the
+  // hire rate. Same arithmetic as the PDF, on the same two figures shown in
+  // the row.
+  const cph = (region) => {
+    const c = locPlanCPA(region);
     const r = locHireRate(region);
-    return r > 0 ? cpa / r : null;
+    return (c > 0 && r > 0) ? c / r : null;
   };
 
   // The same figure for a single platform in a single location, so the drill-
   // down's cost per hire is worked out from the very rate shown beside it.
-  const cellCph = (cpa, plat, region) => {
-    if (!cpa) return null;
+  const cellCph = (plat, region) => {
+    const b = regionPlatformCPA(plat, region, role);
     const r = regionPlatformHireCVR(plat, region, role);
-    return r > 0 ? cpa / r : null;
+    return (b && b.cpa > 0 && r > 0) ? b.cpa / r : null;
   };
 
   // Apply rate and hire rate come from the whole history: clicks are not
@@ -3358,9 +3376,10 @@ function BenchmarksTab({ state, setState }) {
     });
     return n > 0 ? w / n : null;
   };
-  const platCph = (pl, cpa) => {
+  const platCph = (pl) => {
+    const b = rolePlatformCPA(pl, role);
     const h = platHireRate(pl);
-    return (cpa && h > 0) ? cpa / h : null;
+    return (b && b.cpa > 0 && h > 0) ? b.cpa / h : null;
   };
 
   const grid = DATA.regions_ordered.map(region => ({
@@ -3505,7 +3524,7 @@ function BenchmarksTab({ state, setState }) {
                 <tr key={region}>
                   <td>{region}</td>
                   <td className="mono">{locPlanCPA(region) ? fmtGBP(locPlanCPA(region)) : (cpa ? fmtGBP(cpa) : '-')}</td>
-                  <td className="mono">{cph(cpa, region) ? fmtGBP(cph(cpa, region)) : '-'}</td>
+                  <td className="mono">{cph(region) ? fmtGBP(cph(region)) : '-'}</td>
                   <td className="mono">{hr ? (hr * 100).toFixed(2) + '%' : 'no data'}</td>
                   <td className="mono">{applyRate(region) ? (applyRate(region) * 100).toFixed(2) + '%' : '-'}</td>
                   <td>{nMonths ? nMonths + ', ' + monthShort(mFirst) + ' to ' + monthShort(mLast) : '-'}</td>
@@ -3541,7 +3560,7 @@ function BenchmarksTab({ state, setState }) {
                     const b = rolePlatformCPA(pl, role);
                     return (b && b.cpa > 0) ? fmtGBP(b.cpa) : (ap > 0 ? fmtGBP(sp / ap) : '-');
                   })()}</td>
-                  <td className="mono">{platCph(pl, ap > 0 ? sp / ap : null) ? fmtGBP(platCph(pl, ap > 0 ? sp / ap : null)) : '-'}</td>
+                  <td className="mono">{platCph(pl) ? fmtGBP(platCph(pl)) : '-'}</td>
                   <td className="mono">{platHireRate(pl) ? (platHireRate(pl) * 100).toFixed(2) + '%' : '-'}</td>
                   <td className="mono">{platApplyRate(pl) ? (platApplyRate(pl) * 100).toFixed(2) + '%' : '-'}</td>
                   <td className="mono">{live} of {DATA.regions_ordered.length}</td>
@@ -3589,7 +3608,7 @@ function BenchmarksTab({ state, setState }) {
                           const b = regionPlatformCPA(platform, region, role);
                           return (b && b.cpa > 0) ? fmtGBP(b.cpa) : (cell.cpa ? fmtGBP(cell.cpa) : '-');
                         })()}</td>
-                        <td className="mono">{cellCph(cell.cpa, platform, region) ? fmtGBP(cellCph(cell.cpa, platform, region)) : '-'}</td>
+                        <td className="mono">{cellCph(platform, region) ? fmtGBP(cellCph(platform, region)) : '-'}</td>
                         <td className="mono">{(() => { const h = regionPlatformHireCVR(platform, region, role); return h ? (h * 100).toFixed(2) + '%' : '-'; })()}</td>
                         <td className="mono">{cell.cvr ? (cell.cvr * 100).toFixed(2) + '%' + (cell.cvrWindowed ? '' : '*') : '-'}</td>
                         <td>{cell.months ? cell.months + ', ' + monthShort(cell.first) + ' to ' + monthShort(cell.last) : '-'}</td>
@@ -4746,6 +4765,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'Cost per hire is now worked out as cost per application divided by the hire rate, everywhere. It used to be read straight out of the data file, where it had come over from Scott\u2019s sheet alongside the hire rate. Only the rate travelled cleanly. The spend behind his cost per hire was not the spend our platforms are running, so the two never belonged in the same row: the SMR Indeed page showed North West at 54 pounds an application and a 1.46% hire rate, then claimed a 979 pound hire, where those two figures give 3,699. Every location outside London and the South East was understated, and understated most in the northern locations the model has been pushing budget toward. The corrected figures are higher: North West 979 becomes 3,866, Yorkshire 666 becomes 3,145, East Midlands 2,742 becomes 5,255, London 10,525 becomes 11,614. Hire rates are unchanged and still Scott\u2019s. No budget moves, because the allocation never used the stored figure.',
+    
     'The Benchmarks tab now shows the cost per application the plan actually uses, rather than the raw historic rate. The two used to differ and there was no way to tell from the screen which one a plan was built on. Inside each platform breakdown the figure is now the same number that appears on the By region and channel pages of a PDF. The blended figures by location and by platform are built from those same cell rates, so they will still sit a little away from a plan\u2019s own, which is weighted by where next month\u2019s budget goes rather than by where spend has gone historically.',
     'The Benchmarks tab also takes its hire rates from Scott\u2019s file now, the same source the plan runs on. It was using the coarse three-band set built in April. The two disagreed, worst of all in London, where the band said 1.70% and Scott\u2019s file says nearer 1%, so the tab was quoting a cost per hire thousands of pounds below what the plan quoted for the same location.',
     'Took the coloured verdict banner off the top of the plan page. On track, close to target and falling short have gone. Every figure it carried is already in the tiles underneath it. The Application target tile now shows the target on its own, with nothing underneath it.',
