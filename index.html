@@ -2113,8 +2113,17 @@ function CommentaryBox({ value, onCommit }) {
   );
 }
 
-function commentaryPoints(state, role) {
-  const raw = (state && state.commentary && state.commentary[role]) || '';
+// Two independent sets of notes per role: the plan itself, and the legacy
+// plan it is being compared against. Each gets its own box on Setup and its
+// own section in the PDF.
+const COMMENTARY_KINDS = [
+  { key: 'plan',   field: 'commentary',       title: 'Notes on this plan' },
+  { key: 'legacy', field: 'commentaryLegacy', title: 'Notes on the legacy plan' },
+];
+
+function commentaryPoints(state, role, kind) {
+  const k = COMMENTARY_KINDS.find(x => x.key === (kind || 'plan')) || COMMENTARY_KINDS[0];
+  const raw = (state && state[k.field] && state[k.field][role]) || '';
   return raw.split('\n')
     .map(l => l.replace(/^\s*(?:[-*\u2022]|\d+[.)])\s*/, '').trim())
     .filter(Boolean);
@@ -2759,6 +2768,14 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
             <CommentaryBox
               value={(state.commentary && state.commentary[role]) || ''}
               onCommit={v => update({ commentary: { ...(state.commentary || {}), [role]: v } })} />
+
+            <div className="section-label">Commentary relating to legacy plan</div>
+            <div className="help-text" style={{ marginBottom: 6 }}>
+              One point per line. It appears as its own page in the PDF, after the notes above, and saves with the plan.
+            </div>
+            <CommentaryBox
+              value={(state.commentaryLegacy && state.commentaryLegacy[role]) || ''}
+              onCommit={v => update({ commentaryLegacy: { ...(state.commentaryLegacy || {}), [role]: v } })} />
 
             <div className="section-label">How the budget splits across platforms</div>
             <div className="help-text" style={{ marginBottom: 10 }}>
@@ -4139,15 +4156,14 @@ function exportPlanPDF(state, roleFilter) {
       return pages;
     }
     const GLOSSARY_PAGES = countGlossaryPages();
-    // A commentary page per role, but only where something has been written.
-    const COMMENTARY_ROLES = roles.filter(r => commentaryPoints(state, r).length > 0);
     // At most six points to a page. More than that and the type has to shrink
-    // below the point of being read. Where a role spills over, the points are
-    // shared evenly rather than filling the first page and leaving one orphan
-    // on the second.
+    // below the point of being read. Where a section spills over, the points
+    // are shared evenly rather than filling the first page and leaving one
+    // orphan on the second. Each kind of note paginates on its own, so the
+    // legacy notes always start on a fresh page.
     const COMMENTARY_PER_PAGE = 6;
-    function commentaryChunks(role) {
-      const pts = commentaryPoints(state, role);
+    function commentaryChunks(role, kind) {
+      const pts = commentaryPoints(state, role, kind);
       if (!pts.length) return [];
       const pages = Math.ceil(pts.length / COMMENTARY_PER_PAGE);
       const per = Math.ceil(pts.length / pages);
@@ -4155,8 +4171,16 @@ function exportPlanPDF(state, roleFilter) {
       for (let i = 0; i < pts.length; i += per) out.push(pts.slice(i, i + per));
       return out;
     }
-    const COMMENTARY_PAGES = COMMENTARY_ROLES
-      .reduce((s, r) => s + commentaryChunks(r).length, 0);
+    // Every section that has something written in it, in the order they print:
+    // each role's plan notes, then each role's legacy notes.
+    const COMMENTARY_SECTIONS = [];
+    COMMENTARY_KINDS.forEach(k => {
+      roles.forEach(r => {
+        const chunks = commentaryChunks(r, k.key);
+        if (chunks.length) COMMENTARY_SECTIONS.push({ role: r, kind: k, chunks });
+      });
+    });
+    const COMMENTARY_PAGES = COMMENTARY_SECTIONS.reduce((s, x) => s + x.chunks.length, 0);
     // By channel is one page for the whole export. By region is a page per
     // role, because twelve locations at a row each will not share.
     const SUMMARY_PAGES = 1 + roles.length;
@@ -4168,8 +4192,8 @@ function exportPlanPDF(state, roleFilter) {
     // ---- one page per role -----------------------------------------------
     // Commentary first: it frames everything that follows.
     let commentaryPageNum = 1;
-    COMMENTARY_ROLES.forEach(role => {
-      commentaryPageNum += commentaryPage(role, commentaryPageNum);
+    COMMENTARY_SECTIONS.forEach(sec => {
+      commentaryPageNum += commentaryPage(sec, commentaryPageNum);
     });
 
     ROLES.forEach((role, roleIdx) => {
@@ -4375,8 +4399,8 @@ function exportPlanPDF(state, roleFilter) {
     // ---- commentary, the opening page --------------------------------------
     // Cards on a grid rather than a list, and the type is sized down until it
     // fits, because this has to be one page whatever gets written on it.
-    function commentaryPage(role, pageNum) {
-      const chunks = commentaryChunks(role);
+    function commentaryPage(sec, pageNum) {
+      const { role, kind, chunks } = sec;
       if (!chunks.length) return 0;
       const roleSub = role === 'SMR' ? 'SMR: Mobile Vehicle Tech'
                                      : 'Patrol: Roadside Technician';
@@ -4386,15 +4410,16 @@ function exportPlanPDF(state, roleFilter) {
         if (pageStarted) pdf.addPage();
         pageStarted = true;
         const first = chunkIdx === 0;
-        header(first ? 'Notes on this plan' : 'Notes on this plan (continued)', roleSub);
+        header(first ? kind.title : kind.title + ' (continued)', roleSub);
         const plan = plans[role];
         const top = 30;
 
-        // The figure strip belongs with the opening page. Repeating it on a
-        // continuation only eats the space the overflow needed in the first
-        // place.
+        // The figure strip belongs with the opening page of the plan's own
+        // notes. It is left off the legacy section, because those four figures
+        // describe this plan and putting them above notes about a different
+        // one would say something untrue.
         let stripH = 0;
-        if (first) {
+        if (first && kind.key === 'plan') {
           stripH = 24;
           const gap = 5;
           const tiles = [
@@ -4418,7 +4443,7 @@ function exportPlanPDF(state, roleFilter) {
 
         // One column. Two columns forces the type down to fit and the point of
         // the page is that it reads easily, not that it looks designed.
-        const gridTop = top + stripH + (first ? 12 : 2);
+        const gridTop = top + stripH + (stripH > 0 ? 12 : 2);
         const gridBottom = pageH - 18;
         const avail = gridBottom - gridTop;
         const numW = 12;                       // room for the number, left of the rule
@@ -4861,6 +4886,8 @@ function exportPlanPDF(state, roleFilter) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'Added a second commentary box on Setup, Commentary relating to legacy plan, alongside the existing one. It works exactly the same way, one point per line, saved and frozen with the plan. In the PDF it prints as its own section headed Notes on the legacy plan, straight after the notes on this plan, and it breaks onto extra pages at six points each in its own right. Numbering restarts at 1 for the legacy section. The four figures across the top stay on the notes for this plan only, because they describe this plan and would say something untrue sitting above notes about a different one.',
+    
     'A location can now be held at zero spend instead of the pound we have been putting in to keep it visible. Type N in its Max box on Setup. It stays in the plan and on every page of the PDF, funded at nothing, and it keeps its share of the application target so the unmet demand is still on the page. A cap of 0 still means no cap, as it always has, so nothing already saved changes.',
     
     'The address bar now follows where you are: #planner/benchmarks, #priorities, #pacing and so on. Refreshing puts you back on the tab you were on instead of Setup, the browser back button walks through the tabs rather than leaving the tool, and you can send someone a link to a particular view. The month is not in the address on purpose, because it lives in the shared workspace and a link that set it would move everyone else\u2019s month as well.',
@@ -5089,6 +5116,7 @@ function defaultPlannerState() {
     capMultiple: 1.0,
     bench: { SMR: null, Patrol: null },
     commentary: { SMR: '', Patrol: '' },
+    commentaryLegacy: { SMR: '', Patrol: '' },
     coveragePct: 0,
     premiumCampaigns: { SMR: 3, Patrol: 3 },
     acReserve: { SMR: AC_RESERVE_DEFAULT, Patrol: AC_RESERVE_DEFAULT },
