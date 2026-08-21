@@ -4315,33 +4315,40 @@ function exportPlanPDF(state, roleFilter, opts) {
         margin, y + 4);
       y += 7;
 
-      // Column positions for a 10-column table across 269mm
+      // Eleven columns across 269mm. Everything shifted left to make room for
+      // predicted hires on the end.
       const cx = {
         loc:   margin + 2,
-        roles: margin + 50,
-        indeed: margin + 75,
-        meta:   margin + 100,
-        google: margin + 125,
-        appcast: margin + 150,
-        total: margin + 178,
-        tgt:   margin + 203,
-        pred:  margin + 226,
-        range: margin + 248,
+        roles: margin + 46,
+        indeed: margin + 68,
+        meta:   margin + 91,
+        google: margin + 114,
+        appcast: margin + 137,
+        total: margin + 163,
+        tgt:   margin + 189,
+        pred:  margin + 209,
+        range: margin + 229,
+        hires: margin + 254,
       };
-      // Header
-      setFill(NAVY); pdf.rect(margin, y, pageW - margin * 2, 7, 'F');
+      // Header. The two predicted columns carry a second line so they can be
+      // named in full, the same way they are on By channel and By region.
+      const LHEAD = 9.5;
+      setFill(NAVY); pdf.rect(margin, y, pageW - margin * 2, LHEAD, 'F');
       pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8);
-      pdf.text('Location', cx.loc, y + 4.7);
-      pdf.text('Open roles', cx.roles, y + 4.7);
-      pdf.text('Indeed', cx.indeed, y + 4.7);
-      pdf.text('Meta', cx.meta, y + 4.7);
-      pdf.text('Google', cx.google, y + 4.7);
-      pdf.text('Appcast', cx.appcast, y + 4.7);
-      pdf.text('Budget', cx.total, y + 4.7);
-      pdf.text('App target', cx.tgt, y + 4.7);
-      pdf.text('Predicted', cx.pred, y + 4.7);
-      pdf.text('Likely range', cx.range, y + 4.7);
-      y += 7;
+      pdf.text('Location', cx.loc, y + 6.2);
+      pdf.text('Open roles', cx.roles, y + 6.2);
+      pdf.text('Indeed', cx.indeed, y + 6.2);
+      pdf.text('Meta', cx.meta, y + 6.2);
+      pdf.text('Google', cx.google, y + 6.2);
+      pdf.text('Appcast', cx.appcast, y + 6.2);
+      pdf.text('Budget', cx.total, y + 6.2);
+      pdf.text('App target', cx.tgt, y + 6.2);
+      pdf.text('Predicted', cx.pred, y + 3.9);
+      pdf.text('apps', cx.pred, y + 7.7);
+      pdf.text('Likely range', cx.range, y + 6.2);
+      pdf.text('Predicted', cx.hires, y + 3.9);
+      pdf.text('hires', cx.hires, y + 7.7);
+      y += LHEAD;
 
       pdf.setFont('helvetica', 'normal'); setColor(INK);
       const rows = plan.locations.slice().sort((a, b) => (b.vacancies - a.vacancies) || (b.predApps - a.predApps));
@@ -4363,6 +4370,9 @@ function exportPlanPDF(state, roleFilter, opts) {
         pdf.text(fmtInt(r.appSubTarget), cx.tgt, y + 4.1);
         pdf.text(fmtInt(r.predApps),     cx.pred, y + 4.1);
         pdf.text(fmtInt(r.predLow) + '\u2013' + fmtInt(r.predHigh), cx.range, y + 4.1);
+        // A location RAC has no hire data for would otherwise read 0.0, which
+        // looks like a prediction of no hires rather than no basis to predict.
+        pdf.text(r.hireCvr > 0 ? r.predHires.toFixed(1) : 'no data', cx.hires, y + 4.1);
         y += ROWH;
       });
       // Total row
@@ -4378,6 +4388,7 @@ function exportPlanPDF(state, roleFilter, opts) {
       pdf.text(fmtInt(plan.appTarget), cx.tgt, y + 4.7);
       pdf.text(fmtInt(plan.predictedApps), cx.pred, y + 4.7);
       pdf.text(fmtInt(plan.predLow) + '\u2013' + fmtInt(plan.predHigh), cx.range, y + 4.7);
+      pdf.text(plan.predictedHires.toFixed(1), cx.hires, y + 4.7);
       y += 7;
 
       // Helpful note under the table. If it won't fit above the footer,
@@ -4891,6 +4902,8 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'Added a Predicted hires column to the location and platform table on the plan page, on the end after the likely range, with the total on the bottom row. The other columns shifted left to make room. A location RAC has no hire data for reads no data rather than 0.0, which looked like a prediction of no hires.',
+    
     'Swapped the R square in the header and on the sign-in screen for the RAC logo, and renamed the tool from RAC Planning Tools to RAC Tool Suite.',
     'Brought the Method tab up to date. The spend ceiling was described as a hard limit that nothing could go above, which has not been true for a while: it is a soft cap, the plan will go past it when the target needs the money, and it reports how much sits above. Added how a location floor or ceiling works and that typing N holds a location at nothing. Added that cost per hire is now worked out from the cost per application and the hire rate rather than looked up. Explained what happens to a cost per application with thin data behind it and where to see it. Added the two commentary sections and the export without notes.',
     
