@@ -2043,8 +2043,21 @@ function buildFundingPlanUncached(role, p) {
   // out from the current plan's applications per pound gives a different
   // answer depending on what budget you happen to be looking at. Running the
   // whole plan at trial budgets gives the same answer from anywhere.
+  // If the location minimums add up to the whole deployable budget, every
+  // location is pinned and nothing is left for the engine to allocate. The
+  // plan then predicts the same applications at any budget, which sends the
+  // solver below to the bottom of its search range and returns a figure that
+  // is nonsense: it once read 5,050 pounds against a plan spending 134,890.
+  //
+  // In that case the budget is not solved for, it is simply the sum of what
+  // has been fixed, plus the hold-backs.
+  const minTotal = locs.reduce((t, l) => t + (regionMin[l.region] > 0 ? regionMin[l.region] : 0), 0);
+  const budgetPinned = locs.length > 0 && minTotal >= deployable - 1;
+
   let budgetForTarget = 0;
-  if (appTarget > 0 && !p._solving) {
+  if (budgetPinned) {
+    budgetForTarget = Math.ceil((minTotal + premiumHoldback + acHoldback) / 50) * 50;
+  } else if (appTarget > 0 && !p._solving) {
     const at = (b) => buildFundingPlan(role, { ...p, budget: b, _solving: true }).predictedApps;
     let lo = premiumHoldback + acHoldback, hi = Math.max(lo + 1000, (p.budget || 0) * 4 + 50000), guard = 0;
     while (at(hi) < appTarget && guard++ < 8) hi *= 1.6;
@@ -2071,7 +2084,7 @@ function buildFundingPlanUncached(role, p) {
     predictedHiresLow, predictedHiresHigh,
     onTarget: appTarget > 0 && predictedApps >= appTarget,
     pctOfTarget: appTarget > 0 ? predictedApps / appTarget : (predictedApps > 0 ? 1 : 0),
-    budgetForTarget, budget: p.budget || 0,
+    budgetForTarget, budgetPinned, budget: p.budget || 0,
   };
 }
 
@@ -3036,10 +3049,11 @@ function PlanTab({ state, setState }) {
             <div className="kpi-sub">across {liveCount} live locations</div>
           </div>
           <div className="kpi kpi-accent-good">
-            <div className="kpi-label">Budget to hit target</div>
+            <div className="kpi-label">{plan.budgetPinned ? 'Budget your caps require' : 'Budget to hit target'}</div>
             <div className="kpi-value mono">{plan.budgetForTarget > 0 ? fmtGBP(plan.budgetForTarget) : '-'}</div>
             <div className="kpi-sub">
-              {plan.budgetForTarget <= 0 ? 'no target set'
+              {plan.budgetPinned ? 'every location is set to a minimum, so this is the sum of them plus hold-backs'
+                : plan.budgetForTarget <= 0 ? 'no target set'
                 : budgetGap > 50 ? fmtGBP(budgetGap) + ' more than now'
                 : budgetGap < -50 ? fmtGBP(-budgetGap) + ' less than now'
                 : 'matches your budget'}
@@ -3049,7 +3063,7 @@ function PlanTab({ state, setState }) {
       )}
 
       {/* Apply-budget nudge */}
-      {liveCount > 0 && plan.budgetForTarget > 0 && budgetGap > 50 && (
+      {liveCount > 0 && !plan.budgetPinned && plan.budgetForTarget > 0 && budgetGap > 50 && (
         <div className="help-text" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
           <button className="btn btn-primary btn-sm" onClick={applyBudget}>
             Use {fmtGBP(plan.budgetForTarget)} as the {role} budget
@@ -4140,7 +4154,7 @@ function exportPlanPDF(state, roleFilter, opts) {
       ['Cost per application', 'What one application has cost in that location, blended across the four platforms. Where a location has thin data the figure is pulled toward the role-wide average.'],
       ['Hire CVR', 'The share of applications that go on to be hired, from RAC\u2019s own historic data. It is fixed per location and platform rather than recalculated from the plan, because hires lag by several weeks. Locations with no hire data show as such.'],
       ['Cost per hire', 'Spend divided by predicted hires. Hire rates are taken from RAC\u2019s own historic data and are not windowed, because hires lag by several weeks. Shown as n/a where a location has no hire data.'],
-      ['Budget to hit target', 'The total spend it would take for the central prediction to land on the application target. Includes the two hold-backs.'],
+      ['Budget to hit target', 'The total spend it would take for the central prediction to land on the application target. Includes the two hold-backs. Where every location has been set to a minimum, there is nothing left to solve for, so this reads Budget your caps require and shows the sum of those minimums plus the hold-backs.'],
       ['Platforms', 'Indeed, Meta, Google Search and Appcast. Each location\u2019s budget goes to whichever of them produces hires most cheaply at the level it can absorb.'],
     ];
     const gColW = (pageW - margin * 2 - 6) / 2;
@@ -4297,8 +4311,10 @@ function exportPlanPDF(state, roleFilter, opts) {
           ? 'likely ' + plan.predictedHiresLow.toFixed(1) + '\u2013' + plan.predictedHiresHigh.toFixed(1)
           : 'from RAC hire rates', BLUE);
       const gap = plan.budgetForTarget - plan.budget;
-      tile(rightX + tileW + colGap, blockTop + tileH + colGap, 'Budget to hit target',
+      tile(rightX + tileW + colGap, blockTop + tileH + colGap,
+        plan.budgetPinned ? 'Budget your caps require' : 'Budget to hit target',
         plan.budgetForTarget > 0 ? fmtGBP(plan.budgetForTarget) : '-',
+        plan.budgetPinned ? 'set by the location minimums' :
         plan.budgetForTarget <= 0 ? '' :
           gap > 50 ? fmtGBP(gap) + ' more than now' :
           gap < -50 ? fmtGBP(-gap) + ' less than now' : 'matches your budget',
@@ -4902,6 +4918,8 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'Fixed the Budget to hit target box reading nonsense when every location has a minimum set. If the minimums add up to the whole deployable budget, nothing is left for the plan to allocate and it predicts the same applications at any budget, so the search that normally solves for the target ran to the bottom of its range. On a Patrol plan spending 134,890 pounds it was reading 5,050. The box now says Budget your caps require and shows the sum of the minimums plus the hold-backs, and the button offering to apply a corrected budget is hidden, since there is nothing to correct.',
+    
     'Added a Predicted hires column to the location and platform table on the plan page, on the end after the likely range, with the total on the bottom row. The other columns shifted left to make room. A location RAC has no hire data for reads no data rather than 0.0, which looked like a prediction of no hires.',
     
     'Swapped the R square in the header and on the sign-in screen for the RAC logo, and renamed the tool from RAC Planning Tools to RAC Tool Suite.',
