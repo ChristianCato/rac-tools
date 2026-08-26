@@ -2054,21 +2054,45 @@ function buildFundingPlanUncached(role, p) {
   const minTotal = locs.reduce((t, l) => t + (regionMin[l.region] > 0 ? regionMin[l.region] : 0), 0);
   const budgetPinned = locs.length > 0 && minTotal >= deployable - 1;
 
+  // Once every location is at its cap, extra budget has nowhere to go and
+  // applications stop moving. The solver below then bisects across a flat
+  // stretch, so it can settle anywhere inside it, and rounding to the nearest
+  // 50 pounds makes the answer flip between two values. Typing one in makes it
+  // ask for the other, and round it goes.
+  //
+  // So: find out whether the caps are binding, by asking what a much larger
+  // budget would deliver.
+  const capsBinding = !p._solving && appTarget > 0 && (() => {
+    const more = buildFundingPlan(role, { ...p, budget: (p.budget || 0) * 2 + 50000, _solving: true });
+    return Math.abs(more.predictedApps - predictedApps) < 0.5;
+  })();
+
   let budgetForTarget = 0;
   if (budgetPinned) {
     budgetForTarget = Math.ceil((minTotal + premiumHoldback + acHoldback) / 50) * 50;
   } else if (appTarget > 0 && !p._solving) {
     const at = (b) => buildFundingPlan(role, { ...p, budget: b, _solving: true }).predictedApps;
-    let lo = premiumHoldback + acHoldback, hi = Math.max(lo + 1000, (p.budget || 0) * 4 + 50000), guard = 0;
+    // The top of the search must not depend on the budget currently set, or
+    // the bisection takes a different path each time and the answer moves by
+    // the rounding step. That is what made this flip between two values and
+    // chase itself when you typed one in.
+    let lo = premiumHoldback + acHoldback, hi = lo + 500000, guard = 0;
     while (at(hi) < appTarget && guard++ < 8) hi *= 1.6;
     if (at(hi) >= appTarget) {
       // Stop once the range is inside the rounding, rather than running a
       // fixed count. The answer is rounded to the nearest 50 pounds anyway.
-      for (let i = 0; i < 24 && hi - lo > 25; i++) {
+      for (let i = 0; i < 40 && hi - lo > 2; i++) {
         const mid = (lo + hi) / 2;
         if (at(mid) < appTarget) lo = mid; else hi = mid;
       }
       budgetForTarget = Math.ceil(hi / 50) * 50;
+      // Inside a flat stretch any answer within a few hundred pounds is as
+      // true as any other, so prefer the budget already set. That stops the
+      // box asking for a change that produces nothing and then asking for it
+      // back again.
+      if (capsBinding && Math.abs(budgetForTarget - (p.budget || 0)) <= 500) {
+        budgetForTarget = p.budget || 0;
+      }
     }
   }
 
@@ -2084,7 +2108,7 @@ function buildFundingPlanUncached(role, p) {
     predictedHiresLow, predictedHiresHigh,
     onTarget: appTarget > 0 && predictedApps >= appTarget,
     pctOfTarget: appTarget > 0 ? predictedApps / appTarget : (predictedApps > 0 ? 1 : 0),
-    budgetForTarget, budgetPinned, budget: p.budget || 0,
+    budgetForTarget, budgetPinned, capsBinding, budget: p.budget || 0,
   };
 }
 
@@ -3053,6 +3077,7 @@ function PlanTab({ state, setState, role: roleView, setRole: setRoleView }) {
             <div className="kpi-sub">
               {plan.budgetPinned ? 'every location is set to a minimum, so this is the sum of them plus hold-backs'
                 : plan.budgetForTarget <= 0 ? 'no target set'
+                : plan.capsBinding && Math.abs(budgetGap) <= 50 ? 'every location is at its cap, so more budget would not be spent'
                 : budgetGap > 50 ? fmtGBP(budgetGap) + ' more than now'
                 : budgetGap < -50 ? fmtGBP(-budgetGap) + ' less than now'
                 : 'matches your budget'}
@@ -4915,6 +4940,8 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'Fixed Budget to hit target chasing itself when caps are set. Typing in the figure it asked for made it ask for a different one, and typing that in brought back the first. Two causes. Once every location is at its cap, extra budget has nowhere to go and predicted applications stop moving, so the search that solves for the target was working across a flat stretch and could settle anywhere inside it. And the top of that search was seeded from whatever budget was currently set, so it took a different path each time and the answer moved by the rounding step. The search no longer depends on the current budget and runs finer, so it returns the same figure whatever is in the box. Where the caps mean more budget could not be spent, the box now says so.',
+    
     'There is now one role selector for the whole planner instead of three. Plan, Platforms and Benchmarks each kept their own, all starting on SMR, and none of them moved when you switched role somewhere else. Because the benchmark window is stored per role, setting one on the Benchmarks tab while it was showing SMR and then exporting Patrol applied it to the wrong role: the Patrol plan came out built on all time data, and the only sign was one line in the PDF header. Switching role anywhere now switches it everywhere, including the export.',
     
     'Fixed the Budget to hit target box reading nonsense when every location has a minimum set. If the minimums add up to the whole deployable budget, nothing is left for the plan to allocate and it predicts the same applications at any budget, so the search that normally solves for the target ran to the bottom of its range. On a Patrol plan spending 134,890 pounds it was reading 5,050. The box now says Budget your caps require and shows the sum of the minimums plus the hold-backs, and the button offering to apply a corrected budget is hidden, since there is nothing to correct.',
