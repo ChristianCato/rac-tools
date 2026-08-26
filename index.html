@@ -2188,21 +2188,35 @@ function planParams(role, s) {
 
 // Applications per hire, blended across the locations that are live this
 // month and weighted by where the plan actually puts the applications.
+// The rate at which applications become hires across the live locations.
+//
+// This used to build a plan at whatever budget was currently set and read the
+// rate out of the result. That made the application target depend on the
+// budget: with caps in place, changing the budget changes which locations are
+// at their cap, which changes the mix, which moves the rate and the target by
+// a hair. The target then changed the budget needed, which changed the target
+// again, and Budget to hit target chased itself between two figures.
+//
+// The application target is what RAC needs. It has nothing to do with what we
+// have typed in the budget box, so it is now weighted by open roles, which do
+// not move. Rates come from RAC's own file at location and platform level, the
+// same source the plan runs on.
 function blendedHireRate(role, s) {
-  try {
-    const probe = buildFundingPlan(role, planParams(role, s));
-    if (probe.predictedApps > 0 && probe.predictedHires > 0) {
-      return probe.predictedHires / probe.predictedApps;
-    }
-  } catch (e) { /* fall through to the demand-weighted average below */ }
-  // Fallback for a zero budget: weight each live location's hire rate by the
-  // number of roles open there.
   const vac = (s.vacancies && s.vacancies[role]) || {};
   let num = 0, den = 0;
   (s.liveRegions[role] || []).forEach(r => {
     const v = Math.max(0, vac[r] || 0);
-    const cvr = (DATA.cvr_benchmarks && DATA.cvr_benchmarks[role] && DATA.cvr_benchmarks[role][r]) || 0;
-    if (v > 0 && cvr > 0) { num += v * cvr; den += v; }
+    if (!(v > 0)) return;
+    // The location's own rate, blended across its platforms by the
+    // applications each has historically produced there.
+    let w = 0, n = 0;
+    PLATFORMS.forEach(pl => {
+      const h = regionPlatformHireCVR(pl, r, role);
+      const st = weightedStats(pl, r, role);
+      if (h > 0 && st && st.completes > 0) { w += h * st.completes; n += st.completes; }
+    });
+    const cvr = n > 0 ? w / n : 0;
+    if (cvr > 0) { num += v * cvr; den += v; }
   });
   return den > 0 ? num / den : roleAvgCVR(role);
 }
@@ -4940,6 +4954,8 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'The application target no longer moves with the budget. It is worked back from the hire target using the rate at which applications become hires, and that rate was being read off a plan built at whatever budget happened to be set. With caps in place, changing the budget changes which locations are at their cap, which changes the mix and moves the rate, so the target drifted by an application or two. That is what made Budget to hit target chase itself: the target it was solving for kept moving. The rate is now weighted by open roles, which do not change when the budget does, and uses the same per-location rates from RAC\u2019s file that the plan runs on. Application targets will shift slightly against previously saved plans as a result.',
+    
     'Fixed Budget to hit target chasing itself when caps are set. Typing in the figure it asked for made it ask for a different one, and typing that in brought back the first. Two causes. Once every location is at its cap, extra budget has nowhere to go and predicted applications stop moving, so the search that solves for the target was working across a flat stretch and could settle anywhere inside it. And the top of that search was seeded from whatever budget was currently set, so it took a different path each time and the answer moved by the rounding step. The search no longer depends on the current budget and runs finer, so it returns the same figure whatever is in the box. Where the caps mean more budget could not be spent, the box now says so.',
     
     'There is now one role selector for the whole planner instead of three. Plan, Platforms and Benchmarks each kept their own, all starting on SMR, and none of them moved when you switched role somewhere else. Because the benchmark window is stored per role, setting one on the Benchmarks tab while it was showing SMR and then exporting Patrol applied it to the wrong role: the Patrol plan came out built on all time data, and the only sign was one line in the PDF header. Switching role anywhere now switches it everywhere, including the export.',
