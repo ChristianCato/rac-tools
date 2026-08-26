@@ -2067,23 +2067,35 @@ function buildFundingPlanUncached(role, p) {
     return Math.abs(more.predictedApps - predictedApps) < 0.5;
   })();
 
+  // Solve on hires where a hire target is set. The application target is worked
+  // back from the hire target through a rate that moves with the allocation, so
+  // solving on applications meant chasing a figure that shifted every time the
+  // budget changed. Hires are what RAC asked for, so hires are what this
+  // answers.
+  const hireTarget = Math.max(0, p.hireTarget || 0);
+  const solveOnHires = hireTarget > 0;
+  const solveTarget = solveOnHires ? hireTarget : appTarget;
+
   let budgetForTarget = 0;
   if (budgetPinned) {
     budgetForTarget = Math.ceil((minTotal + premiumHoldback + acHoldback) / 50) * 50;
-  } else if (appTarget > 0 && !p._solving) {
-    const at = (b) => buildFundingPlan(role, { ...p, budget: b, _solving: true }).predictedApps;
+  } else if (solveTarget > 0 && !p._solving) {
+    const at = (b) => {
+      const q = buildFundingPlan(role, { ...p, budget: b, _solving: true });
+      return solveOnHires ? q.predictedHires : q.predictedApps;
+    };
     // The top of the search must not depend on the budget currently set, or
     // the bisection takes a different path each time and the answer moves by
     // the rounding step. That is what made this flip between two values and
     // chase itself when you typed one in.
     let lo = premiumHoldback + acHoldback, hi = lo + 500000, guard = 0;
-    while (at(hi) < appTarget && guard++ < 8) hi *= 1.6;
-    if (at(hi) >= appTarget) {
+    while (at(hi) < solveTarget && guard++ < 8) hi *= 1.6;
+    if (at(hi) >= solveTarget) {
       // Stop once the range is inside the rounding, rather than running a
       // fixed count. The answer is rounded to the nearest 50 pounds anyway.
       for (let i = 0; i < 40 && hi - lo > 2; i++) {
         const mid = (lo + hi) / 2;
-        if (at(mid) < appTarget) lo = mid; else hi = mid;
+        if (at(mid) < solveTarget) lo = mid; else hi = mid;
       }
       budgetForTarget = Math.ceil(hi / 50) * 50;
       // Inside a flat stretch any answer within a few hundred pounds is as
@@ -2108,7 +2120,9 @@ function buildFundingPlanUncached(role, p) {
     predictedHiresLow, predictedHiresHigh,
     onTarget: appTarget > 0 && predictedApps >= appTarget,
     pctOfTarget: appTarget > 0 ? predictedApps / appTarget : (predictedApps > 0 ? 1 : 0),
-    budgetForTarget, budgetPinned, capsBinding, budget: p.budget || 0,
+    budgetForTarget, budgetPinned, capsBinding, solveOnHires,
+    targetUnreachable: solveTarget > 0 && !p._solving && budgetForTarget <= 0 && !budgetPinned,
+    budget: p.budget || 0,
   };
 }
 
@@ -2170,6 +2184,7 @@ function planParams(role, s) {
   return {
     budget: s.budget[role] || 0,
     appTarget: 0,
+    hireTarget: (s.hireTarget && s.hireTarget[role]) || 0,
     liveRegions: s.liveRegions[role] || [],
     vacancies: (s.vacancies && s.vacancies[role]) || {},
     coveragePct: s.coveragePct,
@@ -2188,35 +2203,24 @@ function planParams(role, s) {
 
 // Applications per hire, blended across the locations that are live this
 // month and weighted by where the plan actually puts the applications.
-// The rate at which applications become hires across the live locations.
-//
-// This used to build a plan at whatever budget was currently set and read the
-// rate out of the result. That made the application target depend on the
-// budget: with caps in place, changing the budget changes which locations are
-// at their cap, which changes the mix, which moves the rate and the target by
-// a hair. The target then changed the budget needed, which changed the target
-// again, and Budget to hit target chased itself between two figures.
-//
-// The application target is what RAC needs. It has nothing to do with what we
-// have typed in the budget box, so it is now weighted by open roles, which do
-// not move. Rates come from RAC's own file at location and platform level, the
-// same source the plan runs on.
+// The rate at which applications become hires, taken from the plan itself, so
+// it reflects where the money actually goes rather than where the roles are.
+// Weighting by open roles instead was tried and is wrong: it produces a target
+// no budget delivers the hires at, because the expensive locations hold roles
+// they are not funded to fill.
 function blendedHireRate(role, s) {
+  try {
+    const probe = buildFundingPlan(role, planParams(role, s));
+    if (probe.predictedApps > 0 && probe.predictedHires > 0) {
+      return probe.predictedHires / probe.predictedApps;
+    }
+  } catch (e) { /* fall through to the demand-weighted average below */ }
   const vac = (s.vacancies && s.vacancies[role]) || {};
   let num = 0, den = 0;
   (s.liveRegions[role] || []).forEach(r => {
     const v = Math.max(0, vac[r] || 0);
-    if (!(v > 0)) return;
-    // The location's own rate, blended across its platforms by the
-    // applications each has historically produced there.
-    let w = 0, n = 0;
-    PLATFORMS.forEach(pl => {
-      const h = regionPlatformHireCVR(pl, r, role);
-      const st = weightedStats(pl, r, role);
-      if (h > 0 && st && st.completes > 0) { w += h * st.completes; n += st.completes; }
-    });
-    const cvr = n > 0 ? w / n : 0;
-    if (cvr > 0) { num += v * cvr; den += v; }
+    const cvr = (DATA.cvr_benchmarks && DATA.cvr_benchmarks[role] && DATA.cvr_benchmarks[role][r]) || 0;
+    if (v > 0 && cvr > 0) { num += v * cvr; den += v; }
   });
   return den > 0 ? num / den : roleAvgCVR(role);
 }
@@ -3087,9 +3091,11 @@ function PlanTab({ state, setState, role: roleView, setRole: setRoleView }) {
           </div>
           <div className="kpi kpi-accent-good">
             <div className="kpi-label">{plan.budgetPinned ? 'Budget your caps require' : 'Budget to hit target'}</div>
-            <div className="kpi-value mono">{plan.budgetForTarget > 0 ? fmtGBP(plan.budgetForTarget) : '-'}</div>
+            <div className="kpi-value mono">{plan.budgetForTarget > 0 ? fmtGBP(plan.budgetForTarget)
+              : plan.targetUnreachable ? 'Capped' : '-'}</div>
             <div className="kpi-sub">
               {plan.budgetPinned ? 'every location is set to a minimum, so this is the sum of them plus hold-backs'
+                : plan.targetUnreachable ? 'the caps stop this being reachable at any budget'
                 : plan.budgetForTarget <= 0 ? 'no target set'
                 : plan.capsBinding && Math.abs(budgetGap) <= 50 ? 'every location is at its cap, so more budget would not be spent'
                 : budgetGap > 50 ? fmtGBP(budgetGap) + ' more than now'
@@ -4349,8 +4355,10 @@ function exportPlanPDF(state, roleFilter, opts) {
       const gap = plan.budgetForTarget - plan.budget;
       tile(rightX + tileW + colGap, blockTop + tileH + colGap,
         plan.budgetPinned ? 'Budget your caps require' : 'Budget to hit target',
-        plan.budgetForTarget > 0 ? fmtGBP(plan.budgetForTarget) : '-',
+        plan.budgetForTarget > 0 ? fmtGBP(plan.budgetForTarget)
+          : plan.targetUnreachable ? 'Capped' : '-',
         plan.budgetPinned ? 'set by the location minimums' :
+        plan.targetUnreachable ? 'the caps stop this being reachable' :
         plan.budgetForTarget <= 0 ? '' :
           gap > 50 ? fmtGBP(gap) + ' more than now' :
           gap < -50 ? fmtGBP(-gap) + ' less than now' : 'matches your budget',
@@ -4954,6 +4962,8 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'Budget to hit target now solves on hires rather than applications. The application target is worked back from the hire target using a rate that moves with where the budget goes, so solving on applications meant chasing a figure that shifted every time the budget did, which is why typing in the number it asked for made it ask for a different one. Hires are what RAC sets, so hires are what it answers. Where the caps mean the hire target cannot be reached at any budget, the box says Capped rather than showing a figure that would not deliver it.',
+    
     'The application target no longer moves with the budget. It is worked back from the hire target using the rate at which applications become hires, and that rate was being read off a plan built at whatever budget happened to be set. With caps in place, changing the budget changes which locations are at their cap, which changes the mix and moves the rate, so the target drifted by an application or two. That is what made Budget to hit target chase itself: the target it was solving for kept moving. The rate is now weighted by open roles, which do not change when the budget does, and uses the same per-location rates from RAC\u2019s file that the plan runs on. Application targets will shift slightly against previously saved plans as a result.',
     
     'Fixed Budget to hit target chasing itself when caps are set. Typing in the figure it asked for made it ask for a different one, and typing that in brought back the first. Two causes. Once every location is at its cap, extra budget has nowhere to go and predicted applications stop moving, so the search that solves for the target was working across a flat stretch and could settle anywhere inside it. And the top of that search was seeded from whatever budget was currently set, so it took a different path each time and the answer moved by the rounding step. The search no longer depends on the current budget and runs finer, so it returns the same figure whatever is in the box. Where the caps mean more budget could not be spent, the box now says so.',
