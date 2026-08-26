@@ -2906,8 +2906,7 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
 // ====================================================================
 // TAB 2 - PLAN: the allocation, headline verdict
 // ====================================================================
-function PlanTab({ state, setState }) {
-  const [roleView, setRoleView] = useState('SMR');
+function PlanTab({ state, setState, role: roleView, setRole: setRoleView }) {
   const role = roleView;
   const days = (DATA.days_in_month && DATA.days_in_month[state.planMonth]) || 30;
 
@@ -3185,8 +3184,7 @@ function PlanTab({ state, setState }) {
 // ====================================================================
 // TAB 3 - PLATFORMS: per-location platform recommendation + rationale
 // ====================================================================
-function PlatformsTab({ state }) {
-  const [roleView, setRoleView] = useState('SMR');
+function PlatformsTab({ state, role: roleView, setRole: setRoleView }) {
   const role = roleView;
   const days = (DATA.days_in_month && DATA.days_in_month[state.planMonth]) || 30;
 
@@ -3399,8 +3397,7 @@ function windowStats(plat, region, role, from, to) {
 
 
 
-function BenchmarksTab({ state, setState }) {
-  const [roleView, setRoleView] = useState('SMR');
+function BenchmarksTab({ state, setState, role: roleView, setRole: setRoleView }) {
   const role = roleView;
   const months = useMemo(() => dataMonths(), []);
   // Everything read below goes through the module window, so point it at the
@@ -4918,6 +4915,8 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'There is now one role selector for the whole planner instead of three. Plan, Platforms and Benchmarks each kept their own, all starting on SMR, and none of them moved when you switched role somewhere else. Because the benchmark window is stored per role, setting one on the Benchmarks tab while it was showing SMR and then exporting Patrol applied it to the wrong role: the Patrol plan came out built on all time data, and the only sign was one line in the PDF header. Switching role anywhere now switches it everywhere, including the export.',
+    
     'Fixed the Budget to hit target box reading nonsense when every location has a minimum set. If the minimums add up to the whole deployable budget, nothing is left for the plan to allocate and it predicts the same applications at any budget, so the search that normally solves for the target ran to the bottom of its range. On a Patrol plan spending 134,890 pounds it was reading 5,050. The box now says Budget your caps require and shows the sum of the minimums plus the hold-backs, and the button offering to apply a corrected budget is hidden, since there is nothing to correct.',
     
     'Added a Predicted hires column to the location and platform table on the plan page, on the end after the likely range, with the total on the bottom row. The other columns shifted left to make room. A location RAC has no hire data for reads no data rather than 0.0, which looked like a prediction of no hires.',
@@ -8888,7 +8887,12 @@ function App() {
   }, []);
 
   const [tool, setTool] = useState(() => (routeFromHash() || {}).tool || 'planner');
-  const [exportRole, setExportRole] = useState('SMR');
+  // One role selector for the whole planner. Plan, Platforms and Benchmarks
+  // each used to keep their own, all defaulting to SMR, so setting a benchmark
+  // window on one tab and exporting from another silently applied it to the
+  // wrong role. The benchmark is stored per role, so the plan came out built
+  // on all time data with no sign anything was wrong.
+  const [roleView, setRoleView] = useState('SMR');
   const [tab, setTab] = useState(() => (routeFromHash() || {}).tab || 'setup');
   const [comparing, setComparing] = useState(false);
 
@@ -9064,22 +9068,22 @@ function App() {
           <>
             <div className="role-switch" style={{ marginRight: 10 }}>
               {ROLES.map(r => (
-                <button key={r} className={r === exportRole ? 'active' : ''}
+                <button key={r} className={r === roleView ? 'active' : ''}
                   onClick={() => setExportRole(r)}>{r}</button>
               ))}
             </div>
             <button className="btn btn-sm" style={{ marginRight: 8 }}
-              onClick={() => exportWorkings(plannerState, exportRole)}>
+              onClick={() => exportWorkings(plannerState, roleView)}>
               Workings
             </button>
             <button className="btn btn-sm" style={{ marginRight: 8 }}
               title="The same document without the notes pages"
-              onClick={() => exportPDF(plannerState, exportRole, { notes: false })}>
+              onClick={() => exportPDF(plannerState, roleView, { notes: false })}>
               PDF, no notes
             </button>
             <button className="btn btn-sm btn-primary"
               title="The full document, including both commentary sections"
-              onClick={() => exportPDF(plannerState, exportRole)}>
+              onClick={() => exportPDF(plannerState, roleView)}>
               PDF
             </button>
           </>
@@ -9175,9 +9179,9 @@ function App() {
               <>
                 {tab === 'setup' && <SetupTab state={plannerState} setState={setPlannerState} container={container}
                   onOpenPriorities={() => setTool('priorities')} />}
-                {tab === 'plan' && <PlanTab state={plannerState} setState={setPlannerState} />}
-                {tab === 'platforms' && <PlatformsTab state={plannerState} />}
-                {tab === 'benchmarks' && <BenchmarksTab state={plannerState} setState={setPlannerState} />}
+                {tab === 'plan' && <PlanTab state={plannerState} setState={setPlannerState} role={roleView} setRole={setRoleView} />}
+                {tab === 'platforms' && <PlatformsTab state={plannerState} role={roleView} setRole={setRoleView} />}
+                {tab === 'benchmarks' && <BenchmarksTab state={plannerState} setState={setPlannerState} role={roleView} setRole={setRoleView} />}
                 {tab === 'method' && <MethodTab state={plannerState} />}
               </>
             )}
