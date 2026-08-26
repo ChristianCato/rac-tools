@@ -4377,18 +4377,22 @@ function exportPlanPDF(state, roleFilter, opts) {
 
       // Eleven columns across 269mm. Everything shifted left to make room for
       // predicted hires on the end.
+      // Ten columns. App target has gone: it split RAC's total by open roles,
+      // which is not how this plan allocates, so it marked a capped location
+      // down for being capped and a cheap one up for being funded. Since the
+      // plan is solved on hires, a per-location application target measured
+      // against demand says nothing useful.
       const cx = {
         loc:   margin + 2,
         roles: margin + 46,
-        indeed: margin + 68,
-        meta:   margin + 91,
-        google: margin + 114,
-        appcast: margin + 137,
-        total: margin + 163,
-        tgt:   margin + 189,
-        pred:  margin + 209,
-        range: margin + 229,
-        hires: margin + 254,
+        indeed: margin + 72,
+        meta:   margin + 98,
+        google: margin + 124,
+        appcast: margin + 150,
+        total: margin + 178,
+        pred:  margin + 206,
+        range: margin + 227,
+        hires: margin + 250,
       };
       // Header. The two predicted columns carry a second line so they can be
       // named in full, the same way they are on By channel and By region.
@@ -4402,7 +4406,6 @@ function exportPlanPDF(state, roleFilter, opts) {
       pdf.text('Google', cx.google, y + 6.2);
       pdf.text('Appcast', cx.appcast, y + 6.2);
       pdf.text('Budget', cx.total, y + 6.2);
-      pdf.text('App target', cx.tgt, y + 6.2);
       pdf.text('Predicted', cx.pred, y + 3.9);
       pdf.text('apps', cx.pred, y + 7.7);
       pdf.text('Likely range', cx.range, y + 6.2);
@@ -4427,7 +4430,6 @@ function exportPlanPDF(state, roleFilter, opts) {
         pdf.setFont('helvetica', 'bold');
         pdf.text(fmtGBP(r.spend), cx.total, y + 4.1);
         pdf.setFont('helvetica', 'normal');
-        pdf.text(fmtInt(r.appSubTarget), cx.tgt, y + 4.1);
         pdf.text(fmtInt(r.predApps),     cx.pred, y + 4.1);
         pdf.text(fmtInt(r.predLow) + '\u2013' + fmtInt(r.predHigh), cx.range, y + 4.1);
         // A location RAC has no hire data for would otherwise read 0.0, which
@@ -4445,7 +4447,6 @@ function exportPlanPDF(state, roleFilter, opts) {
       pdf.text(fmtGBP(plan.platformTotals.google),  cx.google,  y + 4.7);
       pdf.text(fmtGBP(plan.platformTotals.appcast), cx.appcast, y + 4.7);
       pdf.text(fmtGBP(rows.reduce((s, r) => s + r.spend, 0)), cx.total, y + 4.7);
-      pdf.text(fmtInt(plan.appTarget), cx.tgt, y + 4.7);
       pdf.text(fmtInt(plan.predictedApps), cx.pred, y + 4.7);
       pdf.text(fmtInt(plan.predLow) + '\u2013' + fmtInt(plan.predHigh), cx.range, y + 4.7);
       pdf.text(plan.predictedHires.toFixed(1), cx.hires, y + 4.7);
@@ -4456,9 +4457,9 @@ function exportPlanPDF(state, roleFilter, opts) {
       // important content; the note is supporting prose).
       pdf.setFont('helvetica', 'italic'); pdf.setFontSize(7.8);
       setColor(MID);
-      const note = 'Each location\u2019s app target is RAC\u2019s total split by demand (open roles). '
-        + 'Predicted applications = location budget \u00F7 the blended cost-per-application from that '
-        + 'location\u2019s history. The likely range reflects how that cost has moved month-to-month.';
+      const note = 'Predicted applications = location budget \u00F7 the blended cost-per-application from '
+        + 'that location\u2019s history. Predicted hires applies that location\u2019s own hire rate. '
+        + 'The likely range reflects how that cost has moved month to month.';
       const noteLines = pdf.splitTextToSize(note, pageW - margin * 2);
       const noteH = noteLines.length * 3.2 + 4;
       if (y + noteH <= pageH - 12) {
@@ -4962,6 +4963,8 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'Took the App target column off the location table on the plan page. It split RAC\u2019s total application target across locations by open roles, which is not how the budget is allocated, so it marked a capped location down for being capped and a well funded cheap one up for being funded. On a recent Patrol plan it showed West Midlands wanting 73 applications against 217 predicted, and London 183 against 137. Now the plan is solved on hires, a per-location application target measured against demand says nothing useful. The remaining columns are spread wider and the footnote no longer refers to it.',
+    
     'Budget to hit target now solves on hires rather than applications. The application target is worked back from the hire target using a rate that moves with where the budget goes, so solving on applications meant chasing a figure that shifted every time the budget did, which is why typing in the number it asked for made it ask for a different one. Hires are what RAC sets, so hires are what it answers. Where the caps mean the hire target cannot be reached at any budget, the box says Capped rather than showing a figure that would not deliver it.',
     
     'The application target no longer moves with the budget. It is worked back from the hire target using the rate at which applications become hires, and that rate was being read off a plan built at whatever budget happened to be set. With caps in place, changing the budget changes which locations are at their cap, which changes the mix and moves the rate, so the target drifted by an application or two. That is what made Budget to hit target chase itself: the target it was solving for kept moving. The rate is now weighted by open roles, which do not change when the budget does, and uses the same per-location rates from RAC\u2019s file that the plan runs on. Application targets will shift slightly against previously saved plans as a result.',
