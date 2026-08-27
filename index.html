@@ -4014,6 +4014,11 @@ async function exportWorkings(state, role) {
           FX('K' + n + '*N' + n),
           FX('IFERROR(J' + n + '/O' + n + ',"")')]), cols);
       });
+      // A location funded at nothing has no platform rows, so a total row for
+      // it would read SUM(D5:D4): a range that includes the cell it sits in.
+      // Excel calls that circular, returns zero, and the plan total that adds
+      // it up dies with it, which took the Summary tab down too.
+      if (n < start) return;
       n += 1;
       locRows.push(n);
       const S = (c) => 'SUM(' + c + start + ':' + c + (n - 1) + ')';
@@ -4992,6 +4997,8 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'Fixed the totals on the workings spreadsheet coming out blank, which also took the Summary tab down with them. A location funded at nothing has no platform rows under it, but it was still getting a total row, and that row summed a range starting one row below itself: SUM(D5:D4). Excel reads that as circular, returns zero, and since the plan total adds every location total together, one circular reference emptied the whole row. The Summary reads its figures from that row, so it emptied too. Locations with no funded platforms no longer get a total row. This showed up on a September SMR plan where London was capped low enough to receive nothing.',
+    
     'Fixed the Summary tab of the workings spreadsheet. The four range formulas were pointing one row short, at a blank spacer rather than at Range used, so predicted applications low and high both came out equal to the central figure and predicted hires did the same. Every workings export taken so far shows no range on that tab.',
     'Column I of the Workings sheet, the cost per application the plan uses, was a fixed number pasted in with no working. It is now a formula: the measured figure in column H pulled toward the platform average, weighted by how many applications sit behind the cell. The header carries the formula and the sheet description explains it, so anyone can see why a thin cell moves a long way and one with hundreds of applications barely moves.',
     
