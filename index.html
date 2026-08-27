@@ -3957,7 +3957,10 @@ async function exportWorkings(state, role) {
   let totalRow = 0;
   {
     xlTitle(wsW, role + ' plan, ' + monthLabel,
-      'One row per location and platform. Performance data: ' + winLabel + '. Columns D to H come from Raw monthly data; the rest are formulas on this sheet.');
+      'One row per location and platform. Performance data: ' + winLabel + '. Columns D to F come from Raw monthly data, '
+      + 'weighted as shown there; the rest are formulas on this sheet. Column I is the measured cost per application '
+      + 'pulled toward the platform average, weighted by how many applications the cell has: a cell with hundreds barely '
+      + 'moves, one with a handful moves a long way.');
     const cols = [
       { h: 'A\nLocation', w: 20 }, { h: 'B\nPlatform', w: 13 }, { h: 'C\nOpen roles', w: 10, a: 'right', f: N0 },
       { h: 'D\nSpend in period', w: 15, a: 'right', f: GBP2 },
@@ -3965,7 +3968,7 @@ async function exportWorkings(state, role) {
       { h: 'F\nClicks', w: 13, a: 'right', f: N0 },
       { h: 'G\nApply rate\nE / F', w: 12, a: 'right', f: PCT2 },
       { h: 'H\nCost per application, measured\nD / E', w: 20, a: 'right', f: GBP2 },
-      { h: 'I\nCost per application, used', w: 20, a: 'right', f: GBP2 },
+      { h: 'I\nCost per application, used\n(E x H + 35 x avg) / (E + 35)', w: 22, a: 'right', f: GBP2 },
       { h: 'J\nBudget this month', w: 16, a: 'right', f: GBP },
       { h: 'K\nPredicted applications\nJ / I', w: 17, a: 'right', f: N1 },
       { h: 'L\nBiggest month already run', w: 17, a: 'right', f: GBP },
@@ -3992,7 +3995,17 @@ async function exportWorkings(state, role) {
           fR ? FX(fR) : 'not recorded',
           fR ? FX('IFERROR(E' + n + '/F' + n + ',"")') : '',
           FX('IFERROR(D' + n + '/E' + n + ',"")'),
-          l.platCpa ? l.platCpa[p] : null,
+          // The rate the plan actually uses: what this cell measured, pulled
+          // toward the platform average in proportion to how many applications
+          // sit behind it. Written as a formula so the pull is visible rather
+          // than arriving as a number nobody can check.
+          (() => {
+            const avg = platformAvgCPA(p, role);
+            if (!(avg > 0)) return FX('H' + n);
+            const K = CPA_PRIOR_K;
+            return FX('IFERROR((E' + n + '*H' + n + '+' + K + '*' + avg.toFixed(4) + ')/(E' + n + '+' + K + '),'
+              + avg.toFixed(4) + ')');
+          })(),
           sp,
           FX('IFERROR(J' + n + '/I' + n + ',0)'),
           l.peaks ? l.peaks[p] : null,
@@ -4040,12 +4053,12 @@ async function exportWorkings(state, role) {
       ['', '', ''],
       ['Application target', plan.appTarget, 'Hire target worked back through the blended hire rate for the live locations'],
       ['Predicted applications', FX('Workings!K' + totalRow), 'Workings, column K, plan total'],
-      ['Predicted applications, low', FX('ROUND(' + B(8) + '*(1-' + B(17) + '),0)'), 'Central figure less the range'],
-      ['Predicted applications, high', FX('ROUND(' + B(8) + '*(1+' + B(17) + '),0)'), 'Central figure plus the range'],
+      ['Predicted applications, low', FX('ROUND(' + B(8) + '*(1-' + B(18) + '),0)'), 'Central figure less the range'],
+      ['Predicted applications, high', FX('ROUND(' + B(8) + '*(1+' + B(18) + '),0)'), 'Central figure plus the range'],
       ['', '', ''],
       ['Predicted hires', FX('Workings!O' + totalRow), 'Workings, column O, plan total'],
-      ['Predicted hires, low', FX(B(12) + '*(1-' + B(17) + ')'), 'Same range as applications'],
-      ['Predicted hires, high', FX(B(12) + '*(1+' + B(17) + ')'), 'Same range as applications'],
+      ['Predicted hires, low', FX(B(12) + '*(1-' + B(18) + ')'), 'Same range as applications'],
+      ['Predicted hires, high', FX(B(12) + '*(1+' + B(18) + ')'), 'Same range as applications'],
       ['Cost per application', FX('IFERROR(' + B(4) + '/' + B(8) + ',"")'), 'Deployable budget divided by predicted applications'],
       ['Cost per hire', FX('IFERROR(' + B(4) + '/' + B(12) + ',"")'), 'Deployable budget divided by predicted hires'],
       ['', '', ''],
@@ -4979,6 +4992,9 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'Fixed the Summary tab of the workings spreadsheet. The four range formulas were pointing one row short, at a blank spacer rather than at Range used, so predicted applications low and high both came out equal to the central figure and predicted hires did the same. Every workings export taken so far shows no range on that tab.',
+    'Column I of the Workings sheet, the cost per application the plan uses, was a fixed number pasted in with no working. It is now a formula: the measured figure in column H pulled toward the platform average, weighted by how many applications sit behind the cell. The header carries the formula and the sheet description explains it, so anyone can see why a thin cell moves a long way and one with hundreds of applications barely moves.',
+    
     'The workings spreadsheet now shows the upweighting, and works at all on an upweighted plan. The Raw monthly data sheet had a column saying Yes or No for whether a month was in the period used, worked out by comparing the month against a start and end date. An upweighted window has no start and end date, only a multiplier, so every month came out as No and the Workings sheet was built with no formulas in it. That column is now Weight in this plan and shows what each month actually counts for: 0 if it is left out, 1 for a normal month, 3 on a last three months x3 setting. The formulas on the Workings sheet carry the same weights, so a month at 3x appears in them as three times its value rather than once, and the workbook adds up the same way the plan does.',
     
     'Took the App target column off the location table on the plan page. It split RAC\u2019s total application target across locations by open roles, which is not how the budget is allocated, so it marked a capped location down for being capped and a well funded cheap one up for being funded. On a recent Patrol plan it showed West Midlands wanting 73 applications against 217 predicted, and London 183 against 137. Now the plan is solved on hires, a per-location application target measured against demand says nothing useful. The remaining columns are spread wider and the footnote no longer refers to it.',
