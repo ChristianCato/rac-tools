@@ -3901,11 +3901,14 @@ async function exportWorkings(state, role) {
   const wsRaw = xlSheet(wb, 'Raw monthly data');
   {
     xlTitle(wsRaw, 'Raw monthly data',
-      'Every month on record for ' + role + '. Everything else in this workbook is built from this sheet.');
+      'Every month on record for ' + role + '. Everything else in this workbook is built from this sheet. '
+      + 'Weight in this plan is how much each month counts towards the figures: 0 means it is left out, '
+      + '1 is a normal month, and anything higher is an upweighted one. Window: ' + winLabel + '.');
     const cols = [{ h: 'Month', w: 12 }, { h: 'Location', w: 20 }, { h: 'Platform', w: 13 },
       { h: 'Spend', w: 14, a: 'right', f: GBP2 }, { h: 'Applications', w: 13, a: 'right', f: N1 },
       { h: 'Clicks', w: 14, a: 'right', f: N0 }, { h: 'Cost per application', w: 18, a: 'right', f: GBP2 },
-      { h: 'Apply rate', w: 12, a: 'right', f: PCT2 }, { h: 'In the period used', w: 18 }];
+      { h: 'Apply rate', w: 12, a: 'right', f: PCT2 },
+      { h: 'Weight in this plan', w: 18, a: 'right', f: N1 }];
     const hr = xlHeader(wsRaw, cols);
     let n = hr;
     DATA.regions_ordered.forEach(r => PLATFORMS.forEach(p => {
@@ -3914,26 +3917,39 @@ async function exportWorkings(state, role) {
         const x = m[mo];
         if (!(x.spend > 0)) return;
         n += 1;
-        const inWin = !win || (mo >= win.from && mo <= win.to);
+        // The weight this month actually carries, straight from the same
+        // function the plan uses. A date range cannot describe an upweighted
+        // window: on a "last 3 months x3" setting there is no from or to, so
+        // the old check marked every month as out and the Workings sheet came
+        // out with no formulas in it.
+        const w = benchWeight(mo);
+        const inWin = w > 0;
         const hasClicks = x.clicks !== undefined && x.clicks !== null;
-        rawRows.push({ row: n, region: r, platform: p, inWin, hasClicks });
+        rawRows.push({ row: n, region: r, platform: p, inWin, hasClicks, w });
         style(wsRaw.addRow([mo, r, PLATFORM_LABELS[p], x.spend, x.completes,
           hasClicks ? x.clicks : 'not recorded',
           FX('IFERROR(D' + n + '/E' + n + ',"")'),
           hasClicks ? FX('IFERROR(E' + n + '/F' + n + ',"")') : '',
-          inWin ? 'Yes' : 'No']), cols, { muted: !inWin });
+          w]), cols, { muted: !inWin });
       });
     }));
   }
+  // Weighted sums, so the workbook adds up the same way the plan does. A month
+  // at 3x contributes three times, and the multiplier is visible in the
+  // formula rather than hidden in it.
+  const term = (x, col) => {
+    const ref = "'Raw monthly data'!" + col + x.row;
+    return x.w === 1 ? ref : '(' + x.w + '*' + ref + ')';
+  };
   const sumRef = (region, platform, col) => {
     const rs = rawRows.filter(x => x.region === region && x.platform === platform && x.inWin);
     if (!rs.length) return null;
     if (col === 'F' && rs.some(x => !x.hasClicks)) {
       const ok = rs.filter(x => x.hasClicks);
       if (!ok.length) return null;
-      return ok.map(x => "'Raw monthly data'!F" + x.row).join('+');
+      return ok.map(x => term(x, 'F')).join('+');
     }
-    return rs.map(x => "'Raw monthly data'!" + col + x.row).join('+');
+    return rs.map(x => term(x, col)).join('+');
   };
 
   // Workings.
@@ -4963,6 +4979,8 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '19 Aug', items: [
+    'The workings spreadsheet now shows the upweighting, and works at all on an upweighted plan. The Raw monthly data sheet had a column saying Yes or No for whether a month was in the period used, worked out by comparing the month against a start and end date. An upweighted window has no start and end date, only a multiplier, so every month came out as No and the Workings sheet was built with no formulas in it. That column is now Weight in this plan and shows what each month actually counts for: 0 if it is left out, 1 for a normal month, 3 on a last three months x3 setting. The formulas on the Workings sheet carry the same weights, so a month at 3x appears in them as three times its value rather than once, and the workbook adds up the same way the plan does.',
+    
     'Took the App target column off the location table on the plan page. It split RAC\u2019s total application target across locations by open roles, which is not how the budget is allocated, so it marked a capped location down for being capped and a well funded cheap one up for being funded. On a recent Patrol plan it showed West Midlands wanting 73 applications against 217 predicted, and London 183 against 137. Now the plan is solved on hires, a per-location application target measured against demand says nothing useful. The remaining columns are spread wider and the footnote no longer refers to it.',
     
     'Budget to hit target now solves on hires rather than applications. The application target is worked back from the hire target using a rate that moves with where the budget goes, so solving on applications meant chasing a figure that shifted every time the budget did, which is why typing in the number it asked for made it ask for a different one. Hires are what RAC sets, so hires are what it answers. Where the caps mean the hire target cannot be reached at any budget, the box says Capped rather than showing a figure that would not deliver it.',
