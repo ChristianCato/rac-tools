@@ -3899,6 +3899,7 @@ async function exportWorkings(state, role) {
 
   // Raw monthly data first, so the sheets above it can point at its rows.
   const rawRows = [];
+  let rawLastRow = 0;
   const wsRaw = xlSheet(wb, 'Raw monthly data');
   {
     xlTitle(wsRaw, 'Raw monthly data',
@@ -3909,21 +3910,32 @@ async function exportWorkings(state, role) {
       { h: 'Spend', w: 14, a: 'right', f: GBP2 }, { h: 'Applications', w: 13, a: 'right', f: N1 },
       { h: 'Clicks', w: 14, a: 'right', f: N0 }, { h: 'Cost per application', w: 18, a: 'right', f: GBP2 },
       { h: 'Apply rate', w: 12, a: 'right', f: PCT2 },
-      { h: 'Weight in this plan', w: 18, a: 'right', f: N1 }];
+      { h: 'Weight in this plan', w: 18, a: 'right', f: N1 },
+      { h: 'Weighted spend', w: 15, a: 'right', f: GBP2 },
+      { h: 'Weighted applications', w: 18, a: 'right', f: N1 },
+      { h: 'Weighted clicks', w: 15, a: 'right', f: N0 }];
     const hr = xlHeader(wsRaw, cols);
     let n = hr;
     DATA.regions_ordered.forEach(r => PLATFORMS.forEach(p => {
       const m = getMonthly(p, r, role);
       Object.keys(m).sort().forEach(mo => {
         const x = m[mo];
-        if (!(x.spend > 0)) return;
-        n += 1;
         // The weight this month actually carries, straight from the same
         // function the plan uses. A date range cannot describe an upweighted
         // window: on a "last 3 months x3" setting there is no from or to, so
         // the old check marked every month as out and the Workings sheet came
         // out with no formulas in it.
         const w = benchWeight(mo);
+        // This used to skip anything with no spend, which quietly dropped
+        // months that carry clicks, and months that carry nothing but still
+        // carry weight. Both matter. The clicks make the apply rate in column G
+        // read high, and the missing weight makes the levelled application
+        // count wrong, which moves column I. North West Appcast lost May, June
+        // and July and came out at 0.95% against the plan's 0.89%. Keep every
+        // month in the window whatever it holds, and every historic month with
+        // spend.
+        if (!(x.spend > 0) && !(w > 0)) return;
+        n += 1;
         const inWin = w > 0;
         const hasClicks = x.clicks !== undefined && x.clicks !== null;
         rawRows.push({ row: n, region: r, platform: p, inWin, hasClicks, w,
@@ -3932,9 +3944,13 @@ async function exportWorkings(state, role) {
           hasClicks ? x.clicks : 'not recorded',
           FX('IFERROR(D' + n + '/E' + n + ',"")'),
           hasClicks ? FX('IFERROR(E' + n + '/F' + n + ',"")') : '',
-          w]), cols, { muted: !inWin });
+          w,
+          FX('$I' + n + '*D' + n),
+          FX('$I' + n + '*E' + n),
+          FX('$I' + n + '*IFERROR(F' + n + '*1,0)')]), cols, { muted: !inWin });
       });
     }));
+    rawLastRow = n;
   }
   // Weighted sums, so the workbook adds up the same way the plan does. A month
   // at 3x contributes three times, and the multiplier is visible in the
@@ -3953,6 +3969,87 @@ async function exportWorkings(state, role) {
     }
     return rs.map(x => term(x, col)).join('+');
   };
+  // Blend inputs. Column I of the Workings sheet used to be a number written
+  // straight from the plan, because the Excel formula that had been there
+  // could not match it. Biraag asked for a live formula back, and he is right
+  // that a static number is worse even with an explanation. It can be exact:
+  // the two things the old formula got wrong were the application count, which
+  // is levelled to the length of the window rather than read off column E, and
+  // the figure it pulls toward, which is the platform's own rate for the role
+  // and not a plain average. Both are on this sheet, so the formula can be
+  // reproduced from the page rather than taken on trust. The anchor is worked
+  // out across every location including London and the unfunded ones, which is
+  // why they are all listed here and not just the eight in the plan.
+  const wsB = xlSheet(wb, 'Blend inputs');
+  const blendRow = {}, anchorRow = {};
+  const roleBench = (DATA.cpa_benchmarks && DATA.cpa_benchmarks[role]) || 40;
+  const monthsInWin = benchMonthCount();
+  {
+    xlTitle(wsB, 'How column I of the Workings sheet is arrived at',
+      'Every location and platform on record for ' + role + ', not just the funded ones. Weighted figures come from '
+      + 'Raw monthly data, each month multiplied by the weight it carries. Levelled figures scale those back to the '
+      + monthsInWin + ' months in the window, so a cell that ran in fewer months than the window is not counted as '
+      + 'thinner than it is. Column I blends a cell\u2019s own cost with its platform anchor, weighted by the levelled '
+      + 'application count against a prior of ' + CPA_PRIOR_K + '.');
+    const cols = [{ h: 'Location', w: 20 }, { h: 'Platform', w: 13 },
+      { h: 'Weighted spend', w: 15, a: 'right', f: GBP2 },
+      { h: 'Weighted applications', w: 18, a: 'right', f: N1 },
+      { h: 'Weighted clicks', w: 15, a: 'right', f: N0 },
+      { h: 'Weight sum', w: 12, a: 'right', f: N1 },
+      { h: 'Months in window', w: 15, a: 'right', f: N0 },
+      { h: 'Scale\nmonths / weight sum', w: 15, a: 'right' },
+      { h: 'Spend levelled', w: 15, a: 'right', f: GBP2 },
+      { h: 'Applications levelled', w: 18, a: 'right', f: N1 },
+      { h: 'Clicks levelled', w: 15, a: 'right', f: N0 },
+      { h: 'Own cost per application', w: 20, a: 'right', f: GBP2 }];
+    const hr = xlHeader(wsB, cols);
+    wsB.getRow(hr).height = 34;
+    const R = "'Raw monthly data'!", lastRaw = rawLastRow;
+    let n = hr;
+    DATA.regions_ordered.forEach(r => PLATFORMS.forEach(p => {
+      n += 1;
+      blendRow[r + '|' + p] = n;
+      const cond = R + '$B$5:$B$' + lastRaw + ',A' + n + ',' + R + '$C$5:$C$' + lastRaw + ',B' + n;
+      style(wsB.addRow([r, PLATFORM_LABELS[p],
+        FX('SUMIFS(' + R + '$J$5:$J$' + lastRaw + ',' + cond + ')'),
+        FX('SUMIFS(' + R + '$K$5:$K$' + lastRaw + ',' + cond + ')'),
+        FX('SUMIFS(' + R + '$L$5:$L$' + lastRaw + ',' + cond + ')'),
+        FX('SUMIFS(' + R + '$I$5:$I$' + lastRaw + ',' + cond + ')'),
+        monthsInWin,
+        FX('IF(F' + n + '>0,G' + n + '/F' + n + ',1)'),
+        FX('C' + n + '*H' + n), FX('D' + n + '*H' + n), FX('E' + n + '*H' + n),
+        FX('IFERROR(C' + n + '/D' + n + ',"")')]), cols);
+    }));
+    const first = hr + 1, last = n;
+    wsB.addRow([]);
+    const t = wsB.addRow(['Platform anchor, across every location including London']);
+    t.font = { bold: true, size: 11, color: { argb: XL_NAVY } };
+    const acols = [{ h: 'Platform', w: 20 }, { h: 'Spend levelled', w: 15, a: 'right', f: GBP2 },
+      { h: 'Applications levelled', w: 18, a: 'right', f: N1 },
+      { h: 'Measured cost per application', w: 22, a: 'right', f: GBP2 },
+      { h: 'Role benchmark', w: 15, a: 'right', f: GBP2 },
+      { h: 'Prior', w: 10, a: 'right', f: N0 },
+      { h: 'Anchor used by column I', w: 20, a: 'right', f: GBP2 }];
+    const ahr = xlHeader(wsB, acols);
+    wsB.getRow(ahr).height = 34;
+    let a = ahr;
+    PLATFORMS.forEach(p => {
+      a += 1;
+      anchorRow[p] = a;
+      const mask = '($B$' + first + ':$B$' + last + '=A' + a + ')*($J$' + first + ':$J$' + last + '>0)';
+      style(wsB.addRow([PLATFORM_LABELS[p],
+        FX('SUMPRODUCT(' + mask + '*$I$' + first + ':$I$' + last + ')'),
+        FX('SUMPRODUCT(' + mask + '*$J$' + first + ':$J$' + last + ')'),
+        FX('IFERROR(B' + a + '/C' + a + ',"")'),
+        roleBench, CPA_PRIOR_K,
+        FX('IFERROR((C' + a + '*D' + a + '+F' + a + '*E' + a + ')/(C' + a + '+F' + a + '),E' + a + ')')]),
+        acols, { bold: true, fill: XL_HEAD });
+    });
+    // xlHeader sets the sheet's column widths from the columns it is handed,
+    // so the anchor block just squashed the table above it. Put them back.
+    wsB.columns.forEach((c, i) => { if (cols[i]) c.width = cols[i].w || 16; });
+  }
+
   // Workings.
   const wsW = xlSheet(wb, 'Workings');
   let totalRow = 0;
@@ -3962,9 +4059,9 @@ async function exportWorkings(state, role) {
       + 'weighted as shown there. Column I is the cost per application the plan was built on. It blends the '
       + 'combination\u2019s own cost, column H, with the platform\u2019s cost for that role, weighted by how many '
       + 'applications the combination has, so the plan does not believe a number built on five applications as much '
-      + 'as one built on five hundred. It is written in as the figure the plan used rather than worked out again '
-      + 'here, so the workbook and the plan cannot disagree. The exact figures behind each row are in the tool. '
-      + 'Everything else on the sheet is a live formula.');
+      + 'as one built on five hundred. That count is not column E, and the figure it pulls toward is not a plain '
+      + 'average, so both are set out on the Blend inputs tab rather than left to be guessed at from this one. '
+      + 'Everything on the sheet is a live formula.');
     const cols = [
       { h: 'A\nLocation', w: 20 }, { h: 'B\nPlatform', w: 13 }, { h: 'C\nOpen roles', w: 10, a: 'right', f: N0 },
       { h: 'D\nSpend in period', w: 15, a: 'right', f: GBP2 },
@@ -3972,7 +4069,7 @@ async function exportWorkings(state, role) {
       { h: 'F\nClicks', w: 13, a: 'right', f: N0 },
       { h: 'G\nApply rate\nE / F', w: 12, a: 'right', f: PCT2 },
       { h: 'H\nCost per application, measured\nD / E', w: 20, a: 'right', f: GBP2 },
-      { h: 'I\nCost per application, used\nsee note above', w: 22, a: 'right', f: GBP2 },
+      { h: 'I\nCost per application, used\n(apps x own + 35 x anchor) / (apps + 35)', w: 22, a: 'right', f: GBP2 },
       { h: 'J\nBudget this month', w: 16, a: 'right', f: GBP },
       { h: 'K\nPredicted applications\nJ / I', w: 17, a: 'right', f: N1 },
       { h: 'L\nBiggest month already run', w: 17, a: 'right', f: GBP },
@@ -3980,6 +4077,15 @@ async function exportWorkings(state, role) {
       { h: 'N\nHire rate', w: 11, a: 'right', f: PCT2 },
       { h: 'O\nPredicted hires\nK x N', w: 14, a: 'right', f: N1 },
       { h: 'P\nCost per hire\nJ / O', w: 14, a: 'right', f: GBP },
+      // Column M answers "how much is above the biggest month". The plan page
+      // answers a different question, "how much is above the ceiling", and the
+      // ceiling is a multiple of that month. The two figures were far apart
+      // with nothing on the page to get from one to the other, so Biraag could
+      // not reproduce the plan's number on any basis. These two columns are
+      // that working. The plan nets it within a location, not per cell, which
+      // is the part that cannot be guessed.
+      { h: 'Q\nSpend ceiling\nL x ' + Math.round((params.capMultiple || 1) * 100) + '%', w: 15, a: 'right', f: GBP },
+      { h: 'R\nAbove the ceiling\nMAX(0, J - Q), by location', w: 18, a: 'right', f: GBP },
     ];
     const hr = xlHeader(wsW, cols);
     wsW.getRow(hr).height = 48;
@@ -4002,25 +4108,30 @@ async function exportWorkings(state, role) {
         // application count levelled to the length of the period. The gap was
         // small on cells with hundreds of applications behind them and up to
         // 3% on thin ones, which is enough for a client checking the
-        // arithmetic to find. Column Q carried the working row by row for a
-        // while; it was dropped as too heavy to read, and the sheet
-        // description now says what the blend does without inviting anyone to
-        // reproduce it from the columns on the page.
-        const cpaUsed = l.platCpa ? l.platCpa[p] : null;
+        // arithmetic to find. It is a formula again, but off the Blend inputs
+        // tab, which carries the levelled application count and the platform
+        // anchor as figures on the page. It reproduces the plan exactly
+        // wherever Raw monthly data is complete, so nothing here needs a note
+        // about tolerances.
+        const bR = blendRow[l.region + '|' + p], aR = anchorRow[p];
         style(wsW.addRow([l.region, PLATFORM_LABELS[p], l.vacancies,
           dR ? FX(dR) : w.spend,
           eR ? FX(eR) : w.completes,
           fR ? FX(fR) : 'not recorded',
           fR ? FX('IFERROR(E' + n + '/F' + n + ',"")') : '',
           FX('IFERROR(D' + n + '/E' + n + ',"")'),
-          cpaUsed > 0 ? cpaUsed : '',
+          FX("IF('Blend inputs'!J" + bR + ">0,('Blend inputs'!J" + bR + "*'Blend inputs'!L" + bR
+            + "+'Blend inputs'!$F$" + aR + "*'Blend inputs'!$G$" + aR + ")/('Blend inputs'!J" + bR
+            + "+'Blend inputs'!$F$" + aR + "),'Blend inputs'!$G$" + aR + ")"),
           sp,
           FX('IFERROR(J' + n + '/I' + n + ',0)'),
           l.peaks ? l.peaks[p] : null,
           FX('MAX(0,J' + n + '-L' + n + ')'),
           regionPlatformHireCVR(p, l.region, role),
           FX('K' + n + '*N' + n),
-          FX('IFERROR(J' + n + '/O' + n + ',"")')]), cols);
+          FX('IFERROR(J' + n + '/O' + n + ',"")'),
+          FX('L' + n + '*' + ((params.capMultiple || 1))),
+          '']), cols);
       });
       // A location funded at nothing has no platform rows, so a total row for
       // it would read SUM(D5:D4): a range that includes the cell it sits in.
@@ -4034,7 +4145,8 @@ async function exportWorkings(state, role) {
         FX(S('D')), FX(S('E')), FX('IFERROR(' + S('F') + ',"")'),
         FX('IFERROR(E' + n + '/F' + n + ',"")'), FX('IFERROR(D' + n + '/E' + n + ',"")'), '',
         FX(S('J')), FX(S('K')), '', FX(S('M')), '',
-        FX(S('O')), FX('IFERROR(J' + n + '/O' + n + ',"")')]),
+        FX(S('O')), FX('IFERROR(J' + n + '/O' + n + ',"")'),
+        FX(S('Q')), FX('MAX(0,J' + n + '-Q' + n + ')')]),
         cols, { bold: true, fill: XL_HEAD, strong: true });
     });
     n += 1;
@@ -4044,7 +4156,8 @@ async function exportWorkings(state, role) {
       FX(T('D')), FX(T('E')), FX('IFERROR(' + T('F') + ',"")'),
       FX('IFERROR(E' + n + '/F' + n + ',"")'), FX('IFERROR(D' + n + '/E' + n + ',"")'), '',
       FX(T('J')), FX(T('K')), '', FX(T('M')), '',
-      FX(T('O')), FX('IFERROR(J' + n + '/O' + n + ',"")')]),
+      FX(T('O')), FX('IFERROR(J' + n + '/O' + n + ',"")'),
+      FX(T('Q')), FX(T('R'))]),
       cols, { bold: true, white: true, fill: XL_NAVY, strong: true, h: 20 });
   }
 
@@ -4074,7 +4187,8 @@ async function exportWorkings(state, role) {
         'Workings, column M, plan total. Budget above each location and platform\u2019s biggest month on record. '
         + 'This is not the figure on the plan page. That one is the part above the spend ceiling, which is set at '
         + Math.round((params.capMultiple || 1) * 100) + '% of the biggest month, and it comes to '
-        + fmtGBP(plan.beyondProven || 0) + '.'],
+        + fmtGBP(plan.beyondProven || 0) + '. Columns Q and R of the Workings sheet are that working: '
+        + 'the ceiling per row, then what is above it once a location is netted off as a whole.'],
       ['', '', ''],
       ['Application target', plan.appTarget, 'Hire target worked back through the blended hire rate for the live locations'],
       ['Predicted applications', FX('Workings!K' + totalRow), 'Workings, column K, plan total'],
@@ -4090,7 +4204,9 @@ async function exportWorkings(state, role) {
       ['Range used', plan.aggBandPct / 100,
         'How much ' + role + ' cost per application moved across ' + plan.aggBandMonths + ' months. See How the range works.'],
       ['Budget to hit the application target', plan.budgetForTarget,
-        'Found by running the whole plan at trial budgets until the prediction lands on the target'],
+        'Found by running the whole plan at trial budgets until the prediction lands on the target. '
+        + 'This is not the monthly budget on the first row of this tab, and the two will rarely be the same figure. '
+        + 'The plan page carries both.'],
     ];
     xlBody(ws, cols, rows);
     ws.eachRow((row, k) => {
