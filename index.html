@@ -3867,39 +3867,6 @@ function fmtDay(iso) {
 }
 const GBP = '£#,##0', GBP2 = '£#,##0.00', PCT2 = '0.00%', N1 = '#,##0.0', N0 = '#,##0';
 
-// The working behind column I of the Workings sheet, written out with the
-// numbers the engine actually used. It is prose rather than an Excel formula
-// on purpose: the cell holds the plan's own figure, and this says how that
-// figure was reached. Anything that recalculated it here could disagree with
-// the plan, which is what it used to do.
-//
-// sheetApps is what column E adds up to. Where the engine blended on a
-// different count, that is said rather than left as a contradiction for
-// someone to find.
-function cpaWorkingText(l, plat, role, sheetApps) {
-  const used = l.platCpa ? l.platCpa[plat] : null;
-  if (!(used > 0)) return '';
-  const pl = PLATFORM_LABELS[plat] || plat;
-  const money = v => '\u00A3' + Number(v || 0).toFixed(2);
-  const src = l.platCpaSource ? l.platCpaSource[plat] : null;
-  const prior = rolePlatformCPA(plat, role);
-  if (src === 'benchmark') {
-    return 'No applications recorded here in the period used, so the plan takes the '
-      + pl + ' figure across every location, ' + money(prior.cpa) + '.';
-  }
-  const s = getStats(plat, l.region, role);
-  if (!s || !(s.completes > 0)) return 'Taken from the ' + pl + ' figure across every location, ' + money(prior.cpa) + '.';
-  const n = s.completes, raw = s.spend / s.completes;
-  const nTxt = n.toFixed(1);
-  const levelled = Math.abs(n - sheetApps) > 0.05
-    ? ' (column E, ' + sheetApps.toFixed(1) + ', levelled to the length of the period used)'
-    : '';
-  return 'Measured ' + money(raw) + ' pulled toward the ' + pl + ' figure across every location, '
-    + money(prior.cpa) + ', weighted by the ' + nTxt + ' applications behind this cell'
-    + levelled + ' against a prior of ' + CPA_PRIOR_K + ': ('
-    + nTxt + ' x ' + raw.toFixed(2) + ' + ' + CPA_PRIOR_K + ' x ' + prior.cpa.toFixed(2)
-    + ') / (' + nTxt + ' + ' + CPA_PRIOR_K + ') = ' + money(used) + '.';
-}
 
 async function exportWorkings(state, role) {
   if (!window.ExcelJS) { alert('The spreadsheet writer did not load. Check the connection and reload.'); return; }
@@ -3986,23 +3953,17 @@ async function exportWorkings(state, role) {
     }
     return rs.map(x => term(x, col)).join('+');
   };
-  // The same weighted sum as sumRef, as a number rather than a formula. Used
-  // only to check whether the count the engine blended on matches what column
-  // E adds up to, so the working in column Q can say so when it does not.
-  const sumVal = (region, platform, key) => rawRows
-    .filter(x => x.region === region && x.platform === platform && x.inWin)
-    .reduce((a, x) => a + x.w * (x[key] || 0), 0);
-
   // Workings.
   const wsW = xlSheet(wb, 'Workings');
   let totalRow = 0;
   {
     xlTitle(wsW, role + ' plan, ' + monthLabel,
       'One row per location and platform. Performance data: ' + winLabel + '. Columns D to F come from Raw monthly data, '
-      + 'weighted as shown there. Column I is the cost per application the plan was built on, written in as the figure '
-      + 'the plan used rather than worked out again here, so the workbook and the plan cannot disagree. It is the '
-      + 'measured cost in column H pulled toward the platform figure, by how many applications sit behind the cell: '
-      + 'one with hundreds barely moves, one with a handful moves a long way. Column Q shows that working row by row. '
+      + 'weighted as shown there. Column I is the cost per application the plan was built on. It blends the '
+      + 'combination\u2019s own cost, column H, with the platform\u2019s cost for that role, weighted by how many '
+      + 'applications the combination has, so the plan does not believe a number built on five applications as much '
+      + 'as one built on five hundred. It is written in as the figure the plan used rather than worked out again '
+      + 'here, so the workbook and the plan cannot disagree. The exact figures behind each row are in the tool. '
       + 'Everything else on the sheet is a live formula.');
     const cols = [
       { h: 'A\nLocation', w: 20 }, { h: 'B\nPlatform', w: 13 }, { h: 'C\nOpen roles', w: 10, a: 'right', f: N0 },
@@ -4011,7 +3972,7 @@ async function exportWorkings(state, role) {
       { h: 'F\nClicks', w: 13, a: 'right', f: N0 },
       { h: 'G\nApply rate\nE / F', w: 12, a: 'right', f: PCT2 },
       { h: 'H\nCost per application, measured\nD / E', w: 20, a: 'right', f: GBP2 },
-      { h: 'I\nCost per application, used\nsee column Q', w: 22, a: 'right', f: GBP2 },
+      { h: 'I\nCost per application, used\nsee note above', w: 22, a: 'right', f: GBP2 },
       { h: 'J\nBudget this month', w: 16, a: 'right', f: GBP },
       { h: 'K\nPredicted applications\nJ / I', w: 17, a: 'right', f: N1 },
       { h: 'L\nBiggest month already run', w: 17, a: 'right', f: GBP },
@@ -4019,7 +3980,6 @@ async function exportWorkings(state, role) {
       { h: 'N\nHire rate', w: 11, a: 'right', f: PCT2 },
       { h: 'O\nPredicted hires\nK x N', w: 14, a: 'right', f: N1 },
       { h: 'P\nCost per hire\nJ / O', w: 14, a: 'right', f: GBP },
-      { h: 'Q\nHow column I is arrived at', w: 64 },
     ];
     const hr = xlHeader(wsW, cols);
     wsW.getRow(hr).height = 48;
@@ -4042,10 +4002,11 @@ async function exportWorkings(state, role) {
         // application count levelled to the length of the period. The gap was
         // small on cells with hundreds of applications behind them and up to
         // 3% on thin ones, which is enough for a client checking the
-        // arithmetic to find. The working is now in column Q, as the
-        // explanation of the number rather than the source of it.
+        // arithmetic to find. Column Q carried the working row by row for a
+        // while; it was dropped as too heavy to read, and the sheet
+        // description now says what the blend does without inviting anyone to
+        // reproduce it from the columns on the page.
         const cpaUsed = l.platCpa ? l.platCpa[p] : null;
-        const cpaWorking = cpaWorkingText(l, p, role, sumVal(l.region, p, 'completes'));
         style(wsW.addRow([l.region, PLATFORM_LABELS[p], l.vacancies,
           dR ? FX(dR) : w.spend,
           eR ? FX(eR) : w.completes,
@@ -4059,8 +4020,7 @@ async function exportWorkings(state, role) {
           FX('MAX(0,J' + n + '-L' + n + ')'),
           regionPlatformHireCVR(p, l.region, role),
           FX('K' + n + '*N' + n),
-          FX('IFERROR(J' + n + '/O' + n + ',"")'),
-          cpaWorking]), cols);
+          FX('IFERROR(J' + n + '/O' + n + ',"")')]), cols);
       });
       // A location funded at nothing has no platform rows, so a total row for
       // it would read SUM(D5:D4): a range that includes the cell it sits in.
