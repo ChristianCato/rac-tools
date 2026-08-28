@@ -4317,6 +4317,14 @@ function exportPlanPDF(state, roleFilter, opts) {
     // counting how many pages the terms occupy.
     function countGlossaryPages() {
       let pages = 1, col = 0, y = 30;
+      // splitTextToSize wraps at the font size currently set, and this ran
+      // without setting one while the render loop below sets helvetica 8.5
+      // before it splits. So the count was taken at a different size from the
+      // one drawn, and it over-counted. It went unnoticed while the terms were
+      // short enough for the over-count to stay inside one page. Lengthening
+      // the spend ceiling entry pushed it over: the footers read of 9 on an
+      // eight page document. Measure at the size it is drawn at.
+      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5);
       terms.forEach(t => {
         const split = pdf.splitTextToSize(t[1], gColW - 4);
         const blockH = 5 + split.length * 3.6 + 4;
