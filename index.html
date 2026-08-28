@@ -3867,6 +3867,40 @@ function fmtDay(iso) {
 }
 const GBP = '£#,##0', GBP2 = '£#,##0.00', PCT2 = '0.00%', N1 = '#,##0.0', N0 = '#,##0';
 
+// The working behind column I of the Workings sheet, written out with the
+// numbers the engine actually used. It is prose rather than an Excel formula
+// on purpose: the cell holds the plan's own figure, and this says how that
+// figure was reached. Anything that recalculated it here could disagree with
+// the plan, which is what it used to do.
+//
+// sheetApps is what column E adds up to. Where the engine blended on a
+// different count, that is said rather than left as a contradiction for
+// someone to find.
+function cpaWorkingText(l, plat, role, sheetApps) {
+  const used = l.platCpa ? l.platCpa[plat] : null;
+  if (!(used > 0)) return '';
+  const pl = PLATFORM_LABELS[plat] || plat;
+  const money = v => '\u00A3' + Number(v || 0).toFixed(2);
+  const src = l.platCpaSource ? l.platCpaSource[plat] : null;
+  const prior = rolePlatformCPA(plat, role);
+  if (src === 'benchmark') {
+    return 'No applications recorded here in the period used, so the plan takes the '
+      + pl + ' figure across every location, ' + money(prior.cpa) + '.';
+  }
+  const s = getStats(plat, l.region, role);
+  if (!s || !(s.completes > 0)) return 'Taken from the ' + pl + ' figure across every location, ' + money(prior.cpa) + '.';
+  const n = s.completes, raw = s.spend / s.completes;
+  const nTxt = n.toFixed(1);
+  const levelled = Math.abs(n - sheetApps) > 0.05
+    ? ' (column E, ' + sheetApps.toFixed(1) + ', levelled to the length of the period used)'
+    : '';
+  return 'Measured ' + money(raw) + ' pulled toward the ' + pl + ' figure across every location, '
+    + money(prior.cpa) + ', weighted by the ' + nTxt + ' applications behind this cell'
+    + levelled + ' against a prior of ' + CPA_PRIOR_K + ': ('
+    + nTxt + ' x ' + raw.toFixed(2) + ' + ' + CPA_PRIOR_K + ' x ' + prior.cpa.toFixed(2)
+    + ') / (' + nTxt + ' + ' + CPA_PRIOR_K + ') = ' + money(used) + '.';
+}
+
 async function exportWorkings(state, role) {
   if (!window.ExcelJS) { alert('The spreadsheet writer did not load. Check the connection and reload.'); return; }
   const wb = new window.ExcelJS.Workbook();
@@ -3925,7 +3959,8 @@ async function exportWorkings(state, role) {
         const w = benchWeight(mo);
         const inWin = w > 0;
         const hasClicks = x.clicks !== undefined && x.clicks !== null;
-        rawRows.push({ row: n, region: r, platform: p, inWin, hasClicks, w });
+        rawRows.push({ row: n, region: r, platform: p, inWin, hasClicks, w,
+          spend: x.spend, completes: x.completes || 0 });
         style(wsRaw.addRow([mo, r, PLATFORM_LABELS[p], x.spend, x.completes,
           hasClicks ? x.clicks : 'not recorded',
           FX('IFERROR(D' + n + '/E' + n + ',"")'),
@@ -3951,6 +3986,12 @@ async function exportWorkings(state, role) {
     }
     return rs.map(x => term(x, col)).join('+');
   };
+  // The same weighted sum as sumRef, as a number rather than a formula. Used
+  // only to check whether the count the engine blended on matches what column
+  // E adds up to, so the working in column Q can say so when it does not.
+  const sumVal = (region, platform, key) => rawRows
+    .filter(x => x.region === region && x.platform === platform && x.inWin)
+    .reduce((a, x) => a + x.w * (x[key] || 0), 0);
 
   // Workings.
   const wsW = xlSheet(wb, 'Workings');
@@ -3958,9 +3999,11 @@ async function exportWorkings(state, role) {
   {
     xlTitle(wsW, role + ' plan, ' + monthLabel,
       'One row per location and platform. Performance data: ' + winLabel + '. Columns D to F come from Raw monthly data, '
-      + 'weighted as shown there; the rest are formulas on this sheet. Column I is the measured cost per application '
-      + 'pulled toward the platform average, weighted by how many applications the cell has: a cell with hundreds barely '
-      + 'moves, one with a handful moves a long way.');
+      + 'weighted as shown there. Column I is the cost per application the plan was built on, written in as the figure '
+      + 'the plan used rather than worked out again here, so the workbook and the plan cannot disagree. It is the '
+      + 'measured cost in column H pulled toward the platform figure, by how many applications sit behind the cell: '
+      + 'one with hundreds barely moves, one with a handful moves a long way. Column Q shows that working row by row. '
+      + 'Everything else on the sheet is a live formula.');
     const cols = [
       { h: 'A\nLocation', w: 20 }, { h: 'B\nPlatform', w: 13 }, { h: 'C\nOpen roles', w: 10, a: 'right', f: N0 },
       { h: 'D\nSpend in period', w: 15, a: 'right', f: GBP2 },
@@ -3968,7 +4011,7 @@ async function exportWorkings(state, role) {
       { h: 'F\nClicks', w: 13, a: 'right', f: N0 },
       { h: 'G\nApply rate\nE / F', w: 12, a: 'right', f: PCT2 },
       { h: 'H\nCost per application, measured\nD / E', w: 20, a: 'right', f: GBP2 },
-      { h: 'I\nCost per application, used\n(E x H + 35 x avg) / (E + 35)', w: 22, a: 'right', f: GBP2 },
+      { h: 'I\nCost per application, used\nsee column Q', w: 22, a: 'right', f: GBP2 },
       { h: 'J\nBudget this month', w: 16, a: 'right', f: GBP },
       { h: 'K\nPredicted applications\nJ / I', w: 17, a: 'right', f: N1 },
       { h: 'L\nBiggest month already run', w: 17, a: 'right', f: GBP },
@@ -3976,6 +4019,7 @@ async function exportWorkings(state, role) {
       { h: 'N\nHire rate', w: 11, a: 'right', f: PCT2 },
       { h: 'O\nPredicted hires\nK x N', w: 14, a: 'right', f: N1 },
       { h: 'P\nCost per hire\nJ / O', w: 14, a: 'right', f: GBP },
+      { h: 'Q\nHow column I is arrived at', w: 64 },
     ];
     const hr = xlHeader(wsW, cols);
     wsW.getRow(hr).height = 48;
@@ -3989,30 +4033,34 @@ async function exportWorkings(state, role) {
         n += 1;
         const w = weightedStats(p, l.region, role);
         const dR = sumRef(l.region, p, 'D'), eR = sumRef(l.region, p, 'E'), fR = sumRef(l.region, p, 'F');
+        // Column I is the figure the plan used, written straight from the plan
+        // rather than rebuilt here. It was an Excel formula, and the formula
+        // could not match the plan: it pulled toward platformAvgCPA, a plain
+        // spend over applications figure, where the engine pulls toward
+        // rolePlatformCPA, which is itself already pulled toward the role
+        // benchmark. It also used column E, where the engine uses an
+        // application count levelled to the length of the period. The gap was
+        // small on cells with hundreds of applications behind them and up to
+        // 3% on thin ones, which is enough for a client checking the
+        // arithmetic to find. The working is now in column Q, as the
+        // explanation of the number rather than the source of it.
+        const cpaUsed = l.platCpa ? l.platCpa[p] : null;
+        const cpaWorking = cpaWorkingText(l, p, role, sumVal(l.region, p, 'completes'));
         style(wsW.addRow([l.region, PLATFORM_LABELS[p], l.vacancies,
           dR ? FX(dR) : w.spend,
           eR ? FX(eR) : w.completes,
           fR ? FX(fR) : 'not recorded',
           fR ? FX('IFERROR(E' + n + '/F' + n + ',"")') : '',
           FX('IFERROR(D' + n + '/E' + n + ',"")'),
-          // The rate the plan actually uses: what this cell measured, pulled
-          // toward the platform average in proportion to how many applications
-          // sit behind it. Written as a formula so the pull is visible rather
-          // than arriving as a number nobody can check.
-          (() => {
-            const avg = platformAvgCPA(p, role);
-            if (!(avg > 0)) return FX('H' + n);
-            const K = CPA_PRIOR_K;
-            return FX('IFERROR((E' + n + '*H' + n + '+' + K + '*' + avg.toFixed(4) + ')/(E' + n + '+' + K + '),'
-              + avg.toFixed(4) + ')');
-          })(),
+          cpaUsed > 0 ? cpaUsed : '',
           sp,
           FX('IFERROR(J' + n + '/I' + n + ',0)'),
           l.peaks ? l.peaks[p] : null,
           FX('MAX(0,J' + n + '-L' + n + ')'),
           regionPlatformHireCVR(p, l.region, role),
           FX('K' + n + '*N' + n),
-          FX('IFERROR(J' + n + '/O' + n + ',"")')]), cols);
+          FX('IFERROR(J' + n + '/O' + n + ',"")'),
+          cpaWorking]), cols);
       });
       // A location funded at nothing has no platform rows, so a total row for
       // it would read SUM(D5:D4): a range that includes the cell it sits in.
@@ -4996,7 +5044,12 @@ function exportPlanPDF(state, roleFilter, opts) {
 // the plans or the data. Newest first. Dated, no version numbers.
 // ====================================================================
 const CHANGELOG = [
+  { date: '28 Aug', items: [
+    'Column I of the Workings sheet no longer disagrees with the plan. It was an Excel formula that rebuilt the cost per application from scratch, and it could not match, for two reasons. It pulled the cell toward a plain spend over applications figure for the platform, where the plan pulls it toward the platform figure that has itself already been pulled toward the role benchmark. And it counted the applications behind a cell as column E, where the plan uses that count levelled to the length of the period. Both effects are small on a cell with hundreds of applications and largest on a thin one. On the September SMR plan West Midlands Meta read 47.28 pounds and 99.1 applications in the workbook against 46 pounds and 102 in the PDF, a gap of 3%, and the cost per hire and the location totals were out with it. Column I is now the figure the plan used, written in as a number. The arithmetic behind it has moved to column Q, in words, with the numbers the plan actually used and a note where the count differs from column E. Predicted applications, cost per hire and the totals are still live formulas and now read off a figure that matches the plan. Nothing in the model changed.',
+  ] },
   { date: '19 Aug', items: [
+    'The Data tab now says how far the numbers actually reach, and warns when a month was folded in before it finished. It used to read the end of the last month it had seen, so folding a part month left it claiming the whole month was in. July was folded on 24 July and has been reading as complete ever since, which means every plan built since then used a July about a quarter light: London Google shows 1,204 pounds against 1,719 for the full month, and Scotland Google shows 13 pounds against 499. The label now comes from the last date in the file that was uploaded, and if that is not the last day of its month it says so in amber and tells you how many days are in.',
+    
     'Fixed the totals on the workings spreadsheet coming out blank, which also took the Summary tab down with them. A location funded at nothing has no platform rows under it, but it was still getting a total row, and that row summed a range starting one row below itself: SUM(D5:D4). Excel reads that as circular, returns zero, and since the plan total adds every location total together, one circular reference emptied the whole row. The Summary reads its figures from that row, so it emptied too. Locations with no funded platforms no longer get a total row. This showed up on a September SMR plan where London was capped low enough to receive nothing.',
     
     'Fixed the Summary tab of the workings spreadsheet. The four range formulas were pointing one row short, at a blank spacer rather than at Range used, so predicted applications low and high both came out equal to the central figure and predicted hires did the same. Every workings export taken so far shows no range on that tab.',
@@ -8026,6 +8079,12 @@ function digestExport(rows) {
     for (const n of names) { const i = head.indexOf(normHeader(n)); if (i >= 0) return i; }
     return -1;
   };
+  // The furthest date the file actually reaches. Folding a month that has not
+  // finished used to leave the tool claiming the whole month was in, because
+  // the label was set to the end of the last month seen rather than to the last
+  // day of data. July 2026 was folded on 24 July and read as complete for a
+  // fortnight, so every plan built after it used a three quarter month.
+  let maxDay = null;
   const iDate = col('Date'), iPlat = col('Platform'), iArea = col('Area'),
         iReg = col('Region'), iSpend = col('Ad Spend'),
         iApps = col('Blended Apply Completes'), iClicks = col('Clicks');
@@ -8041,6 +8100,10 @@ function digestExport(rows) {
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r]; if (!row || !row.length) continue;
     const day = sheetDay(row[iDate]);
+    if (day) {
+      const iso = day.y + '-' + String(day.m).padStart(2, '0') + '-' + String(day.d).padStart(2, '0');
+      if (!maxDay || iso > maxDay) maxDay = iso;
+    }
     if (!day) continue;
     const mo = day.y + '-' + String(day.m).padStart(2, '0');
 
@@ -8077,7 +8140,7 @@ function digestExport(rows) {
   })));
 
   return {
-    cells, months: Object.keys(months).sort(),
+    cells, months: Object.keys(months).sort(), lastDate: maxDay,
     skipped: { nonStandard: skippedNonStandard, nonStandardSpend: skippedNonStandardSpend,
                other: skippedOther, untagged, untaggedSpend, untaggedApps,
                unknownPlat: Object.keys(unknownPlat).length ? unknownPlat : null },
@@ -8113,7 +8176,7 @@ function currentAllTime() {
 // Write months into DATA in place. Each month is cleared everywhere first,
 // so a cell that used to carry spend and no longer does goes to nothing
 // rather than keeping a stale figure.
-function applyMonths(months, cells) {
+function applyMonths(months, cells, lastDate) {
   PLATFORMS.forEach(p => {
     Object.keys(DATA[p]).forEach(k => {
       const m = DATA[p][k].monthly; if (!m) return;
@@ -8139,7 +8202,10 @@ function applyMonths(months, cells) {
   const all = new Set([...(DATA.data_months || []), ...months]);
   DATA.data_months = [...all].sort();
   const last = DATA.data_months[DATA.data_months.length - 1];
-  if (last) {
+  if (lastDate) {
+    // What the file actually reached, not the end of the month it fell in.
+    if (!DATA.data_current_through || lastDate > DATA.data_current_through) DATA.data_current_through = lastDate;
+  } else if (last) {
     const [y, m] = last.split('-').map(Number);
     DATA.data_current_through = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
   }
@@ -8328,9 +8394,9 @@ function DataTool() {
   }, [months.join(','), digest, before]);
 
   const doApply = async () => {
-    applyMonths(months, digest.cells);
+    applyMonths(months, digest.cells, digest.lastDate);
     // Keep only the months being folded in, so the row stays small.
-    const store = { at: todayISO(), months, cells: {} };
+    const store = { at: todayISO(), months, lastDate: digest.lastDate || null, cells: {} };
     PLATFORMS.forEach(p => {
       store.cells[p] = {};
       Object.keys((digest.cells || {})[p] || {}).forEach(k => {
@@ -8396,6 +8462,20 @@ function DataTool() {
           <div className="card-title">Load the master sheet</div>
           <div className="card-sub">
             Data currently runs to {DATA.data_current_through}
+            {(() => {
+              // A month folded in before it finished is the quiet failure this
+              // label used to hide. Say so rather than implying the month is
+              // whole.
+              const d = DATA.data_current_through;
+              if (!d) return null;
+              const [y, m, dd] = d.split('-').map(Number);
+              const endOfMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+              if (dd >= endOfMonth) return null;
+              return <span style={{ color: 'var(--warn)', fontWeight: 600 }}>
+                {'. '}That month is not complete, so anything planned on it is
+                {' '}built on {dd} of {endOfMonth} days. Fold it again once the month has closed.
+              </span>;
+            })()}
           </div>
         </div>
         <div className="card-body">
@@ -9313,7 +9393,7 @@ function Root() {
         let moved = false;
         if (b && b.cells && b.months) {
           window.__RAC_BENCH__ = b;
-          applyMonths(b.months, b.cells);
+          applyMonths(b.months, b.cells, b.lastDate);
           moved = true;
         }
         if (h && h.rates) {
