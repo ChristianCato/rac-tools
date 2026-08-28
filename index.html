@@ -4102,7 +4102,19 @@ async function exportWorkings(state, role) {
         params.premiumCampaigns + ' campaigns x ' + params.daysInMonth + ' days x \u00A3' + INDEED_PREMIUM_RATE + ' a day'],
       ['Combined Activity hold-back', plan.acHoldback, 'Flat amount for brand-level activity not tied to a location'],
       ['Deployable budget', FX(B(1) + '-' + B(2) + '-' + B(3)), 'Monthly budget less the two hold-backs'],
-      ['Of which above spend already run', FX('Workings!M' + totalRow), 'Workings, column M, plan total'],
+      // Two different figures used to sit under near enough the same label, one
+      // here and one on the plan page, and they differ by a wide margin. This
+      // one is budget above the biggest month on record. The plan page reports
+      // what sits above the ceiling, which is a multiple of that month. Say
+      // which is which, and give the plan's figure here so the two can be read
+      // together. Adding it as its own row would move every B(k) offset below,
+      // and the export cannot be tested outside a browser, so it goes in the
+      // explanation instead.
+      ['Above the biggest month already run', FX('Workings!M' + totalRow),
+        'Workings, column M, plan total. Budget above each location and platform\u2019s biggest month on record. '
+        + 'This is not the figure on the plan page. That one is the part above the spend ceiling, which is set at '
+        + Math.round((params.capMultiple || 1) * 100) + '% of the biggest month, and it comes to '
+        + fmtGBP(plan.beyondProven || 0) + '.'],
       ['', '', ''],
       ['Application target', plan.appTarget, 'Hire target worked back through the blended hire rate for the live locations'],
       ['Predicted applications', FX('Workings!K' + totalRow), 'Workings, column K, plan total'],
@@ -4140,7 +4152,9 @@ async function exportWorkings(state, role) {
     const ws = xlSheet(wb, 'How the range works');
     xlTitle(ws, 'How the range works',
       'The range is ' + Math.round(plan.aggBandPct) + '%, measured on how much ' + role +
-      ' cost per application moved across the months marked Yes.');
+      ' cost per application moved across the months marked Yes.'
+      + ' A month that is upweighted in the plan still counts once here, because the range is'
+      + ' measured on the months themselves rather than on their weights.');
     const cols = [{ h: 'Month', w: 14 }, { h: 'Spend', w: 16, a: 'right', f: GBP2 },
       { h: 'Applications', w: 14, a: 'right', f: N1 }, { h: 'Cost per application', w: 20, a: 'right', f: GBP2 },
       { h: 'In the period used', w: 18 }];
@@ -4158,7 +4172,12 @@ async function exportWorkings(state, role) {
     Object.keys(byMonth).sort().forEach(mo => {
       n += 1;
       const o = byMonth[mo];
-      const inWin = !win || (mo >= win.from && mo <= win.to);
+      // This read win.from and win.to, which only exist on a custom range. On
+      // every other mode they are undefined, both comparisons are false, and
+      // the column marked all thirteen months No while the title above said
+      // the range came from the ones marked Yes. Ask the same thing the engine
+      // asks instead.
+      const inWin = benchWeight(mo) > 0;
       style(ws.addRow([mo, o.s, o.a, FX('IFERROR(B' + n + '/C' + n + ',"")'), inWin ? 'Yes' : 'No']),
         cols, { muted: !inWin });
     });
@@ -4265,13 +4284,25 @@ function exportPlanPDF(state, roleFilter, opts) {
     // (1 or 2 pages depending on how the terms flow).
     const REGION_CHANNEL_PAGES = roles.length * 4; // roles x 4 platforms, one table per page
 
+    // The ceiling is a setting, not a fixed rule, and this entry was written as
+    // though it were. It told the client the ceiling was the biggest month
+    // already spent and that nothing rested on a level never run. Both stopped
+    // being true the moment the multiple moved off 100%, and the second half
+    // was contradicted by the plan page in the same document, which reports the
+    // part of the budget above what has been spent before.
+    const capPct = Math.round((state.capMultiple || 1) * 100);
+    const ceilingText = (capPct === 100
+      ? 'The most a location and platform can be given: the biggest month it has already spent.'
+      : 'The most a location and platform can be given: ' + capPct + '% of the biggest month it has already spent.')
+      + ' Where a location\u2019s budget will not fit under those ceilings the rest is still spent rather than dropped, and it is reported on the plan page as the part above what has been spent before.';
+
     // Glossary terms (defined here so we can pre-measure how many pages they need)
     const terms = [
       ['Indeed Premium', 'A fixed daily cost for Indeed\u2019s premium campaigns, held back off the top. Calculated as campaigns \u00D7 days in the month \u00D7 \u00A344 per day per campaign.'],
       ['Combined Activity', 'A flat amount held back for brand-level activity not tied to a specific location.'],
       ['Predicted hires', 'Predicted applications multiplied by the location\u2019s historic hire rate. It carries the same range as applications: fewer applications means fewer hires at the same rate.'],
       ['The range', 'How much the whole plan can move, from how much the cost per application has moved month to month across the benchmark period. It is narrower than any single location, because they do not all miss in the same direction to the same degree.'],
-      ['Spend ceiling', 'The most a location and platform can be given: the biggest month it has already spent. Nothing in the plan rests on a spend level that has never been run.'],
+      ['Spend ceiling', ceilingText],
       ['Split by open roles', 'The deployable budget divided between locations by their share of open roles: more roles means a bigger share.'],
       ['App target', 'RAC\u2019s application goal for the role; the number the plan is judged against. In the table, each row\u2019s App target is that location\u2019s share, allocated by demand: a location with 22 of 79 open roles is responsible for 22/79 of the total.'],
       ['Predicted applications', 'The applications each location\u2019s budget should produce. Calculated as the location\u2019s budget divided by its blended cost-per-application from history.'],
