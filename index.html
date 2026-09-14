@@ -2519,6 +2519,65 @@ function defaultCoverage(role) {
 // ====================================================================
 // SHARED SMALL COMPONENTS
 // ====================================================================
+// A money box that does not rebuild the plan on every keystroke.
+//
+// These inputs write straight into the planner state, and every write
+// recomputes both funding plans, the tables and the KPI tiles before the next
+// character lands. With four boxes per row across nine locations it was
+// unusable. So the box owns its text while it is being typed in and only
+// commits when it loses focus or you press Enter. Escape puts it back.
+//
+// It re-syncs from the prop whenever the committed value changes underneath
+// it, which is what keeps it right after loading a saved plan or a reset.
+function MoneyInput({ value, onCommit, disabled, style, title, placeholder, className }) {
+  const fmt = v => (v > 0 ? '\u00A3' + Number(v).toLocaleString('en-GB') : '');
+  const [draft, setDraft] = React.useState(fmt(value));
+  const [editing, setEditing] = React.useState(false);
+  React.useEffect(() => { if (!editing) setDraft(fmt(value)); }, [value, editing]);
+  const commit = (text) => {
+    setEditing(false);
+    const n = parseInt(String(text).replace(/[^0-9]/g, ''), 10) || 0;
+    setDraft(fmt(n));
+    if (n !== (value || 0)) onCommit(n);
+  };
+  return (
+    <input className={className || 'text-input'} disabled={disabled} style={style} title={title}
+      placeholder={placeholder} value={draft}
+      onFocus={() => setEditing(true)}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={e => commit(e.target.value)}
+      onKeyDown={e => {
+        if (e.key === 'Enter') { commit(e.target.value); e.target.blur(); }
+        else if (e.key === 'Escape') { setEditing(false); setDraft(fmt(value)); e.target.blur(); }
+      }} />
+  );
+}
+
+// The location cap box. Same deferred commit as MoneyInput, but the value can
+// also be N for \u201cfund this at nothing\u201d, so it goes through capToText and
+// capFromText rather than parsing digits.
+function CapInput({ value, onCommit, style, title }) {
+  const [draft, setDraft] = React.useState(capToText(value));
+  const [editing, setEditing] = React.useState(false);
+  React.useEffect(() => { if (!editing) setDraft(capToText(value)); }, [value, editing]);
+  const commit = (text) => {
+    setEditing(false);
+    const v = capFromText(text);
+    setDraft(capToText(v));
+    if (v !== value) onCommit(v);
+  };
+  return (
+    <input className="text-input" style={style} title={title} value={draft}
+      onFocus={() => setEditing(true)}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={e => commit(e.target.value)}
+      onKeyDown={e => {
+        if (e.key === 'Enter') { commit(e.target.value); e.target.blur(); }
+        else if (e.key === 'Escape') { setEditing(false); setDraft(capToText(value)); e.target.blur(); }
+      }} />
+  );
+}
+
 function Foldable({ title, sub, open, onToggle, children }) {
   return (
     <div className="card">
@@ -2689,26 +2748,26 @@ function CoverageMatrix({ role, state, setState }) {
                             {on ? '\u2713' : ''}
                           </span>
                           {showFloors && (
-                            <input className="text-input" disabled={!on}
+                            <MoneyInput disabled={!on}
                               style={{ display: 'block', width: 74, margin: '4px auto 0', padding: '3px 5px', fontSize: 11, textAlign: 'right' }}
                               title={on ? 'Least this platform must take in this location' : 'Switched off in this location'}
-                              value={comboFloorOf(region, plat) ? '\u00A3' + comboFloorOf(region, plat).toLocaleString('en-GB') : ''}
+                              value={comboFloorOf(region, plat)}
                               placeholder="min"
-                              onChange={e => setComboFloor(region, plat, parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0)} />
+                              onCommit={v => setComboFloor(region, plat, v)} />
                           )}
                         </td>
                       );
                     })}
                     <td style={{ padding: '4px 6px', borderBottom: '1px solid var(--ink-04)', textAlign: 'center' }}>
-                      <input className="text-input" style={{ width: 88, padding: '4px 6px', fontSize: 12, textAlign: 'right' }}
-                        value={'\u00A3' + (minOf(region)).toLocaleString('en-GB')}
-                        onChange={e => setLimit('regionMin', region, parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0)} />
+                      <MoneyInput style={{ width: 88, padding: '4px 6px', fontSize: 12, textAlign: 'right' }}
+                        value={minOf(region)}
+                        onCommit={v => setLimit('regionMin', region, v)} />
                     </td>
                     <td style={{ padding: '4px 6px', borderBottom: '1px solid var(--ink-04)', textAlign: 'center' }}>
-                      <input className="text-input" style={{ width: 88, padding: '4px 6px', fontSize: 12, textAlign: 'right' }}
-                        value={capToText(maxOf(region))}
+                      <CapInput style={{ width: 88, padding: '4px 6px', fontSize: 12, textAlign: 'right' }}
+                        value={maxOf(region)}
                         title="A number caps the spend here. N funds it at nothing but keeps it in the plan."
-                        onChange={e => setLimit('regionMax', region, capFromText(e.target.value))} />
+                        onCommit={v => setLimit('regionMax', region, v)} />
                     </td>
                   </tr>
                 ))}
@@ -2877,15 +2936,11 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       <div>
                         <label className="field-label" style={{ fontSize: 10 }}>Min</label>
-                        <input className="text-input"
-                          value={'\u00A3' + minV.toLocaleString('en-GB')}
-                          onChange={e => setLimit('platMin', parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0)} />
+                        <MoneyInput value={minV} onCommit={v => setLimit('platMin', v)} />
                       </div>
                       <div>
                         <label className="field-label" style={{ fontSize: 10 }}>Max</label>
-                        <input className="text-input"
-                          value={'\u00A3' + maxV.toLocaleString('en-GB')}
-                          onChange={e => setLimit('platMax', parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0)} />
+                        <MoneyInput value={maxV} onCommit={v => setLimit('platMax', v)} />
                       </div>
                     </div>
                   </div>
