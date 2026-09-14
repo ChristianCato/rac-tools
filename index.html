@@ -1734,6 +1734,58 @@ function buildFundingPlanUncached(role, p) {
     l.beyondProvenTotal = PLATFORMS.reduce((a, plat) => a + l.beyondProven[plat], 0);
     l.overCap = 0;
     l.spend = PLATFORMS.reduce((a, plat) => a + (l.platSpend[plat] || 0), 0);
+
+    // ----- Per-combination floors (location x platform, GBP) -----
+    // Named comboMin, not platMin: platMin already exists as a role-wide
+    // threshold keyed by platform, and reusing the name would have silently
+    // corrupted it. This one is keyed by region then platform.
+    //
+    // The coverage grid can already switch a combination off. This is the
+    // other direction: force a minimum into one, where the marginal-cost split
+    // would not have put it. Mid-month replans need it, because what a
+    // location has already committed on a platform is not something the engine
+    // can see.
+    //
+    // The money comes from the other platforms in the same location, so the
+    // location's own budget does not move and nothing upstream has to be
+    // redone. A floor beats the spend ceiling, because it is an instruction
+    // rather than an inference, but the part above the ceiling is recorded in
+    // beyondProven like any other unproven pound.
+    const cMin = (p.comboMin && p.comboMin[l.region]) || null;
+    const comboFloor = plat => (cMin && l.onPlat[plat] && cMin[plat] > 0 ? cMin[plat] : 0);
+    const floorSum = PLATFORMS.reduce((a, plat) => a + comboFloor(plat), 0);
+    l.floorShortfall = 0;
+    if (floorSum > 0.5) {
+      if (floorSum > l.spend + 0.5) {
+        // The floors ask for more than this location has. Hold their
+        // proportions, spend what there is, and report the gap rather than
+        // inventing budget.
+        l.floorShortfall = floorSum - l.spend;
+        PLATFORMS.forEach(plat => { l.platSpend[plat] = comboFloor(plat) * (l.spend / floorSum); });
+      } else {
+        let need = 0;
+        PLATFORMS.forEach(plat => {
+          const f = comboFloor(plat);
+          if ((l.platSpend[plat] || 0) < f) { need += f - (l.platSpend[plat] || 0); l.platSpend[plat] = f; }
+        });
+        for (let pass = 0; pass < 8 && need > 0.5; pass++) {
+          const donors = PLATFORMS.filter(plat => l.onPlat[plat] && (l.platSpend[plat] || 0) > comboFloor(plat) + 0.01);
+          if (!donors.length) break;
+          const avail = donors.reduce((a, plat) => a + (l.platSpend[plat] - comboFloor(plat)), 0);
+          const take = Math.min(need, avail);
+          donors.forEach(plat => { l.platSpend[plat] -= take * ((l.platSpend[plat] - comboFloor(plat)) / avail); });
+          need -= take;
+        }
+      }
+      // A floor can push a combination past its ceiling. Record that pound as
+      // unproven, the same as any other, so page 1 still adds up.
+      PLATFORMS.forEach(plat => {
+        const over = (l.platSpend[plat] || 0) - capOf(plat);
+        if (over > l.beyondProven[plat]) l.beyondProven[plat] = Math.max(0, over);
+      });
+      l.beyondProvenTotal = PLATFORMS.reduce((a, plat) => a + l.beyondProven[plat], 0);
+      l.spend = PLATFORMS.reduce((a, plat) => a + (l.platSpend[plat] || 0), 0);
+    }
     // Per-platform predicted apps
     l.platApps = {};
     let totApps = 0;
@@ -2193,6 +2245,7 @@ function planParams(role, s) {
     platMin: (s.platMin && s.platMin[role]) || {},
     platMax: (s.platMax && s.platMax[role]) || {},
     coverage: (s.coverage && s.coverage[role]) || {},
+    comboMin: (s.comboMin && s.comboMin[role]) || {},
     regionMin: (s.regionMin && s.regionMin[role]) || {},
     regionMax: (s.regionMax && s.regionMax[role]) || {},
     daysInMonth: (DATA.days_in_month && DATA.days_in_month[s.planMonth]) || 30,
@@ -2544,6 +2597,7 @@ function CoverageMatrix({ role, state, setState }) {
       coverage: { ...prev.coverage, [role]: defaultCoverage(role) },
       regionMin: { ...prev.regionMin, [role]: {} },
       regionMax: { ...prev.regionMax, [role]: {} },
+      comboMin: { ...prev.comboMin, [role]: {} },
     }));
   };
   const colOnCount = (plat) => liveRegions.filter(r => isOn(r, plat)).length;
@@ -2557,6 +2611,21 @@ function CoverageMatrix({ role, state, setState }) {
     }));
   };
   const limitCount = liveRegions.filter(r => minOf(r) > 0 || maxOf(r) > 0).length;
+  // Per-combination floors. The tick grid says whether a platform may take
+  // money in a location; this says how much it must take whatever the split
+  // would have chosen. Behind a toggle, because four more boxes on every row
+  // makes the grid unreadable when nobody is using them.
+  const [showFloors, setShowFloors] = useState(false);
+  const comboFloorOf = (region, plat) =>
+    (state.comboMin && state.comboMin[role] && state.comboMin[role][region] && state.comboMin[role][region][plat]) || 0;
+  const setComboFloor = (region, plat, value) => {
+    setState(prev => {
+      const roleMin = { ...((prev.comboMin && prev.comboMin[role]) || {}) };
+      roleMin[region] = { ...(roleMin[region] || {}), [plat]: value };
+      return { ...prev, comboMin: { ...prev.comboMin, [role]: roleMin } };
+    });
+  };
+  const floorCount = liveRegions.reduce((n, r) => n + PLATFORMS.filter(p => comboFloorOf(r, p) > 0).length, 0);
 
   return (
     <div style={{ marginTop: 14 }}>
@@ -2619,6 +2688,14 @@ function CoverageMatrix({ role, state, setState }) {
                             }}>
                             {on ? '\u2713' : ''}
                           </span>
+                          {showFloors && (
+                            <input className="text-input" disabled={!on}
+                              style={{ display: 'block', width: 74, margin: '4px auto 0', padding: '3px 5px', fontSize: 11, textAlign: 'right' }}
+                              title={on ? 'Least this platform must take in this location' : 'Switched off in this location'}
+                              value={comboFloorOf(region, plat) ? '\u00A3' + comboFloorOf(region, plat).toLocaleString('en-GB') : ''}
+                              placeholder="min"
+                              onChange={e => setComboFloor(region, plat, parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0)} />
+                          )}
                         </td>
                       );
                     })}
@@ -2638,9 +2715,23 @@ function CoverageMatrix({ role, state, setState }) {
               </tbody>
             </table>
           </div>
-          <button className="btn btn-ghost" style={{ marginTop: 10, fontSize: 12 }} onClick={resetAll}>
-            Reset {role} coverage and limits
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+            <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => setShowFloors(v => !v)}>
+              {showFloors ? 'Hide per-platform minimums' : 'Set per-platform minimums'}
+              {floorCount > 0 ? ' (' + floorCount + ' set)' : ''}
+            </button>
+            <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={resetAll}>
+              Reset {role} coverage and limits
+            </button>
+          </div>
+          {showFloors && (
+            <div className="help-text" style={{ marginTop: 8 }}>
+              A minimum forces that platform to take at least that much in that location. The money comes from the
+              other platforms in the same location, so the location\u2019s own budget does not change. Leave blank for
+              no minimum. If the minimums in a location come to more than its budget, the plan spends what there is
+              and reports the gap.
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -5436,6 +5527,7 @@ function defaultPlannerState() {
     coverage: { SMR: defaultCoverage('SMR'), Patrol: defaultCoverage('Patrol') },
     regionMin: { SMR: {}, Patrol: {} },
     regionMax: { SMR: {}, Patrol: {} },
+    comboMin: { SMR: {}, Patrol: {} },
   };
 }
 
@@ -8968,6 +9060,56 @@ function CompareView({ month, container, onClose }) {
     });
     rows.push({ k: 'Locations funded', l: fmtInt(l.totalCount), r: fmtInt(r.totalCount), d: r.totalCount - l.totalCount });
     rows.push({ k: 'Deployable after hold-backs', l: fmtGBP(l.deployable), r: fmtGBP(r.deployable), d: r.deployable - l.deployable, money: true });
+
+    // Plan totals hide where the money actually moved. A budget can be flat
+    // and still have shifted between locations, platforms or single
+    // combinations, and on a mid-month replan that is the whole question.
+    // Rows only appear where something changed, so an unchanged plan still
+    // reads as a short table.
+    const money = true;
+    const cmp = (label, a, b) => {
+      if (Math.abs((b || 0) - (a || 0)) < 1) return null;
+      // Neutral, not green or red. A combination going up or down is the
+      // thing being looked at, not a win or a loss, and on a budget reduction
+      // every line would otherwise read as a failure.
+      return { k: label, l: fmtGBP(a || 0), r: fmtGBP(b || 0), d: (b || 0) - (a || 0), money, neutral: true };
+    };
+
+    const regions = Array.from(new Set([...(l.locations || []).map(x => x.region), ...(r.locations || []).map(x => x.region)]));
+    const byRegion = [];
+    regions.forEach(reg => {
+      const a = (l.locations || []).find(x => x.region === reg);
+      const b = (r.locations || []).find(x => x.region === reg);
+      const row = cmp(reg, a && a.spend, b && b.spend);
+      if (row) byRegion.push(row);
+    });
+    if (byRegion.length) { rows.push({ head: role + ' by location' }); byRegion.forEach(x => rows.push(x)); }
+
+    const byPlat = [];
+    PLATFORMS.forEach(plat => {
+      const row = cmp(PLATFORM_LABELS[plat], (l.platformTotals || {})[plat], (r.platformTotals || {})[plat]);
+      if (row) byPlat.push(row);
+    });
+    if (byPlat.length) { rows.push({ head: role + ' by platform' }); byPlat.forEach(x => rows.push(x)); }
+
+    const byCombo = [];
+    PLATFORMS.forEach(plat => {
+      const la = ((l.regionChannel || {})[plat]) || [];
+      const rb = ((r.regionChannel || {})[plat]) || [];
+      const regs = Array.from(new Set([...la.map(x => x.region), ...rb.map(x => x.region)]));
+      regs.forEach(reg => {
+        const a = la.find(x => x.region === reg);
+        const b = rb.find(x => x.region === reg);
+        const row = cmp(reg + ' \u00b7 ' + PLATFORM_LABELS[plat], a && a.spend, b && b.spend);
+        if (row) byCombo.push(row);
+      });
+    });
+    byCombo.sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
+    if (byCombo.length) {
+      rows.push({ head: role + ' by location and platform, biggest moves first' });
+      byCombo.slice(0, 24).forEach(x => rows.push(x));
+      if (byCombo.length > 24) rows.push({ k: 'and ' + (byCombo.length - 24) + ' smaller moves', l: '', r: '', d: 0 });
+    }
   });
 
   const picker = (value, onChange) => (
@@ -9009,7 +9151,8 @@ function CompareView({ month, container, onClose }) {
                   {row.r}
                   {Math.abs(row.d) > 0.05 && (
                     <span className="cmp-diff" style={{
-                      color: (row.lowerBetter ? row.d < 0 : row.d > 0) ? 'var(--good)' : 'var(--bad)',
+                      color: row.neutral ? 'var(--ink-35)'
+                        : ((row.lowerBetter ? row.d < 0 : row.d > 0) ? 'var(--good)' : 'var(--bad)'),
                     }}>
                       {row.d > 0 ? '+' : '-'}{row.money ? fmtGBP(Math.abs(row.d)) : fmtInt(Math.abs(row.d))}
                     </span>
