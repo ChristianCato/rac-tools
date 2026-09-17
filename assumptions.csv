@@ -1,0 +1,33 @@
+key,name,value,unit,role,source,date,notes
+indeed_premium_rate,Indeed Premium cost per campaign per day,44,gbp_per_day,all,agreed,2026-09-17,Hold-back = campaigns x days in month x this rate
+role_cpa_benchmark,Role benchmark cost per application,48.20,gbp,SMR,agreed,2026-09-17,Anchor for thin platform figures; unchanged from the previous method
+role_cpa_benchmark,Role benchmark cost per application,63.46,gbp,Patrol,agreed,2026-09-17,Anchor for thin platform figures; unchanged from the previous method
+cpa_prior_apps,Applications of evidence before a cell's own cost per application is trusted,35,count,all,agreed,2026-09-17,Blend strength of the usual cost per application; unchanged from the previous method
+cap_multiple_default,Spending limit multiple (default),2,multiple,all,agreed,2026-09-17,Applied to the largest successful month; editable on Setup from 1 to 3
+data_settle_days,Days after month end before a month's ad platform figures count,14,days,all,default,2026-09-17,Starting value; set from how recent months moved between data versions in chunk 2.3
+typical_month_min_spend,Smallest monthly spend counted towards a platform's typical month,100,gbp,all,agreed,2026-09-17,Unchanged from the previous method
+eploy_first_month,First application month used from the Eploy dataset,2025-10,month,all,agreed,2026-09-17,The corrected dataset started in October 2025
+hire_maturity_months,Months an application needs before its hire outcome counts,3,months,all,agreed,2026-09-17,Hire rate by application month was 2.0% to 2.6% January to June; 1.79% July; 0.99% August
+screening_maturity_months,Months an application needs before its screening outcome counts,1,months,all,default,2026-09-17,Starting value; measured in chunk 2.2
+screen_blend_n,Screening pass rate blend strength for Indeed and Appcast (applications),10,count,SMR,default,2026-09-17,Starting value; set by testing in chunk 2.4
+screen_blend_n,Screening pass rate blend strength for Indeed and Appcast (applications),10,count,Patrol,default,2026-09-17,Starting value; set by testing in chunk 2.4
+meta_google_pull,Share of the way Meta and Google screening rates move to the role average,0.5,share,all,agreed,2026-09-17,Halfway regardless of volume (last-source attribution)
+location_screen_blend_n,Location screening adjustment blend strength (applications),200,count,SMR,default,2026-09-17,Starting value; set by testing in chunk 2.4
+location_screen_blend_n,Location screening adjustment blend strength (applications),200,count,Patrol,default,2026-09-17,Starting value; set by testing in chunk 2.4
+region_hire_blend_n,Regional hire rate after screening blend strength (applications passed screening),1000,count,SMR,default,2026-09-17,Starting value; set by testing in chunk 2.4
+region_hire_blend_n,Regional hire rate after screening blend strength (applications passed screening),1000,count,Patrol,default,2026-09-17,Starting value; set by testing in chunk 2.4
+d1_role_rate,Shared diminishing returns rate (1 means none),0.6,exponent,SMR,default,2026-09-17,Starting value; set by testing in chunk 2.5
+d1_role_rate,Shared diminishing returns rate (1 means none),0.6,exponent,Patrol,default,2026-09-17,Starting value; set by testing in chunk 2.5
+d1_prior_strength,Location-months of evidence before a platform's own rate is trusted,20,count,SMR,default,2026-09-17,Starting value; set by testing in chunk 2.5
+d1_prior_strength,Location-months of evidence before a platform's own rate is trusted,20,count,Patrol,default,2026-09-17,Starting value; set by testing in chunk 2.5
+remaining_error_factor,Remaining-error adjustment to cost per application,1,multiple,SMR,default,2026-09-17,Starting value; set by testing in chunk 2.5
+remaining_error_factor,Remaining-error adjustment to cost per application,1,multiple,Patrol,default,2026-09-17,Starting value; set by testing in chunk 2.5
+backtest_first_month,First month predicted in testing,2026-03,month,all,agreed,2026-09-17,Each test month is predicted from earlier months only
+range_low_percentile,Lower end of the plan range (percentile of testing misses),0.10,share,all,agreed,2026-09-17,Middle 80% of misses; Excel PERCENTILE.INC
+range_high_percentile,Upper end of the plan range (percentile of testing misses),0.90,share,all,agreed,2026-09-17,Middle 80% of misses; Excel PERCENTILE.INC
+range_hit_rate_min_months,Test months needed before any hit-rate claim,12,count,all,default,2026-09-17,No hit-rate claim until there are this many test months
+ceiling_first_month,First month considered for spending limits,2026-01,month,all,agreed,2026-09-17,Settled 2026 months
+ceiling_min_spend,Smallest monthly spend for a month to count towards a spending limit,200,gbp,all,agreed,2026-09-17,
+ceiling_min_apps,Fewest applications for a month to count towards a spending limit,5,count,all,agreed,2026-09-17,
+quality_test_drop,Quality test: largest fall below the location's usual screening pass rate,0.25,share,all,agreed,2026-09-17,A month more than this far below the location norm is not a successful month
+quality_test_min_expected,Quality test applies only where at least this many applications were expected to pass screening,10,count,all,agreed,2026-09-17,

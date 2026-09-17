@@ -10,7 +10,14 @@ From the repo folder:
     node tests/run.mjs
 
 Needs Node 18 or later and nothing else. Every line reads PASS, FAIL or SKIP,
-and the run ends with a count. Any FAIL means the change is not ready.
+and the run ends with separate counts of passed, skipped and failed checks.
+Any FAIL means the change is not ready. A SKIP is not a pass: it names what is
+missing.
+
+Checks for the new planner live in `checks/`, one file per area, and are
+picked up automatically. `lib/planner.mjs` loads the planner files listed in
+`planner/manifest.json`, the same list the app loads, so no code is cut out of
+index.html for them.
 
 The browser check is separate, because it needs a browser:
 

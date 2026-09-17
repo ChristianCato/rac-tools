@@ -18,12 +18,15 @@ const F2A = JSON.parse(fs.readFileSync(path.join(here, 'fixtures/smr_sept_plan_2
 const FLIVE = JSON.parse(fs.readFileSync(path.join(here, 'fixtures/smr_sept_live_2026-09-16.json'), 'utf8'));
 
 const results = [];
+// A check passes by returning a note, fails by throwing, and is skipped by
+// returning a note that starts with SKIPPED. Skipped checks are counted apart
+// from passed ones.
 function check(name, fn) {
   try {
     const notes = fn() || '';
-    results.push({ name, ok: true, notes });
+    results.push({ name, status: notes.startsWith('SKIPPED') ? 'SKIP' : 'PASS', notes });
   } catch (e) {
-    results.push({ name, ok: false, notes: e.message });
+    results.push({ name, status: 'FAIL', notes: process.env.RAC_TEST_STACK ? e.stack : e.message });
   }
 }
 const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
@@ -148,11 +151,14 @@ check('September Patrol plan rebuild', () => {
   throw new Error('Patrol fixture present but no check written yet');
 });
 
-let failed = 0;
-for (const r of results) {
-  const skipped = r.ok && r.notes.startsWith('SKIPPED');
-  console.log(`${skipped ? 'SKIP' : r.ok ? 'PASS' : 'FAIL'}  ${r.name}\n      ${r.notes}`);
-  if (!r.ok) failed++;
+// ---- Planner checks, one file per area in tests/checks ---------------------
+for (const f of fs.readdirSync(path.join(here, 'checks')).filter(f => f.endsWith('.mjs')).sort()) {
+  const mod = await import('./checks/' + f);
+  await mod.default(check, { assert, near });
 }
-console.log(`\n${results.length - failed} of ${results.length} checks passed${failed ? ', ' + failed + ' failed' : ''}.`);
+
+const count = (s) => results.filter(r => r.status === s).length;
+for (const r of results) console.log(`${r.status}  ${r.name}\n      ${r.notes}`);
+const [passed, skipped, failed] = ['PASS', 'SKIP', 'FAIL'].map(count);
+console.log(`\n${results.length} checks: ${passed} passed, ${skipped} skipped, ${failed} failed.`);
 process.exit(failed ? 1 : 0);
