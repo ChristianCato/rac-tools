@@ -57,13 +57,31 @@
     const capMultiple = Number.isFinite(m) && m >= 1 && m <= 3 ? m : get('cap_multiple_default');
     const quality = RAC.ceilings.qualityByLocation(env.eploy, hireRates, role);
     const cpaLimits = (inputs.limits && inputs.limits.cpa) || {};
+    // Comparison switches, used only by tools/stage2_report.mjs to show the
+    // effect of each change against the previous version. No screen sets them.
+    const cmp = inputs.compare || {};
     const cells = {};
     ds.regions.forEach(region => {
       cells[region] = {};
       P().forEach(plat => {
         const pc = RAC.forecast.prepare(ctx, hireRates, d1, factors, plat, region);
+        if (cmp.previousHireRates) {
+          // The previous version's static rate: hires per application from the data file.
+          const c = (ds.DATA[plat] || {})[region + '__' + role];
+          const rate = (c && c.all_time && c.all_time.hireCvr) || 0;
+          Object.assign(pc, { screen: 1, hireAfterScreening: rate, recon: 1, hirePerApplication: rate,
+            rates: { platformScreen: null, platformBasis: 'previous static hire rate', screenAdjustment: 1, screen: 1, hireAfterScreening: rate, hirePerApplication: rate } });
+        }
         const cpaLimit = (cpaLimits[region] || {})[plat] || null;
-        const ceiling = RAC.ceilings.cell(ctx, pc, quality, { capMultiple, cpaLimit });
+        let ceiling = RAC.ceilings.cell(ctx, pc, quality, { capMultiple, cpaLimit });
+        if (cmp.previousCeilings) {
+          // The previous version: the biggest month on record x the multiple, and
+          // money above it spread anyway rather than moved or left unplaced.
+          const m = RAC.data.monthly(ds, plat, region, role);
+          const peak = Math.max(0, ...Object.keys(m).filter(mo => ctx.settled.includes(mo)).map(mo => m[mo].spend));
+          const base_ = peak > 0 ? peak : RAC.cost.typicalMonth(ctx, plat);
+          ceiling = { ...ceiling, ceiling: base_ * capMultiple, base: base_, basis: 'previous: biggest month', largestSuccessful: peak };
+        }
         const cpaCap = RAC.ceilings.spendAtCpaLimit(pc, cpaLimit);
         cells[region][plat] = { pc, ceiling, cpaLimit, cpaCap, cap: Math.max(0, Math.min(ceiling.ceiling, cpaCap)) };
       });
@@ -74,7 +92,7 @@
       widen: get('row_widen_apps'),
       hireBlend: get('region_hire_blend_n'),
     };
-    return { role, A, ds, ctx, hireRates, d1, factors, capMultiple, cells, ranges,
+    return { role, A, ds, ctx, hireRates, d1, factors, capMultiple, cells, ranges, softCaps: !!cmp.previousCeilings,
       premiumRate: RAC.assumptions.get(A, 'indeed_premium_rate') };
   }
 
@@ -111,7 +129,7 @@
       const maxCap = regionMax[l.region] === NO_SPEND ? 0 : (regionMax[l.region] > 0 ? regionMax[l.region] : Infinity);
       const options = [
         [maxCap, regionMax[l.region] === NO_SPEND ? 'location set to no spend' : 'location maximum'],
-        [l.capacity, l.capacity < ceilingSum - 0.005 ? 'spending limits and cost per application limits' : 'spending limits (largest successful month x multiple)'],
+        [base.softCaps ? Infinity : l.capacity, l.capacity < ceilingSum - 0.005 ? 'spending limits and cost per application limits' : 'spending limits (largest successful month x multiple)'],
         [l.cphCap, 'cost per hire limit'],
       ];
       const [cap, reason] = options.reduce((a, b) => (b[0] < a[0] ? b : a));
@@ -162,7 +180,9 @@
           l.split[c.plat] += add;
           aboveByInstruction[l.region + '|' + c.plat] = add;
         });
-        steps.push({ step: 'within location', region: l.region, amount: s.leftover, reason: 'location minimum above its spending limits; spent above the limits as instructed' });
+        steps.push({ step: 'within location', region: l.region, amount: s.leftover, reason: base.softCaps
+          ? 'comparison with the previous version: spread above the biggest month'
+          : 'location minimum above its spending limits; spent above the limits as instructed' });
       }
     });
 
@@ -187,7 +207,12 @@
         l.fixed[plat] = target < total ? cur * (target / total) : cur + (target - total) * share;
         const s = RAC.allocate.splitLocation(l.cells, l.spend, l.fixed);
         l.split = s.spend;
-        if (s.leftover > 0.005) {
+        if (s.leftover > 0.005 && base.softCaps) {
+          // Comparison with the previous version: spread above the limits.
+          const free = l.cells.filter(c => l.fixed[c.plat] === undefined);
+          const capSum = U.sum(free.map(c => c.cap)) || free.length;
+          free.forEach(c => { l.split[c.plat] += s.leftover * ((U.sum(free.map(x => x.cap)) ? c.cap : 1) / capSum); });
+        } else if (s.leftover > 0.005) {
           unplaced += s.leftover; unplacedReasons['platform maximum'] = true;
           l.spend -= s.leftover;
           steps.push({ step: 'platform limits', region: l.region, platform: plat, amount: -s.leftover, reason: 'platform maximum: no other platform here had room' });
@@ -392,7 +417,7 @@
     const hit = RAC.cache.get(key);
     if (hit) return hit;
     const baseKey = 'base|' + role + '|' + U.stableKey({ bench: inputs.bench, capMultiple: inputs.capMultiple,
-      cpa: inputs.limits && inputs.limits.cpa, overrides: inputs.overrides }) + '|' + envStamp(env);
+      cpa: inputs.limits && inputs.limits.cpa, overrides: inputs.overrides, compare: inputs.compare }) + '|' + envStamp(env);
     let base = RAC.cache.get(baseKey);
     if (!base) base = RAC.cache.set(baseKey, prepare(role, inputs, env));
     const plan = allocate(base, inputs);

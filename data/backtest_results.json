@@ -16,9 +16,9 @@
           "learnedFrom": "2025-10 to 2026-02",
           "bRole": 0.5,
           "k": 100000,
-          "bias": 1.0596,
+          "bias": 1.0597,
           "spend": 46679.1,
-          "predicted": 641.1577,
+          "predicted": 641.1342,
           "actual": 536.377,
           "miss": -0.1634
         },
@@ -72,9 +72,9 @@
           "month": "2026-01",
           "learnedFrom": "2025-10 to 2025-12",
           "recon": 2.0859,
-          "predicted": 9.5123,
+          "predicted": 9.5116,
           "actual": 24,
-          "miss": 1.523
+          "miss": 1.5232
         },
         {
           "month": "2026-02",
@@ -88,9 +88,9 @@
           "month": "2026-03",
           "learnedFrom": "2025-10 to 2026-02",
           "recon": 2.2456,
-          "predicted": 22.1775,
+          "predicted": 22.1767,
           "actual": 32,
-          "miss": 0.4429
+          "miss": 0.443
         },
         {
           "month": "2026-04",
@@ -112,7 +112,7 @@
       "final": {
         "roleRate": 0.7,
         "strength": 100000,
-        "adjustment": 1.0982
+        "adjustment": 1.0983
       }
     },
     "Patrol": {
@@ -210,7 +210,7 @@
       "final": {
         "roleRate": 0.6,
         "strength": 100000,
-        "adjustment": 1.1361
+        "adjustment": 1.1363
       }
     }
   }

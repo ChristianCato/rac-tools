@@ -55,9 +55,11 @@
     const out = {};
     RAC.PLATFORMS.forEach(p => {
       const f = opts.fits ? opts.fits[p] : fitRate(ds, A, role, p, months);
-      const blended = f.fitted === null ? bRole : (f.n * f.fitted + k * bRole) / (f.n + k);
+      // A strength of 100000 or more means every platform takes the shared rate.
+      const shared = f.fitted === null || k >= 100000;
+      const blended = shared ? bRole : (f.n * f.fitted + k * bRole) / (f.n + k);
       // Uncertainty in the rate used: only the fitted share of it is measured.
-      const se = f.se ? f.se * f.n / (f.n + k) : 0;
+      const se = f.se && !shared ? f.se * f.n / (f.n + k) : 0;
       out[p] = { ...f, roleRate: bRole, k, blended, b: Math.min(1, blended), heldAtOne: blended > 1, seUsed: se };
     });
     return out;
