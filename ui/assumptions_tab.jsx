@@ -62,6 +62,10 @@
             link and merging, so every change carries a date and an author. This tab shows what the plan on screen used.
             {' '}Assumptions file dated {stamp.assumptionsDate || 'unknown'} ({stamp.assumptionsFingerprint || 'no fingerprint'}).
             {bt && bt.tested && <> Tested figures last worked out on {bt.tested}.</>}
+            {' '}Every change to it is in{' '}
+            <a className="link-inline" target="_blank" rel="noreferrer"
+              href="https://github.com/EnhanceMediaRAC/rac-tools/commits/main/assumptions.csv">the file&rsquo;s history</a>;
+            {' '}changes to a plan&rsquo;s own settings are on the Changelog screen.
           </div>
         </div>
 

@@ -2588,6 +2588,77 @@ async function sbFetch(url, opts, retry) {
   return r;
 }
 
+// A RECORD OF CHANGES (B5). Settings that belong to a plan, and months folded
+// in on the Data tab, are written down as they happen: who, when, what it was
+// and what it became. Each entry has its own key, so two people changing
+// things at the same time cannot overwrite each other's record, and nothing
+// already written can be changed by the app. Changes to assumptions.csv are
+// not here: they are in the file's own history on GitHub, which the
+// Assumptions tab links to.
+const CHANGE_PREFIX = 'change:';
+const CHANGE_KEEP = 200;   // how many entries the Changelog screen reads
+
+function changeKey() {
+  return CHANGE_PREFIX + new Date().toISOString() + ':' + Math.random().toString(36).slice(2, 8);
+}
+
+// Never blocks and never interrupts: a record that could not be written is not
+// worth stopping work for. Test links write nothing at all (Stage 1 guard).
+function logChange(entry) {
+  if (!CAN_SAVE) return Promise.resolve(false);
+  return sbSet(changeKey(), { ...entry, at: new Date().toISOString(), by: sbEmail() || null })
+    .catch(() => false);
+}
+
+async function readChanges() {
+  try {
+    const r = await sbFetch(SB_URL + '?k=like.' + encodeURIComponent(CHANGE_PREFIX + '*') + '&select=k,v&order=k.desc&limit=' + CHANGE_KEEP);
+    if (!r.ok) return [];
+    const rows = await r.json();
+    return rows.map(x => x.v).filter(v => v && v.at).sort((a, b) => (a.at < b.at ? 1 : -1));
+  } catch (e) { return []; }
+}
+
+// The plan settings worth recording: the ones that change the figures and are
+// set per plan rather than in the assumptions file.
+const LOGGED_SETTINGS = [
+  { key: 'capMultiple', name: 'Spending cap multiple', perRole: false, unit: 'share' },
+  { key: 'includeSettling', name: 'Include months still settling', perRole: false, unit: 'yes/no' },
+  { key: 'otherHiresShare', name: 'Other-source hires credited to paid media', perRole: true, unit: 'share' },
+  { key: 'otherHiresMonthly', name: 'Expected hires from other sources per month', perRole: true, unit: 'number' },
+  { key: 'remainingError', name: 'Remaining-error adjustment', perRole: true, unit: 'number' },
+  { key: 'budget', name: 'Budget', perRole: true, unit: 'gbp' },
+  { key: 'hireTarget', name: 'Hire target', perRole: true, unit: 'number' },
+];
+
+function changeText(v, unit) {
+  if (v === null || v === undefined || v === '') return 'not set';
+  if (unit === 'yes/no') return v ? 'yes' : 'no';
+  if (unit === 'share') return Math.round(Number(v) * 100) + '%';
+  if (unit === 'gbp') return fmtGBP(Number(v));
+  return String(v);
+}
+
+// What changed between two working plans, in words.
+function settingChanges(before, after, month) {
+  const out = [];
+  LOGGED_SETTINGS.forEach(f => {
+    if (f.perRole) {
+      ROLES.forEach(role => {
+        const a = (before[f.key] || {})[role], b = (after[f.key] || {})[role];
+        if (JSON.stringify(a === undefined ? null : a) !== JSON.stringify(b === undefined ? null : b)) {
+          out.push({ kind: 'plan setting', month, role, name: f.name, key: f.key,
+            from: changeText(a, f.unit), to: changeText(b, f.unit) });
+        }
+      });
+    } else if (JSON.stringify(before[f.key] ?? null) !== JSON.stringify(after[f.key] ?? null)) {
+      out.push({ kind: 'plan setting', month, role: null, name: f.name, key: f.key,
+        from: changeText(before[f.key], f.unit), to: changeText(after[f.key], f.unit) });
+    }
+  });
+  return out;
+}
+
 // The archive app (archive/index.html) shows the plans made before this
 // release, worked out by the previous engine on the data as it stood. It reads
 // its own copy of the saved plans and data, taken once, on this release's first
@@ -5622,6 +5693,7 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '18 Sep', items: [
+    'The Changelog screen now also shows what has been changed in the plans: the budget, the hire target and the five planning settings, and months folded in on the Data tab, with who changed each one, when, what it was and what it became. Each change is written down on its own, so nothing here can be overwritten. Changes to the model itself are changes to assumptions.csv, and the screen links to that file’s history.',
     'New Assumptions tab: every value the model uses, what this plan used, what testing gave, where it came from and when it was set, with the reasoning behind each one underneath. Values live in assumptions.csv in the repository, not in the code, so changing one means editing that file on a branch, checking it on the test link and merging, and every change carries a date and an author. The tab flags any value set for this plan rather than taken from the file, and any agreed value whose tested figure has met the rule for switching.',
     'Plans made before this release stay exactly as they were, in an archive copy of the old app at /archive/. It is read-only, shows an amber banner, and reads its own copy of the plans and data, taken automatically the first time this release loads on the live address, before anything is written. It runs the previous engine on the data it had, in the same order, so it gives the figures those plans were made with. Reopening one of those plans in the live app will show different figures, because the calculations changed; the archive is where the originals are.',
     'Plans can now be marked as issued. A plan that has been sent to RAC is stored exactly as it was, under its own record, written once: from then on it shows the figures RAC was sent, whatever changes in the data or the assumptions since, and its PDF and workings are made from the stored copy rather than worked out again. An issued plan cannot be renamed, deleted or written over, and changing anything while it is open starts a new plan instead. The plan list marks issued plans, and a banner says when a plan was issued and by whom.',
@@ -9056,6 +9128,9 @@ function DataTool() {
     setApplied(merged);
     bump(x => x + 1);
     setSaving('saving');
+    logChange({ kind: 'data upload', months, lastDate: digest.lastDate || null,
+      name: 'Months folded in from the master file', from: applied ? (applied.months || []).length + ' months held' : 'nothing held',
+      to: merged.months.length + ' months held' });
     try { await sbSet('benchmarks', merged); setSaving('saved'); }
     catch (e) { setSaving('failed'); }
   };
@@ -9414,8 +9489,50 @@ function MethodTab({ state }) {
 }
 
 function ChangelogTool() {
+  const [changes, setChanges] = React.useState(null);
+  React.useEffect(() => {
+    let live = true;
+    readChanges().then(rows => { if (live) setChanges(rows); });
+    return () => { live = false; };
+  }, []);
+  const when = (iso) => {
+    const d = new Date(iso);
+    return isNaN(d) ? iso : d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  };
   return (
     <div>
+      <div className="card">
+        <div className="card-head">
+          <div className="card-title">What has been changed in the plans</div>
+        </div>
+        <div className="card-body">
+          <div className="help-text" style={{ marginBottom: 10 }}>
+            Settings that belong to a plan, and months folded in on the Data tab, as they happened. Each one is written
+            down on its own, so nothing here can be overwritten. Changes to the model itself are changes to
+            assumptions.csv, which are in{' '}
+            <a className="link-inline" target="_blank" rel="noreferrer"
+              href="https://github.com/EnhanceMediaRAC/rac-tools/commits/main/assumptions.csv">that file&rsquo;s history</a>.
+          </div>
+          {changes === null ? <div className="help-text">Reading...</div>
+            : changes.length === 0 ? <div className="help-text">Nothing has been changed yet.</div> : (
+            <table className="alloc-table" data-panel="plan-changes">
+              <thead><tr><th>When</th><th>Who</th><th>Month</th><th>What</th><th>From</th><th>To</th></tr></thead>
+              <tbody>
+                {changes.map((c, i) => (
+                  <tr key={i}>
+                    <td className="mono">{when(c.at)}</td>
+                    <td>{c.by || 'unknown'}</td>
+                    <td className="mono">{c.month || ''}</td>
+                    <td>{c.name}{c.role ? ' (' + c.role + ')' : ''}</td>
+                    <td className="mono">{c.from}</td>
+                    <td className="mono">{c.to}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
       <div className="card">
         <div className="card-head">
           <div className="card-title">What has changed</div>
@@ -9811,10 +9928,13 @@ function App() {
   };
 
   const setPlannerStateRaw = (updater) => setPlanner(w => {
+    const before = w;
     const composed = composePlannerState(month, { ...container, working: w });
     const next = typeof updater === 'function' ? updater(composed) : updater;
     const out = { ...next };
     delete out.vacancies; delete out.liveRegions; delete out.appTarget; delete out.planMonth;
+    // Write down what changed, so a figure can always be traced to a decision.
+    settingChanges(before, out, month).forEach(logChange);
     return out;
   });
 

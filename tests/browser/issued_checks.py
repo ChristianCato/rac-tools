@@ -135,6 +135,26 @@ with sync_playwright() as pw:
         fails.append(f'{len(writes)} writes touched an issued key after it was stored')
     notes.append('editing an issued plan dropped back to the working plan; no write touched the stored snapshot')
     page.screenshot(path=os.path.join(OUT, 'issued_opened.png'))
+    # The record of changes (B5): the edit above is written down on its own key.
+    changes = [(k, v) for k, v in guard.saved if str(k).startswith('change:')]
+    if not changes:
+        fails.append('nothing was written down when a plan setting was changed')
+    else:
+        keys = [k for k, _ in changes]
+        if len(set(keys)) != len(keys):
+            fails.append('two changes shared a key, so one would overwrite the other')
+        one = changes[0][1]
+        for field in ('at', 'by', 'name', 'from', 'to', 'kind'):
+            if field not in one:
+                fails.append(f'the change record has no {field}: {one}')
+        page.locator('button:has-text("Changelog")').click()
+        page.wait_for_selector('[data-panel="plan-changes"]', timeout=30000)
+        page.wait_for_timeout(600)
+        shown = page.inner_text('[data-panel="plan-changes"]')
+        if one['name'] not in shown or str(one['to']) not in shown:
+            fails.append(f'the Changelog screen does not show the change: {shown[:200]}')
+        notes.append(f"record of changes: {len(changes)} written, each on its own key, shown on the Changelog screen "
+                     f"({one['by']}, {one['name']}, {one['from']} to {one['to']})")
     if errors:
         fails.append(f'page errors: {errors[:3]}')
     if guard.blocked:

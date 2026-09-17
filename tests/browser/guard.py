@@ -93,6 +93,13 @@ class Guard:
                 except Exception:
                     pass
                 return route.fulfill(status=201, body='')
+            like = re.search(r'[?&]k=like\.([^&]+)', u)
+            if like:
+                want = unquote(like.group(1)).rstrip('*')
+                rows = [{'k': k, 'v': v} for k, v in self.db.items() if str(k).startswith(want)]
+                rows.sort(key=lambda r: r['k'], reverse='order=k.desc' in u)
+                self.reads.append('like:' + want)
+                return route.fulfill(status=200, content_type='application/json', body=json.dumps(rows))
             m = re.search(r'[?&]k=eq\.([^&]+)', u)
             key = m and unquote(m.group(1))
             self.reads.append(key or u.split('?')[0])
