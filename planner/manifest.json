@@ -2,6 +2,8 @@
   "note": "Load order of the planner files. index.html and tests/lib/planner.mjs both read this list.",
   "files": [
     "planner/core.js",
-    "planner/assumptions.js"
+    "planner/assumptions.js",
+    "planner/data.js",
+    "planner/cost.js"
   ]
 }
