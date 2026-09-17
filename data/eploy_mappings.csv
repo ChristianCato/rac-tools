@@ -1,0 +1,77 @@
+type,label,maps_to,notes
+role,SMR,SMR,
+role,Patrol,Patrol,
+role,Other,,Roles outside the plans; not imported
+region,London,London,
+region,South East,South East,
+region,East of England,East of England,
+region,South West,South West,
+region,East Midlands,East Midlands,
+region,West Midlands,West Midlands,
+region,North West,North West,
+region,North East,North East,
+region,Yorkshire and The Humber,Yorkshire & Humber,Eploy name differs from the app
+region,Yorkshire & Humber,Yorkshire & Humber,
+region,Scotland,Scotland,
+region,Wales,Wales,
+region,Northern Ireland,Northern Ireland,
+region,(blank),Unknown,No region recorded; counted in role totals only and reported by the import
+region,-,Unknown,No region recorded; counted in role totals only and reported by the import
+source,Paid Indeed,indeed,Agreed platform group (HANDOVER 4.5)
+source,Indeed,indeed,Agreed platform group
+source,Indeed (Organic or Paid),indeed,Agreed platform group
+source,Paid Facebook,meta,Agreed platform group
+source,Paid Meta,meta,Agreed platform group
+source,Paid Instagram,meta,Agreed platform group
+source,Facebook (Organic or Paid),meta,Agreed platform group
+source,Paid Google Search,google,Agreed platform group
+source,Google (Organic or Paid),google,Agreed platform group
+source,Appcast,appcast,Agreed platform group
+source,Paid Appcast,appcast,Agreed platform group
+source,Paid Google Display,other,Not in the agreed Google group; question for the user
+source,Paid Google,other,Not in the agreed Google group; question for the user
+source,Paid Google Demand Gen,other,Not in the agreed Google group
+source,Free Appcast,other,Not in the agreed Appcast group
+source,(blank),other,No source recorded
+source,Organic Google Search,other,
+source,Referral (via Job Alert),other,
+source,Organic Facebook,other,
+source,LinkedIn Job Posting,other,
+source,RAC Corporate Site,other,
+source,Organic LinkedIn,other,
+source,Organic Instagram,other,
+source,Email,other,
+source,Organic Bing Search,other,
+source,RAC.co.uk,other,
+source,Google for Jobs,other,
+source,RAC Careers,other,
+source,RAC In-App,other,
+source,Total Jobs,other,
+source,Paid YouTube,other,
+source,Yahoo,other,
+source,Organic DuckDuckGo Search,other,
+source,Glassdoor,other,
+source,Referral (via WhatsApp),other,
+source,Other Job Board,other,
+source,Colleague / Employee,other,
+source,Other Search Engine,other,
+source,Paid LinkedIn Ads,other,
+source,CV Library,other,
+source,Organic TikTok,other,
+source,Organic YouTube,other,
+source,Other Referring Site,other,
+source,Paid - Totaljobs Banner,other,
+source,Paid Bing Search,other,
+source,ChatGPT,other,
+source,Jooble,other,
+source,Other,other,
+source,TotalJobs Banner,other,
+source,RAC Freedom Sharepoint,other,
+source,Newspaper,other,
+source,Paid TikTok,other,
+source,Internal / Test Traffic,other,
+source,Word of mouth,other,
+source,Paid Acast,other,
+source,Referral (via Email),other,
+source,Adzuna,other,
+source,Organic Twitter X,other,
