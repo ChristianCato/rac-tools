@@ -8,6 +8,9 @@
     "planner/rates.js",
     "planner/forecast.js",
     "planner/testing.js",
-    "planner/backtest.js"
+    "planner/backtest.js",
+    "planner/ceilings.js",
+    "planner/allocate.js",
+    "planner/plan.js"
   ]
 }
