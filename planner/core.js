@@ -111,7 +111,20 @@
     };
   }
 
-  RAC.util = { sum, parseCsv, fingerprint, stableKey, addMonths, monthEnd, daysBetween, percentileInc, rng, normals };
+  // A count with the given expected value (Poisson). Exact below 30; above
+  // that, the normal approximation rounded to a whole number.
+  function poisson(rand, normal, lambda) {
+    if (!(lambda > 0)) return 0;
+    if (lambda < 30) {
+      const L = Math.exp(-lambda);
+      let k = 0, p = rand();
+      while (p > L) { k += 1; p *= rand(); }
+      return k;
+    }
+    return Math.max(0, Math.round(lambda + Math.sqrt(lambda) * normal()));
+  }
+
+  RAC.util = { sum, parseCsv, fingerprint, stableKey, addMonths, monthEnd, daysBetween, percentileInc, rng, normals, poisson };
 
   // A small store for built plans, keyed on every input. Cleared when the data
   // changes (RAC.plan.invalidate, called from the app's resetDataCaches).

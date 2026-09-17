@@ -4,16 +4,28 @@
 // reads it and checks it. If a value is missing or out of range the planner
 // refuses to run and names the row, rather than planning on a guess.
 //
-// Columns: key, name, value, unit, role, source, date, notes
+// Columns: key, name, value, tested, unit, role, source, date, notes
+//   value   the value the planner uses
+//   tested  what the latest test on past months gave (blank where the value
+//           is not tested); shown beside the value used
 //   role    all, or SMR / Patrol where the value differs by role
-//   source  agreed (decided with the user), tested (set by a committed
-//           script from the data), default (a starting value awaiting testing)
+//   source  agreed (decided with the user); tested (set by a committed
+//           script from the data); "agreed, informed by tests" (an agreed
+//           setting, with the tested figure alongside; user decision
+//           17 September 2026); default (a starting value awaiting testing)
 //   date    when the value was set, YYYY-MM-DD
+//
+// Rule for "agreed, informed by tests" (user decision, 17 September 2026):
+// the value may switch to its tested figure only once there are at least
+// switch_min_test_months test months and the figure is stable with any one
+// month left out. tools/calibrate.mjs reports when that is met; the switch is
+// made by editing this file.
 (function (RAC) {
   'use strict';
 
-  const COLUMNS = ['key', 'name', 'value', 'unit', 'role', 'source', 'date', 'notes'];
-  const SOURCES = ['agreed', 'tested', 'default'];
+  const COLUMNS = ['key', 'name', 'value', 'tested', 'unit', 'role', 'source', 'date', 'notes'];
+  const AGREED_TESTED = 'agreed, informed by tests';
+  const SOURCES = ['agreed', 'tested', AGREED_TESTED, 'default'];
 
   // What the planner needs. perRole: true means one row for SMR and one for
   // Patrol; otherwise one row with role "all".
@@ -48,6 +60,7 @@
     low_confidence_rate_sd:   { unit: 'log', min: 0, max: 5 },
     low_confidence_min_apps:  { unit: 'count', min: 0, max: 100000 },
     row_widen_apps:           { unit: 'count', min: 0, max: 100000, perRole: true },
+    switch_min_test_months:   { unit: 'count', min: 1, max: 120, integer: true },
     backtest_first_month:     { unit: 'month' },
     test_min_history_months:  { unit: 'months', min: 1, max: 24, integer: true },
     own_figure_min_gain:      { unit: 'loglik', min: 0, max: 100 },
@@ -65,6 +78,7 @@
     const errors = [];
     const rows = RAC.util.parseCsv(text);
     const values = {};
+    const tested = {};
     const entries = [];
     if (!rows.length) return { ok: false, errors: ['assumptions.csv is empty'], values, entries };
     const head = rows[0].map(h => h.trim().toLowerCase());
@@ -83,7 +97,13 @@
       if (r.unit !== spec.unit) errors.push(`${where}: unit should be ${spec.unit}, found "${r.unit}"`);
       const roleOk = spec.perRole ? RAC.ROLES.includes(r.role) : r.role === 'all';
       if (!roleOk) errors.push(`${where}: role should be ${spec.perRole ? 'SMR or Patrol' : 'all'}, found "${r.role}"`);
-      if (!SOURCES.includes(r.source)) errors.push(`${where}: source should be ${SOURCES.join(', ')}, found "${r.source}"`);
+      if (!SOURCES.includes(r.source)) errors.push(`${where}: source should be ${SOURCES.map(x => (x.includes(',') ? '"' + x + '"' : x)).join(', ')}, found "${r.source}"`);
+      if (r.source === AGREED_TESTED && r.tested === '') errors.push(`${where}: source "${AGREED_TESTED}" needs the tested figure in the tested column`);
+      let t = null;
+      if (r.tested !== '') {
+        if (spec.unit === 'month' || !/^-?\d+(\.\d+)?$/.test(r.tested)) errors.push(`${where}: tested should be a number or blank, found "${r.tested}"`);
+        else t = Number(r.tested);
+      }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date) || isNaN(Date.parse(r.date))) errors.push(`${where}: date should be YYYY-MM-DD, found "${r.date}"`);
       const dup = r.key + '|' + r.role;
       if (seen.has(dup)) errors.push(`${where}: appears more than once`);
@@ -99,7 +119,8 @@
         if (v < spec.min || v > spec.max) errors.push(`${where}: value ${r.value} is outside ${spec.min} to ${spec.max}`);
       }
       (values[r.key] = values[r.key] || {})[r.role] = v;
-      entries.push({ ...r, line, parsed: v });
+      if (t !== null) (tested[r.key] = tested[r.key] || {})[r.role] = t;
+      entries.push({ ...r, line, parsed: v, testedValue: t });
     });
     Object.keys(SCHEMA).forEach(key => {
       const need = SCHEMA[key].perRole ? RAC.ROLES : ['all'];
@@ -122,6 +143,7 @@
       ok: errors.length === 0,
       errors,
       values,
+      tested,
       entries,
       fingerprint: RAC.util.fingerprint(String(text).replace(/\r\n/g, '\n')),
       date: dates[dates.length - 1] || null,
@@ -138,6 +160,12 @@
     throw new Error(`No ${key} assumption for ${role}`);
   }
 
+  // The row behind a value (role row first, then "all"), with its source and
+  // tested figure, for the Assumptions tab, the workings and the PDF.
+  function entry(A, key, role) {
+    return A.entries.find(e => e.key === key && e.role === role) || A.entries.find(e => e.key === key && e.role === 'all') || null;
+  }
+
   // A copy with some values replaced, used for per-plan overrides and for the
   // one-at-a-time comparisons. The fingerprint changes with the values, so a
   // cached plan is never reused across different settings.
@@ -150,5 +178,5 @@
     return { ...A, values, fingerprint: A.fingerprint + '+' + RAC.util.fingerprint(RAC.util.stableKey(changes)) };
   }
 
-  RAC.assumptions = { COLUMNS, SCHEMA, SOURCES, parse, get, withValues };
+  RAC.assumptions = { COLUMNS, SCHEMA, SOURCES, AGREED_TESTED, parse, get, entry, withValues };
 })(window.RAC = window.RAC || {});

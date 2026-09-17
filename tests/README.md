@@ -50,7 +50,7 @@ Needs Python 3 and Playwright (`pip install playwright`, then
 ## Folders
 
 - `legacy/engine_46aaae2.js`: the engine extracted from index.html at GitHub commit 46aaae2. Never edit it.
-- `fixtures/`: `rac_data_46aaae2.json.gz` is the repo data file at that commit (the app keeps the same file as `planner/legacy_rac_data_46aaae2.js` for pacing September plans). Since 17 September 2026 `rac_data.js` holds the live app's data to August 2026, and tested values are set from it (`lib/calibration_data.mjs`). The two `smr_sept_*.json` files hold the raw monthly rows and the per-row results from the plan 2a and 16 September workings exports.
+- `fixtures/`: `rac_data_46aaae2.json.gz` is the repo data file at that commit (the app keeps the same file as `planner/legacy_rac_data_46aaae2.js` for pacing September plans). Since 17 September 2026 `rac_data.js` holds the live app's data to August 2026, and the tests on past months run on it (`lib/calibration_data.mjs`). assumptions.csv keeps each tested figure in its `tested` column; for this release most model settings are agreed values (source "agreed, informed by tests") and `tools/calibrate.mjs --write` updates only their tested figures and notes. The two `smr_sept_*.json` files hold the raw monthly rows and the per-row results from the plan 2a and 16 September workings exports.
 - `tools/build_fixture_from_workings.py`: rebuilds a fixture from a workings export.
 - `lib/`: the code that extracts the engine and loads fixtures.
 

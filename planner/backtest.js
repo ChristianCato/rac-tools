@@ -3,27 +3,40 @@
 // Protocol (HANDOVER 5.4). For each test month M (a settled month with at
 // least test_min_history_months settled months before it):
 //   1. Use only settled months before M.
-//   2. Choose the shared diminishing returns rate (d1_role_rate), its
-//      strength (d1_prior_strength) and the remaining-error adjustment by
-//      predicting each earlier month from the months before it, and keeping
-//      the values that predicted best (Poisson deviance on location and
-//      platform applications). The adjustment is what those predictions still
-//      missed overall. A platform's own rate (strength below 100000) is used
-//      only when it predicted clearly better than the shared rate: by
-//      own_figure_min_gain log-likelihood units (half the deviance), after
-//      dividing by the dispersion of the monthly figures under the shared rate.
+//   2. Use the settings the plan uses (d1_role_rate and d1_prior_strength from
+//      assumptions.csv), and the remaining-error rule below applied to the
+//      test months before M only.
 //   3. Predict M at the spend each location and platform actually had.
 //   4. Miss = actual / predicted - 1.
+// The ranges and row widening come from these misses, so they describe the
+// model as used.
+//
+// Remaining-error rule (user decision, 17 September 2026): the adjustment is
+// applied only if costs missed in the same direction in every test month
+// (each predicted from the months before it, with no adjustment); otherwise
+// it is 1.00. Where it applies, it is what those predictions missed overall
+// (predicted over actual applications, latest remaining_error_months months,
+// 0 meaning all).
+//
+// Tested figures (shown beside the agreed values): the shared rate and its
+// strength that predicted the test months best (Poisson deviance on location
+// and platform applications), searched over a grid. A platform's own rate
+// (strength below 100000) counts only when it predicted clearly better than
+// the shared rate: by own_figure_min_gain log-likelihood units (half the
+// deviance), after dividing by the dispersion of the monthly figures under
+// the shared rate. An agreed value may switch to its tested figure once there
+// are switch_min_test_months test months and it is stable (below).
 // Applications are tested on months from backtest_first_month. Hires are
 // tested on months whose Eploy outcomes have settled, against the hires Eploy
 // credited to Indeed, Meta, Google and Appcast in the month. The hire test is
 // reported as a check only; hire ranges come from the counts behind the rates
 // (planner/plan.js).
 //
-// Stability: each tested value is chosen again with each test month left out
+// Stability: each tested figure is chosen again with each test month left out
 // in turn (leaveOneOut), and flagged unstable when the shared rate moves by
 // more than 0.1, the strength switches between own and shared rates or moves
-// more than two steps, or the adjustment moves by more than 5%.
+// more than two steps, or the adjustment (at the rate in use) moves by more
+// than 5% or the same-direction rule gives a different answer.
 //
 // Ranges (D5, addendum 2.4): the plan total runs from the 10th to the 90th
 // percentile of the misses (Excel PERCENTILE.INC). Rows start from the same
@@ -113,18 +126,40 @@
     return { ...pick, best: { bRole: best.bRole, k: best.k }, gain, phi, months, table };
   }
 
+  // The remaining-error rule at given settings: each month predicted from the
+  // months before it with no adjustment. `same` is true when costs missed in
+  // the same direction in every month; `tested` is predicted over actual
+  // applications (latest `recent` months); `bias` is tested where the rule
+  // applies, otherwise 1.
+  function errorRule(ds, A, role, months, cache, params, recent) {
+    const per = months.map(L => {
+      const cells = predictMonth(ds, A, role, L, params, cache);
+      const predicted = U.sum(cells.map(c => c.predicted)), actual = U.sum(cells.map(c => c.actual));
+      return { month: L, predicted, actual, costMiss: actual > 0 ? predicted / actual - 1 : null };
+    }).filter(m => m.predicted > 0 && m.actual > 0);
+    const use = recent ? per.slice(-recent) : per;
+    const sp = U.sum(use.map(m => m.predicted)), sa = U.sum(use.map(m => m.actual));
+    const tested = sp > 0 && sa > 0 ? sp / sa : 1;
+    const same = per.length > 0 && (per.every(m => m.costMiss > 0) || per.every(m => m.costMiss < 0));
+    return { months: per, tested, same, bias: same ? tested : 1 };
+  }
+
   // The values chosen with each of the months left out in turn, and whether
   // any of them moved enough to call the value unstable.
-  function leaveOneOut(ds, A, role, months, cache, recent, full) {
+  //   full: the grid choice on every month; used: the settings in use;
+  //   rule: errorRule on every month at those settings.
+  function leaveOneOut(ds, A, role, months, cache, recent, full, used, rule) {
     const idx = (k) => K_GRID.indexOf(k);
     const loo = months.map(M => {
-      const p = choose(ds, A, role, months.filter(x => x !== M), cache, recent);
-      return { month: M, bRole: p.bRole, k: p.k, bias: p.bias };
+      const rest = months.filter(x => x !== M);
+      const p = choose(ds, A, role, rest, cache, recent);
+      const e = errorRule(ds, A, role, rest, cache, used, recent);
+      return { month: M, bRole: p.bRole, k: p.k, bias: e.tested, same: e.same };
     });
     const flags = {
       bRole: loo.some(x => Math.abs(x.bRole - full.bRole) > 0.1 + 1e-9),
       k: loo.some(x => (x.k >= SHARED) !== (full.k >= SHARED) || Math.abs(idx(x.k) - idx(full.k)) > 2),
-      bias: loo.some(x => Math.abs(x.bias / full.bias - 1) > 0.05),
+      bias: loo.some(x => Math.abs(x.bias / rule.tested - 1) > 0.05 || x.same !== rule.same),
     };
     return { loo, unstable: flags };
   }
@@ -146,14 +181,23 @@
     const first = RAC.assumptions.get(A, 'backtest_first_month');
     const low = RAC.assumptions.get(A, 'range_low_percentile');
     const high = RAC.assumptions.get(A, 'range_high_percentile');
+    const used = { bRole: RAC.assumptions.get(A, 'd1_role_rate', role), k: RAC.assumptions.get(A, 'd1_prior_strength', role) };
+    // The settings in use for month M, with the adjustment from the test
+    // months before it.
+    const settingsFor = (M) => {
+      const inner = testable.filter(L => L < M);
+      if (!inner.length) return null;
+      const e = errorRule(ds, A, role, inner, cache, used, recent);
+      return { ...used, bias: e.bias, inner };
+    };
 
     // Applications.
     const outer = [];
     const cellMisses = [];
     testable.filter(M => M >= first).forEach(M => {
-      const inner = testable.filter(L => L < M);
-      const p = choose(ds, A, role, inner, cache, recent);
+      const p = settingsFor(M);
       if (!p) return;
+      const inner = p.inner;
       const cells = predictMonth(ds, A, role, M, p, cache);
       const predicted = U.sum(cells.map(c => c.predicted)) / p.bias;
       const actual = U.sum(cells.map(c => c.actual));
@@ -161,8 +205,11 @@
         spend: U.sum(cells.map(c => c.spend)), predicted, actual, miss: actual / predicted - 1 });
       cells.forEach(c => cellMisses.push({ ...c, month: M, predicted: c.predicted / p.bias }));
     });
-    const final = choose(ds, A, role, testable, cache, recent);
-    const stability = opts.stability === false ? null : leaveOneOut(ds, A, role, testable, cache, recent, final);
+    // Tested figures on every test month, and the rule for the plan's adjustment.
+    const tested = choose(ds, A, role, testable, cache, recent);
+    const rule = errorRule(ds, A, role, testable, cache, used, recent);
+    const final = { ...tested, tested: { bRole: tested.bRole, k: tested.k, bias: rule.tested }, used: { ...used, bias: rule.bias }, rule };
+    const stability = opts.stability === false ? null : leaveOneOut(ds, A, role, testable, cache, recent, tested, used, rule);
 
     // Hires: months whose outcomes have settled, learned from earlier months.
     const hires = [];
@@ -173,8 +220,7 @@
       matured.filter((M, i) => i >= minHistory && testable.includes(M)).forEach(M => {
         const before = matured.filter(mo => mo < M);
         const hr = RAC.rates.build(eploy, A, role, { screenMonths: before, hireMonths: before });
-        const inner = testable.filter(L => L < M);
-        const p = choose(ds, A, role, inner, cache, recent);
+        const p = settingsFor(M);
         if (!p) return;
         // Reconciliation to the hires Eploy credited to the four platforms,
         // learned from the same earlier months. Hires from other sources are
@@ -244,5 +290,5 @@
     return { low: Math.exp(mid - half * w) - 1, high: Math.exp(mid + half * w) - 1 };
   }
 
-  RAC.backtest = { B_GRID, K_GRID, C_GRID, RECENT_CHOICES, SHARED, deviance, makeCache, predictMonth, choose, leaveOneOut, testableMonths, run, widen, band: band_ };
+  RAC.backtest = { B_GRID, K_GRID, C_GRID, RECENT_CHOICES, SHARED, deviance, makeCache, predictMonth, choose, errorRule, leaveOneOut, testableMonths, run, widen, band: band_ };
 })(window.RAC = window.RAC || {});

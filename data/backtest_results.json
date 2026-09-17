@@ -14,57 +14,57 @@
         {
           "month": "2026-03",
           "learnedFrom": "2025-12 to 2026-02",
-          "bRole": 0.7,
+          "bRole": 0.65,
           "k": 100000,
-          "bias": 1.1122,
+          "bias": 1,
           "spend": 46679.1,
-          "predicted": 658.999,
+          "predicted": 717.4607,
           "actual": 536.377,
-          "miss": -0.1861
+          "miss": -0.2524
         },
         {
           "month": "2026-04",
           "learnedFrom": "2025-12 to 2026-03",
-          "bRole": 0.6,
+          "bRole": 0.65,
           "k": 100000,
-          "bias": 1.1435,
+          "bias": 1,
           "spend": 47827.13,
-          "predicted": 555.6575,
+          "predicted": 651.6495,
           "actual": 695.115,
-          "miss": 0.251
+          "miss": 0.0667
         },
         {
           "month": "2026-05",
           "learnedFrom": "2025-12 to 2026-04",
-          "bRole": 0.7,
+          "bRole": 0.65,
           "k": 100000,
-          "bias": 1.124,
+          "bias": 1,
           "spend": 49685.78,
-          "predicted": 589.0041,
+          "predicted": 654.088,
           "actual": 591.191,
-          "miss": 0.0037
+          "miss": -0.0962
         },
         {
           "month": "2026-06",
           "learnedFrom": "2025-12 to 2026-05",
-          "bRole": 0.7,
+          "bRole": 0.65,
           "k": 100000,
-          "bias": 1.1233,
+          "bias": 1,
           "spend": 54214.33,
-          "predicted": 600.214,
+          "predicted": 666.4101,
           "actual": 697.57,
-          "miss": 0.1622
+          "miss": 0.0468
         },
         {
           "month": "2026-07",
           "learnedFrom": "2025-12 to 2026-06",
-          "bRole": 0.7,
+          "bRole": 0.65,
           "k": 100000,
-          "bias": 1.0963,
+          "bias": 1,
           "spend": 63145,
-          "predicted": 716.4948,
+          "predicted": 774.3684,
           "actual": 643.103,
-          "miss": -0.1024
+          "miss": -0.1695
         }
       ],
       "hiresCheck": {
@@ -73,41 +73,99 @@
           {
             "month": "2026-03",
             "learnedFrom": "2025-10 to 2026-02",
-            "recon": 1.101,
-            "predicted": 11.2649,
+            "recon": 0.9382,
+            "predicted": 11.9506,
             "actual": 16,
-            "miss": 0.4203
+            "miss": 0.3388
           },
           {
             "month": "2026-04",
             "learnedFrom": "2025-10 to 2026-03",
-            "recon": 1.1676,
-            "predicted": 10.343,
+            "recon": 0.9697,
+            "predicted": 11.9958,
             "actual": 12,
-            "miss": 0.1602
+            "miss": 0.0003
           },
           {
             "month": "2026-05",
             "learnedFrom": "2025-10 to 2026-04",
-            "recon": 1.123,
-            "predicted": 12.3524,
+            "recon": 0.9533,
+            "predicted": 12.7069,
             "actual": 10,
-            "miss": -0.1904
+            "miss": -0.213
           }
         ]
       },
-      "final": {
+      "used": {
+        "roleRate": 0.65,
+        "strength": 100000,
+        "adjustment": 1
+      },
+      "tested": {
         "roleRate": 0.7,
         "strength": 100000,
-        "adjustment": 1.1134
+        "adjustment": 1.096
       },
+      "costMissesNoAdjustment": [
+        {
+          "month": "2025-12",
+          "predicted": 630.2352,
+          "actual": 438.98,
+          "costMiss": 0.4357
+        },
+        {
+          "month": "2026-01",
+          "predicted": 525.7155,
+          "actual": 612.715,
+          "costMiss": -0.142
+        },
+        {
+          "month": "2026-02",
+          "predicted": 531.3181,
+          "actual": 485.012,
+          "costMiss": 0.0955
+        },
+        {
+          "month": "2026-03",
+          "predicted": 717.4607,
+          "actual": 536.377,
+          "costMiss": 0.3376
+        },
+        {
+          "month": "2026-04",
+          "predicted": 651.6495,
+          "actual": 695.115,
+          "costMiss": -0.0625
+        },
+        {
+          "month": "2026-05",
+          "predicted": 654.088,
+          "actual": 591.191,
+          "costMiss": 0.1064
+        },
+        {
+          "month": "2026-06",
+          "predicted": 666.4101,
+          "actual": 697.57,
+          "costMiss": -0.0447
+        },
+        {
+          "month": "2026-07",
+          "predicted": 774.3684,
+          "actual": 643.103,
+          "costMiss": 0.2041
+        }
+      ],
+      "sameDirection": false,
       "sensitivity": {
         "blend": {
           "screen_blend_n": {
-            "value": 5,
+            "used": 200,
+            "tested": 5,
             "best": 5,
-            "gain": 2.15,
-            "dispersion": 10.22,
+            "gain": 2.16,
+            "dispersion": 10.26,
+            "testMonths": 3,
             "leaveOneOut": [
               {
                 "month": "2026-03",
@@ -125,10 +183,12 @@
             "unstable": true
           },
           "location_screen_blend_n": {
-            "value": 400,
+            "used": 100000,
+            "tested": 400,
             "best": 400,
-            "gain": 3.32,
+            "gain": 3.38,
             "dispersion": 1.88,
+            "testMonths": 3,
             "leaveOneOut": [
               {
                 "month": "2026-03",
@@ -146,10 +206,12 @@
             "unstable": true
           },
           "region_hire_blend_n": {
-            "value": 100000,
+            "used": 100000,
+            "tested": 100000,
             "best": 100000,
             "gain": 0,
             "dispersion": 1.48,
+            "testMonths": 3,
             "leaveOneOut": [
               {
                 "month": "2026-03",
@@ -168,11 +230,18 @@
           }
         },
         "backtest": {
-          "value": {
+          "used": {
+            "roleRate": 0.65,
+            "strength": 100000,
+            "adjustment": 1
+          },
+          "tested": {
             "roleRate": 0.7,
             "strength": 100000,
-            "adjustment": 1.1134
+            "adjustment": 1.096
           },
+          "sameDirection": false,
+          "testMonths": 8,
           "bestBeforeRule": {
             "bRole": 0.7,
             "k": 100000
@@ -184,49 +253,57 @@
               "month": "2025-12",
               "bRole": 0.8,
               "k": 100000,
-              "bias": 1.1128
+              "bias": 1.061,
+              "same": false
             },
             {
               "month": "2026-01",
               "bRole": 0.7,
               "k": 100000,
-              "bias": 1.1501
+              "bias": 1.1317,
+              "same": false
             },
             {
               "month": "2026-02",
               "bRole": 0.8,
               "k": 100000,
-              "bias": 1.1585
+              "bias": 1.0961,
+              "same": false
             },
             {
               "month": "2026-03",
               "bRole": 0.8,
               "k": 100000,
-              "bias": 1.1168
+              "bias": 1.0649,
+              "same": false
             },
             {
               "month": "2026-04",
               "bRole": 0.7,
               "k": 100000,
-              "bias": 1.1396
+              "bias": 1.1235,
+              "same": false
             },
             {
               "month": "2026-05",
               "bRole": 0.7,
               "k": 100000,
-              "bias": 1.1125
+              "bias": 1.0945,
+              "same": false
             },
             {
               "month": "2026-06",
               "bRole": 0.7,
               "k": 100000,
-              "bias": 1.139
+              "bias": 1.1205,
+              "same": false
             },
             {
               "month": "2026-07",
               "bRole": 0.7,
               "k": 100000,
-              "bias": 1.0963
+              "bias": 1.0789,
+              "same": false
             }
           ],
           "unstable": {
@@ -245,57 +322,57 @@
         {
           "month": "2026-03",
           "learnedFrom": "2025-12 to 2026-02",
-          "bRole": 0.8,
+          "bRole": 0.65,
           "k": 100000,
-          "bias": 1.1692,
+          "bias": 1,
           "spend": 48068.37,
-          "predicted": 662.9114,
+          "predicted": 701.0584,
           "actual": 747,
-          "miss": 0.1268
+          "miss": 0.0655
         },
         {
           "month": "2026-04",
           "learnedFrom": "2025-12 to 2026-03",
-          "bRole": 0.8,
+          "bRole": 0.65,
           "k": 100000,
-          "bias": 1.1188,
+          "bias": 1,
           "spend": 77086.63,
-          "predicted": 1039.5459,
+          "predicted": 1012.8587,
           "actual": 951.31,
-          "miss": -0.0849
+          "miss": -0.0608
         },
         {
           "month": "2026-05",
           "learnedFrom": "2025-12 to 2026-04",
-          "bRole": 0.7,
+          "bRole": 0.65,
           "k": 100000,
-          "bias": 1.0873,
+          "bias": 1,
           "spend": 68048.21,
-          "predicted": 768.7469,
+          "predicted": 812.6934,
           "actual": 446.318,
-          "miss": -0.4194
+          "miss": -0.4508
         },
         {
           "month": "2026-06",
           "learnedFrom": "2025-12 to 2026-05",
-          "bRole": 0.7,
+          "bRole": 0.65,
           "k": 100000,
-          "bias": 1.192,
+          "bias": 1,
           "spend": 91748.32,
-          "predicted": 704.8701,
+          "predicted": 823.0079,
           "actual": 809.954,
-          "miss": 0.1491
+          "miss": -0.0159
         },
         {
           "month": "2026-07",
           "learnedFrom": "2025-12 to 2026-06",
-          "bRole": 0.7,
+          "bRole": 0.65,
           "k": 100000,
-          "bias": 1.1619,
+          "bias": 1,
           "spend": 82744.69,
-          "predicted": 655.136,
+          "predicted": 755.8163,
           "actual": 1083.179,
-          "miss": 0.6534
+          "miss": 0.4331
         }
       ],
       "hiresCheck": {
@@ -304,41 +381,99 @@
           {
             "month": "2026-03",
             "learnedFrom": "2025-10 to 2026-02",
-            "recon": 1.3652,
-            "predicted": 11.1989,
+            "recon": 1.1399,
+            "predicted": 11.7774,
             "actual": 11,
-            "miss": -0.0178
+            "miss": -0.066
           },
           {
             "month": "2026-04",
             "learnedFrom": "2025-10 to 2026-03",
-            "recon": 1.3397,
-            "predicted": 17.6677,
+            "recon": 1.135,
+            "predicted": 17.1988,
             "actual": 9,
-            "miss": -0.4906
+            "miss": -0.4767
           },
           {
             "month": "2026-05",
             "learnedFrom": "2025-10 to 2026-04",
-            "recon": 1.1809,
-            "predicted": 11.8385,
+            "recon": 1.021,
+            "predicted": 12.1051,
             "actual": 4,
-            "miss": -0.6621
+            "miss": -0.6696
           }
         ]
       },
-      "final": {
+      "used": {
+        "roleRate": 0.65,
+        "strength": 100000,
+        "adjustment": 1
+      },
+      "tested": {
         "roleRate": 0.6,
         "strength": 100000,
-        "adjustment": 1.0196
+        "adjustment": 1.0423
       },
+      "costMissesNoAdjustment": [
+        {
+          "month": "2025-12",
+          "predicted": 472.5034,
+          "actual": 427.931,
+          "costMiss": 0.1042
+        },
+        {
+          "month": "2026-01",
+          "predicted": 304.9209,
+          "actual": 311.116,
+          "costMiss": -0.0199
+        },
+        {
+          "month": "2026-02",
+          "predicted": 579.6686,
+          "actual": 464,
+          "costMiss": 0.2493
+        },
+        {
+          "month": "2026-03",
+          "predicted": 701.0584,
+          "actual": 747,
+          "costMiss": -0.0615
+        },
+        {
+          "month": "2026-04",
+          "predicted": 1012.8587,
+          "actual": 951.31,
+          "costMiss": 0.0647
+        },
+        {
+          "month": "2026-05",
+          "predicted": 812.6934,
+          "actual": 446.318,
+          "costMiss": 0.8209
+        },
+        {
+          "month": "2026-06",
+          "predicted": 823.0079,
+          "actual": 809.954,
+          "costMiss": 0.0161
+        },
+        {
+          "month": "2026-07",
+          "predicted": 755.8163,
+          "actual": 1083.179,
+          "costMiss": -0.3022
+        }
+      ],
+      "sameDirection": false,
       "sensitivity": {
         "blend": {
           "screen_blend_n": {
-            "value": 0,
+            "used": 200,
+            "tested": 0,
             "best": 0,
-            "gain": 3.46,
-            "dispersion": 7.38,
+            "gain": 3.47,
+            "dispersion": 7.57,
+            "testMonths": 3,
             "leaveOneOut": [
               {
                 "month": "2026-03",
@@ -356,10 +491,12 @@
             "unstable": false
           },
           "location_screen_blend_n": {
-            "value": 200,
+            "used": 100000,
+            "tested": 200,
             "best": 200,
-            "gain": 8.96,
-            "dispersion": 2.19,
+            "gain": 9.08,
+            "dispersion": 2.21,
+            "testMonths": 3,
             "leaveOneOut": [
               {
                 "month": "2026-03",
@@ -377,10 +514,12 @@
             "unstable": true
           },
           "region_hire_blend_n": {
-            "value": 100000,
+            "used": 100000,
+            "tested": 100000,
             "best": 100000,
             "gain": 0,
             "dispersion": 1.08,
+            "testMonths": 3,
             "leaveOneOut": [
               {
                 "month": "2026-03",
@@ -399,11 +538,18 @@
           }
         },
         "backtest": {
-          "value": {
+          "used": {
+            "roleRate": 0.65,
+            "strength": 100000,
+            "adjustment": 1
+          },
+          "tested": {
             "roleRate": 0.6,
             "strength": 100000,
-            "adjustment": 1.0196
+            "adjustment": 1.0423
           },
+          "sameDirection": false,
+          "testMonths": 8,
           "bestBeforeRule": {
             "bRole": 0.6,
             "k": 100000
@@ -415,49 +561,57 @@
               "month": "2025-12",
               "bRole": 0.6,
               "k": 100000,
-              "bias": 1.0145
+              "bias": 1.0368,
+              "same": false
             },
             {
               "month": "2026-01",
               "bRole": 0.6,
               "k": 100000,
-              "bias": 1.0215
+              "bias": 1.0462,
+              "same": false
             },
             {
               "month": "2026-02",
               "bRole": 0.6,
               "k": 100000,
-              "bias": 0.998
+              "bias": 1.0222,
+              "same": false
             },
             {
               "month": "2026-03",
               "bRole": 0.6,
               "k": 100000,
-              "bias": 1.038
+              "bias": 1.0596,
+              "same": false
             },
             {
               "month": "2026-04",
               "bRole": 0.7,
               "k": 100000,
-              "bias": 1.0568
+              "bias": 1.0373,
+              "same": false
             },
             {
               "month": "2026-05",
               "bRole": 0.6,
               "k": 100000,
-              "bias": 0.9495
+              "bias": 0.9698,
+              "same": false
             },
             {
               "month": "2026-06",
               "bRole": 0.6,
               "k": 100000,
-              "bias": 1.0239
+              "bias": 1.0471,
+              "same": false
             },
             {
               "month": "2026-07",
               "bRole": 0.7,
               "k": 100000,
-              "bias": 1.1619
+              "bias": 1.1321,
+              "same": false
             }
           ],
           "unstable": {

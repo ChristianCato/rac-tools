@@ -83,7 +83,7 @@ add('E. Hires reconciled to platform hires in Eploy, plus expected hires from ot
 add('E100. For comparison only: 100% credited (equals the earlier scaling to every hire)', next(env2a, { overrides: noBias, otherHiresShare: 1, compare: { previousCeilings: true } }), 'not carried into F');
 add('F. Spending caps on successful months', next(env2a, { overrides: noBias }));
 add('G. Cost per hire and cost per application limits', next(env2a, { overrides: noBias }), 'none were set in plan 2a');
-add('H. Remaining-error adjustment (full new model)', next(env2a, {}), 'cap multiple 2, as plan 2a');
+add('H. Remaining-error adjustment (full new model)', next(env2a, {}), `cap multiple 2, as plan 2a; adjustment ${RAC.assumptions.get(A, 'remaining_error_factor', 'SMR')} (agreed rule; tested ${RAC.assumptions.entry(A, 'remaining_error_factor', 'SMR').testedValue})`);
 add('H1. For comparison only: cap multiple 1 (default)', next(env2a, { capMultiple: 1 }), 'not carried into I');
 
 // Data as the live app held it on 16 September.

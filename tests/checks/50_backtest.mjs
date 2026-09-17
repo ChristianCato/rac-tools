@@ -55,17 +55,25 @@ export default function (check, { assert, near }) {
     return out.join('; ');
   });
 
-  check('Tested values in assumptions.csv match a fresh run of the tests', () => {
+  check('Tested figures in assumptions.csv match a fresh run of the tests', () => {
     const stale = [];
+    // Rows with source "tested": the value and the tested column are the fresh
+    // figure. Rows "agreed, informed by tests": the tested column is.
     const cmp = (key, role, value, tol = 1e-4) => {
-      const v = RAC.assumptions.get(A, key, role);
-      if (Math.abs(v - value) > tol) stale.push(`${key} ${role || ''}: file ${v}, fresh ${value}`);
+      const e = RAC.assumptions.entry(A, key, role);
+      const v = e.source === 'tested' ? e.parsed : e.testedValue;
+      if (!(Math.abs(v - value) <= tol)) stale.push(`${key} ${role || ''}: file ${v}, fresh ${value}`);
+      if (e.source === 'tested' && e.testedValue !== e.parsed) stale.push(`${key} ${role}: tested column ${e.testedValue} differs from the value ${e.parsed}`);
     };
     for (const role of RAC.ROLES) {
       const bt = fresh[role];
-      cmp('d1_role_rate', role, bt.final.bRole);
-      cmp('d1_prior_strength', role, bt.final.k);
-      cmp('remaining_error_factor', role, bt.final.bias);
+      cmp('d1_role_rate', role, bt.final.tested.bRole);
+      cmp('d1_prior_strength', role, bt.final.tested.k);
+      cmp('remaining_error_factor', role, bt.final.tested.bias);
+      // The agreed rule for the adjustment.
+      const used = RAC.assumptions.get(A, 'remaining_error_factor', role);
+      const rule = bt.final.rule.same ? bt.final.tested.bias : 1;
+      if (Math.abs(used - rule) > 1e-4) stale.push(`remaining_error_factor ${role}: value ${used}, rule gives ${rule}`);
       cmp('range_apps_low', role, bt.appsRange.low);
       cmp('range_apps_high', role, bt.appsRange.high);
       cmp('row_widen_apps', role, bt.rowWiden.c);
@@ -78,6 +86,23 @@ export default function (check, { assert, near }) {
     }
     assert(!stale.length, 'assumptions.csv is out of date; run node tools/calibrate.mjs --write and review:\n' + stale.join('\n'));
     return 'blend strengths, reconciliation, other-source hires, diminishing returns, adjustment, ranges and row widening all match';
+  });
+
+  check('Agreed settings for this release are in place, with the tested figure beside each', () => {
+    const want = { screen_blend_n: 200, location_screen_blend_n: 100000, region_hire_blend_n: 100000, d1_role_rate: 0.65, d1_prior_strength: 100000 };
+    const out = [];
+    for (const [key, v] of Object.entries(want)) for (const role of RAC.ROLES) {
+      const e = RAC.assumptions.entry(A, key, role);
+      assert(e.source === RAC.assumptions.AGREED_TESTED && e.parsed === v, `${key} ${role}: ${e.parsed} (${e.source}), agreed ${v}`);
+      assert(e.testedValue !== null, `${key} ${role}: no tested figure`);
+      out.push(`${key} ${role} ${e.parsed} (tested ${e.testedValue})`);
+    }
+    const w = RAC.ROLES.map(r => RAC.assumptions.entry(A, 'row_widen_apps', r));
+    assert(w.every(e => e.source === RAC.assumptions.AGREED_TESTED) && w[0].parsed === w[1].parsed, 'row widening should be one agreed value for both roles');
+    const ref = RAC.ROLES.map(r => RAC.assumptions.entry(A, 'remaining_error_factor', r));
+    assert(ref.every(e => e.source === RAC.assumptions.AGREED_TESTED), 'remaining-error adjustment should follow the agreed rule');
+    const months = Math.min(...RAC.ROLES.map(r => results.roles[r].sensitivity.backtest.testMonths));
+    return `${out.join('; ')}; row widening ${w[0].parsed} (tested SMR ${w[0].testedValue}, Patrol ${w[1].testedValue}); adjustment ${ref.map((e, i) => `${RAC.ROLES[i]} ${e.parsed} (tested ${e.testedValue})`).join(', ')}; ${months} test months (switch needs ${RAC.assumptions.get(A, 'switch_min_test_months')})`;
   });
 
   check('Back-test results file matches a fresh run', () => {

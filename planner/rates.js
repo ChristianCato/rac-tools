@@ -68,7 +68,10 @@
   }
 
   // The rates from the counts. Kept apart from build() so the hire ranges can
-  // rebuild the rates from counts redrawn within their uncertainty.
+  // rebuild the rates from counts redrawn within their uncertainty. A blend
+  // strength of OFF (100000) or more means exactly the role average (or, for
+  // the location screening adjustment, no adjustment).
+  const OFF = 100000;
   function combine(counts, blend, regions) {
     const { N, pull, M, R } = blend;
     const all = counts.all;
@@ -82,8 +85,8 @@
         used = own === null ? roleScreen : own + pull * (roleScreen - own);
         basis = `own rate moved ${Math.round(pull * 100)}% of the way to the role average`;
       } else {
-        used = (t.passed + N * roleScreen) / (t.apps + N || 1);
-        basis = N >= 100000 ? 'role average' : N > 0 ? `blended with the role average by ${N} applications` : 'own rate';
+        used = N >= OFF ? roleScreen : (t.passed + N * roleScreen) / (t.apps + N || 1);
+        basis = N >= OFF ? 'role average' : N > 0 ? `blended with the role average by ${N} applications` : 'own rate';
       }
       platform[p] = { apps: t.apps, passed: t.passed, own, used, basis };
     });
@@ -93,9 +96,9 @@
     regions.forEach(l => {
       const t = counts.byLoc[l] || { apps: 0, passed: 0 };
       const ratio = t.apps > 0 && roleScreen > 0 ? (t.passed / t.apps) / roleScreen : 1;
-      const adj = (t.apps * ratio + M * 1) / (t.apps + M || 1);
+      const adj = M >= OFF ? 1 : (t.apps * ratio + M * 1) / (t.apps + M || 1);
       const th = counts.byLocHire[l] || { passed: 0, hires: 0 };
-      const hire = (th.hires + R * roleHire) / (th.passed + R || 1);
+      const hire = R >= OFF ? roleHire : (th.hires + R * roleHire) / (th.passed + R || 1);
       location[l] = {
         apps: t.apps, passed: t.passed, ownScreen: t.apps > 0 ? t.passed / t.apps : null, screenAdjustment: adj,
         hirePassed: th.passed, hires: th.hires, ownHire: th.passed > 0 ? th.hires / th.passed : null, hireAfterScreening: hire,
@@ -142,5 +145,5 @@
     };
   }
 
-  RAC.rates = { maturedMonths, tally, build, combine, redraw, cell };
+  RAC.rates = { OFF, maturedMonths, tally, build, combine, redraw, cell };
 })(window.RAC = window.RAC || {});

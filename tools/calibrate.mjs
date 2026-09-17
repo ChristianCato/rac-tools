@@ -1,5 +1,13 @@
-// Runs the tests that set the tested values in assumptions.csv, and writes the
-// results into the file with today's date and the evidence in the notes.
+// Runs the tests on past months and writes the results into assumptions.csv
+// with today's date and the evidence in the notes.
+//   - Rows with source "tested": the value and the tested column are set.
+//   - Rows with source "agreed, informed by tests" (user decision,
+//     17 September 2026): only the tested column and the notes are set; the
+//     value stays as agreed. The notes say whether the switch rule is met
+//     (at least switch_min_test_months test months, stable with any one month
+//     left out). The switch itself is an edit to the file.
+//   - remaining_error_factor follows its agreed rule: the tested figure only
+//     if costs missed in the same direction in every test month, otherwise 1.
 //
 // Usage (from the repo folder):
 //   node tools/calibrate.mjs                 show what the tests give; change nothing
@@ -35,12 +43,33 @@ const eploy = JSON.parse(readRoot('data/eploy_rates.json'));
 
 const DATA = calibrationData(RAC);
 
-const changes = [];   // { key, role, value, notes }
+const changes = [];   // { key, role, value (null: unchanged), tested, notes }
 const sensitivity = {};   // leave-one-out results, written to data/backtest_results.json
 const loo = (x) => x.loo.map(l => `${l.month} ${l.value}`).join(', ');
-const set = (key, role, value, notes) => {
-  changes.push({ key, role, value, notes });
-  A = RAC.assumptions.withValues(A, { [key]: { [role]: value } });
+const pct = (x) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)}%`;
+const AGREED = RAC.assumptions.AGREED_TESTED;
+const isAgreed = (key, role) => { const e = RAC.assumptions.entry(A, key, role); return !!e && e.source === AGREED; };
+const switchMin = RAC.assumptions.get(A, 'switch_min_test_months');
+// Why each agreed value was chosen (kept at the start of its notes).
+const AGREED_NOTE = {
+  screen_blend_n: 'Agreed 17 Sep 2026 for this release: 200 applications for both roles.',
+  location_screen_blend_n: 'Agreed 17 Sep 2026 for this release: off for both roles (100000 means no location adjustment).',
+  region_hire_blend_n: 'Agreed 17 Sep 2026 for this release: role average for both roles (100000).',
+  d1_role_rate: 'Agreed 17 Sep 2026 for this release: 0.65 for both roles.',
+  d1_prior_strength: 'Agreed 17 Sep 2026 for this release: shared across platforms (100000) for both roles.',
+  remaining_error_factor: 'Agreed 17 Sep 2026: the tested figure applies only if costs missed in the same direction in every test month; otherwise 1.00. Default for the Setup field.',
+  row_widen_apps: 'Agreed 17 Sep 2026 for this release: one strength for both roles, the one whose widened row ranges held the middle 80% of both roles\' location and platform misses together most closely.',
+};
+const switchText = (months, unstable) => (months >= switchMin && !unstable
+  ? `Switch rule met (${months} test months, stable): the tested figure may replace the agreed value.`
+  : `Switch rule not met (${months} test months${unstable ? ', unstable' : ''}; needs ${switchMin} and stable): the agreed value stays.`);
+// tested: what the test gave. value: what the planner uses, for "tested" rows
+// and the remaining-error rule; other agreed rows keep their value.
+const set = (key, role, tested, notes, value = tested) => {
+  const agreed = isAgreed(key, role);
+  const keepValue = agreed && key !== 'remaining_error_factor';
+  changes.push({ key, role, value: keepValue ? null : value, tested, notes: agreed ? `${AGREED_NOTE[key]} ${notes}` : notes });
+  if (!keepValue) A = RAC.assumptions.withValues(A, { [key]: { [role]: value } });
 };
 const run = (step) => !only || only.includes(step);
 
@@ -54,13 +83,14 @@ for (const role of RAC.ROLES) {
         ? (x.value === RAC.testing.AVERAGE ? 'the average predicted best' : `beat the average by ${x.gain.toFixed(1)} units after dispersion ${x.phi.toFixed(2)} (needs ${x.minGain})`)
         : `best was ${x.best} but it beat the average by only ${x.gain.toFixed(1)} units after dispersion ${x.phi.toFixed(2)} (needs ${x.minGain}), so the average is used`;
       return `Tested ${today} on Eploy ${eploy.dataset.file_date}: ${x.splits}; ${rule}; log-likelihood by strength (${table}); 100000 means ${what}. ` +
-        `Leaving out each test month: ${loo(x)}${x.unstable ? '; UNSTABLE' : '; stable'}.`;
+        `Leaving out each test month: ${loo(x)}${x.unstable ? '; UNSTABLE' : '; stable'}. ${switchText(x.perMonth.length, x.unstable)}`;
     };
     set('screen_blend_n', role, t.screen_blend_n.value, note('screen_blend_n', 'the role average'));
     set('location_screen_blend_n', role, t.location_screen_blend_n.value, note('location_screen_blend_n', 'no location adjustment'));
     set('region_hire_blend_n', role, t.region_hire_blend_n.value, note('region_hire_blend_n', 'the role average'));
     (sensitivity[role] ||= {}).blend = Object.fromEntries(Object.entries(t).map(([k, x]) => [k,
-      { value: x.value, best: x.best, gain: Math.round(x.gain * 100) / 100, dispersion: Math.round(x.phi * 100) / 100, leaveOneOut: x.loo, unstable: x.unstable }]));
+      { used: RAC.assumptions.get(A, k, role), tested: x.value, best: x.best, gain: Math.round(x.gain * 100) / 100, dispersion: Math.round(x.phi * 100) / 100,
+        testMonths: x.perMonth.length, leaveOneOut: x.loo, unstable: x.unstable }]));
   }
   if (run('recon')) {
     const r = RAC.testing.reconciliation(DATA[role].ds, eploy, A, role);
@@ -83,54 +113,74 @@ for (const role of RAC.ROLES) {
 const WINDOW = { mode: 'last3up', mult: 2 };
 let backtests = null;
 if (run('backtest')) {
-  const pct = (x) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)}%`;
   const trials = RAC.backtest.RECENT_CHOICES.map(recent => {
     const res = {};
     for (const role of RAC.ROLES) res[role] = RAC.backtest.run(DATA[role].ds, A, role, WINDOW, eploy, { recent, stability: false });
     return { recent, res, rms: RAC.ROLES.reduce((a, r) => a + res[r].fit.rmsLog, 0) };
   });
-  const best = trials.reduce((b, t) => (t.rms < b.rms - 1e-12 ? t : b), trials[0]);
+  // Lowest total wins; on a tie the current value stays.
+  const current = RAC.assumptions.get(A, 'remaining_error_months');
+  const lowest = Math.min(...trials.map(t => t.rms));
+  const tied = trials.filter(t => t.rms <= lowest + 1e-9);
+  const best = tied.find(t => t.recent === current) || tied[0];
   const trialText = trials.map(t => `${t.recent || 'all'}: ${RAC.ROLES.map(r => `${r} ${t.res[r].fit.rmsLog.toFixed(3)}`).join(', ')}`).join('; ');
   const setAll = (key, value, notes) => {
-    changes.push({ key, role: 'all', value, notes });
+    changes.push({ key, role: 'all', value, tested: value, notes });
     A = RAC.assumptions.withValues(A, { [key]: value });
   };
   setAll('remaining_error_months', best.recent,
-    `Tested ${today}: typical miss (root mean square of log misses) by months the adjustment was learned from: ${trialText}. Lowest total kept.`);
+    `Tested ${today}: typical miss (root mean square of log misses) by months the adjustment was learned from (0 means all): ${trialText}. Lowest total kept; on a tie the current value stays.`);
   backtests = {};
   for (const role of RAC.ROLES) backtests[role] = RAC.backtest.run(DATA[role].ds, A, role, WINDOW, eploy, { recent: best.recent });
   const r4 = (x) => Math.round(x * 10000) / 10000;
+  // Row widening: one strength for both roles, on both roles' misses together.
+  const pooled = RAC.backtest.C_GRID.map((c, i) => {
+    const cells = RAC.ROLES.reduce((a, r) => a + backtests[r].rowWiden.cells, 0);
+    const inside = RAC.ROLES.reduce((a, r) => a + backtests[r].rowWiden.table[i].coverage * backtests[r].rowWiden.cells, 0);
+    return { c, coverage: inside / cells, cells };
+  });
+  const target = RAC.assumptions.get(A, 'range_high_percentile') - RAC.assumptions.get(A, 'range_low_percentile');
+  const pooledBest = pooled.reduce((b, r) => (Math.abs(r.coverage - target) < Math.abs(b.coverage - target) - 1e-12 ? r : b), pooled[0]);
+  const pooledText = `closest at ${pooledBest.c} (held ${(pooledBest.coverage * 100).toFixed(1)}% of ${pooledBest.cells}); by strength ${pooled.map(x => `${x.c}: ${(x.coverage * 100).toFixed(1)}%`).join(', ')}`;
+  console.log(`Row widening, both roles together: ${pooledText}`);
   for (const role of RAC.ROLES) {
     const bt = backtests[role];
     const months = bt.outer.map(o => `${o.month} ${pct(o.miss)}`).join(', ');
-    const learned = `test months ${bt.testable[0]} to ${bt.testable[bt.testable.length - 1]}, each with at least ${RAC.assumptions.get(A, 'test_min_history_months')} earlier months (${DATA[role].label}), window year to date with the last 3 months x2`;
+    const n = bt.testable.length;
+    const learned = `test months ${bt.testable[0]} to ${bt.testable[n - 1]}, each with at least ${RAC.assumptions.get(A, 'test_min_history_months')} earlier months (${DATA[role].label}), window year to date with the last 3 months x2`;
     const st = bt.stability, f = bt.final;
     const flag = (k) => (st.unstable[k] ? 'UNSTABLE' : 'stable');
     const looText = (k, fmt) => st.loo.map(x => `${x.month} ${fmt(x[k])}`).join(', ');
-    set('d1_role_rate', role, f.bRole, `Tested ${today}: best of ${RAC.backtest.B_GRID.join(', ')} by Poisson deviance predicting each month from earlier months, ${learned}. ` +
-      `Leaving out each test month: ${looText('bRole', v => v)}; ${flag('bRole')} (unstable if any moves by more than 0.1).`);
+    set('d1_role_rate', role, f.tested.bRole, `Tested ${today}: best of ${RAC.backtest.B_GRID.join(', ')} by Poisson deviance predicting each month from earlier months, ${learned}. ` +
+      `Leaving out each test month: ${looText('bRole', v => v)}; ${flag('bRole')} (unstable if any moves by more than 0.1). ${switchText(n, st.unstable.bRole)}`);
     const kRule = f.best.k >= RAC.backtest.SHARED ? 'the shared rate predicted best'
-      : f.k >= RAC.backtest.SHARED ? `own rates (strength ${f.best.k}) beat the shared rate by only ${f.gain.toFixed(1)} units after dispersion ${f.phi.toFixed(1)} (needs ${RAC.assumptions.get(A, 'own_figure_min_gain')}), so the shared rate is used`
+      : f.k >= RAC.backtest.SHARED ? `own rates (strength ${f.best.k}) beat the shared rate by only ${f.gain.toFixed(1)} units after dispersion ${f.phi.toFixed(1)} (needs ${RAC.assumptions.get(A, 'own_figure_min_gain')}), so the shared rate is the tested figure`
       : `own rates beat the shared rate by ${f.gain.toFixed(1)} units after dispersion ${f.phi.toFixed(1)}`;
-    set('d1_prior_strength', role, f.k, `Tested ${today}: best of ${RAC.backtest.K_GRID.join(', ')}; 100000 means every platform takes the shared rate; ${kRule} (${learned}). ` +
-      `Leaving out each test month: ${looText('k', v => v)}; ${flag('k')}.`);
-    set('remaining_error_factor', role, r4(f.bias), `Tested ${today}: predicted over actual applications in ${best.recent ? 'the latest ' + best.recent + ' test months' : 'all test months'} at the chosen rate (${learned}); default for the Setup field. ` +
-      `Leaving out each test month: ${looText('bias', v => v.toFixed(3))}; ${flag('bias')} (unstable if any moves by more than 5%).`);
+    set('d1_prior_strength', role, f.tested.k, `Tested ${today}: best of ${RAC.backtest.K_GRID.join(', ')}; 100000 means every platform takes the shared rate; ${kRule} (${learned}). ` +
+      `Leaving out each test month: ${looText('k', v => v)}; ${flag('k')}. ${switchText(n, st.unstable.k)}`);
+    const costMisses = f.rule.months.map(m => `${m.month} ${pct(m.costMiss)}`).join(', ');
+    set('remaining_error_factor', role, r4(f.tested.bias), `Tested ${today}: at the rate in use (${f.used.bRole}), predicted over actual applications in ${best.recent ? 'the latest ' + best.recent + ' test months' : 'all test months'} was ${r4(f.tested.bias)} (${learned}). ` +
+      `Cost misses (predicted over actual applications, each month from earlier months, no adjustment): ${costMisses}; ` +
+      `${f.rule.same ? 'every month missed the same way, so the tested figure applies' : 'the direction changed between months, so 1.00 applies'}. ` +
+      `Leaving out each test month: ${looText('bias', v => v.toFixed(3))}; ${flag('bias')} (unstable if any moves by more than 5% or the rule changes).`, r4(f.used.bias));
     (sensitivity[role] ||= {}).backtest = {
-      value: { roleRate: f.bRole, strength: f.k, adjustment: r4(f.bias) },
+      used: { roleRate: f.used.bRole, strength: f.used.k, adjustment: r4(f.used.bias) },
+      tested: { roleRate: f.tested.bRole, strength: f.tested.k, adjustment: r4(f.tested.bias) },
+      sameDirection: f.rule.same, testMonths: n,
       bestBeforeRule: f.best, gain: Math.round(f.gain * 100) / 100, dispersion: Math.round(f.phi * 100) / 100,
       leaveOneOut: st.loo.map(x => ({ ...x, bias: r4(x.bias) })), unstable: st.unstable,
     };
     set('range_apps_low', role, r4(bt.appsRange.low), `Tested ${today}: 10th percentile (PERCENTILE.INC) of application misses, each month predicted from earlier months only: ${months}`);
     set('range_apps_high', role, r4(bt.appsRange.high), `Tested ${today}: 90th percentile of the same misses (${bt.appsRange.months} test months)`);
     set('range_apps_sigma', role, r4(bt.appsRange.sigma), `Tested ${today}: standard deviation of log(1 + miss) over the same months`);
-    set('row_widen_apps', role, bt.rowWiden.c, `Tested ${today}: strength whose widened row ranges held the middle 80% of ${bt.rowWiden.cells} location and platform misses most closely (held ${(bt.rowWiden.coverage * 100).toFixed(0)}%); by strength ${bt.rowWiden.table.map(x => `${x.c}: ${(x.coverage * 100).toFixed(0)}%`).join(', ')}`);
+    set('row_widen_apps', role, bt.rowWiden.c, `Tested ${today}: for ${role} alone, the strength whose widened row ranges held the middle 80% of ${bt.rowWiden.cells} location and platform misses most closely (held ${(bt.rowWiden.coverage * 100).toFixed(0)}%); by strength ${bt.rowWiden.table.map(x => `${x.c}: ${(x.coverage * 100).toFixed(0)}%`).join(', ')}. ` +
+      `Both roles together: ${pooledText}.`);
   }
 }
 
 for (const c of changes) {
   const old = A.entries.find(e => e.key === c.key && e.role === c.role);
-  console.log(`${c.key} ${c.role}: ${old ? old.value : '?'} -> ${c.value}\n    ${c.notes}`);
+  console.log(`${c.key} ${c.role}: value ${old ? old.value : '?'}${c.value === null ? ' (agreed, kept)' : ' -> ' + c.value}; tested ${c.tested}\n    ${c.notes}`);
 }
 
 if (WRITE) {
@@ -138,10 +188,14 @@ if (WRITE) {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   const q = (s) => (/[",\n]/.test(s) ? '"' + String(s).replace(/"/g, '""') + '"' : String(s));
   for (const c of changes) {
-    const i = lines.findIndex(l => { const r = RAC.util.parseCsv(l)[0] || []; return r[0] === c.key && r[4] === c.role; });
+    // Columns: key, name, value, tested, unit, role, source, date, notes
+    const i = lines.findIndex(l => { const r = RAC.util.parseCsv(l)[0] || []; return r[0] === c.key && r[5] === c.role; });
     if (i < 0) throw new Error(`no row for ${c.key} ${c.role}`);
     const r = RAC.util.parseCsv(lines[i])[0];
-    r[2] = String(c.value); r[5] = 'tested'; r[6] = today; r[7] = c.notes;
+    if (c.value !== null) r[2] = String(c.value);
+    r[3] = String(c.tested);
+    if (r[6] !== AGREED) r[6] = 'tested';
+    r[7] = today; r[8] = c.notes;
     lines[i] = r.map(q).join(',');
   }
   const out = lines.join('\n');
@@ -164,7 +218,10 @@ if (WRITE) {
           note: 'Paid-media hires predicted from earlier months against the hires Eploy credited to the four platforms. A check only: hire ranges come from the counts behind the rates.',
           months: bt.hires.map(o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, round(v)]))),
         },
-        final: { roleRate: bt.final.bRole, strength: bt.final.k, adjustment: round(bt.final.bias) },
+        used: { roleRate: bt.final.used.bRole, strength: bt.final.used.k, adjustment: round(bt.final.used.bias) },
+        tested: { roleRate: bt.final.tested.bRole, strength: bt.final.tested.k, adjustment: round(bt.final.tested.bias) },
+        costMissesNoAdjustment: bt.final.rule.months.map(m => ({ month: m.month, predicted: round(m.predicted), actual: round(m.actual), costMiss: round(m.costMiss) })),
+        sameDirection: bt.final.rule.same,
         sensitivity: sensitivity[role] || null,
       };
     }

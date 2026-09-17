@@ -36,15 +36,21 @@ export default function (check, { assert, near }) {
     return out.join('; ');
   });
 
-  check('No location or platform goes above its spending cap unless instructed', () => {
+  check('No location or platform goes above its spending cap, whatever the minimums say', () => {
     let n = 0;
-    for (const inputs of [SEPT, { ...SEPT, budget: 250000 }, { ...SEPT, regionMin: { Scotland: 9000 } }]) {
+    const cases = [SEPT, { ...SEPT, budget: 250000 }, { ...SEPT, regionMin: { Scotland: 9000 } },
+      { ...SEPT, regionMin: { Scotland: 9000 }, platMax: { appcast: 500 } },
+      { ...SEPT, comboMin: { Scotland: { google: 20000 } }, platMin: { meta: 90000 } }];
+    for (const inputs of cases) {
       const plan = RAC.plan.build('SMR', inputs, env);
       for (const c of cells(plan)) {
         n++;
-        assert(c.spend <= c.cap + c.aboveLimitByInstruction + 0.01, `${c.region} ${c.platform} £${c.spend.toFixed(2)} above its limit £${c.cap.toFixed(2)}`);
+        assert(c.spend <= c.cap + 0.01, `${c.region} ${c.platform} £${c.spend.toFixed(2)} above its cap £${c.cap.toFixed(2)}`);
+        assert(c.aboveLimitByInstruction === 0, `${c.region} ${c.platform} recorded above its cap`);
+        assert(c.spend >= 0, `${c.region} ${c.platform} negative spend £${c.spend}`);
         if (!c.on) assert(c.spend === 0, `${c.region} ${c.platform} switched off but funded`);
       }
+      near(plan.holdbacks.total + plan.placed + plan.unplaced.total, inputs.budget, 0.01, 'budget conserved');
       for (const l of plan.locations) {
         const max = inputs.regionMax[l.region];
         const min = (inputs.regionMin || {})[l.region] || 0;
@@ -54,11 +60,36 @@ export default function (check, { assert, near }) {
         else if (max > 0) assert(l.spend <= max + 0.01, `${l.region} above its maximum`);
       }
     }
+    // Scotland's minimum is above everything its caps allow: every platform
+    // sits at its cap and the shortfall is reported, not spent above the caps.
     const pinned = RAC.plan.build('SMR', { ...SEPT, regionMin: { Scotland: 9000 } }, env);
     const sc = pinned.locations.find(l => l.region === 'Scotland');
-    assert(Math.abs(sc.spend - 9000) < 0.01, 'Scotland minimum not met: ' + sc.spend);
-    const above = P.reduce((a, p) => a + sc.cells[p].aboveLimitByInstruction, 0);
-    return `${n} location and platform rows checked; a £9,000 Scotland minimum (above its £2,500 maximum and its limits) was met, with £${above.toFixed(0)} recorded as above limits by instruction`;
+    const capacity = P.reduce((a, p) => a + sc.cells[p].cap, 0);
+    assert(capacity < 9000, `test needs Scotland's caps below £9,000 (${capacity})`);
+    // (Appcast sits under September's £5,000 Appcast maximum.)
+    P.filter(p => p !== 'appcast').forEach(p => near(sc.cells[p].spend, sc.cells[p].cap, 0.01, `Scotland ${p} should be at its cap`));
+    const s = pinned.minimumShortfalls.find(x => x.kind === 'location' && x.region === 'Scotland');
+    assert(s, 'Scotland shortfall not reported');
+    near(s.placed, sc.spend, 0.01, 'placed');
+    near(s.short, 9000 - sc.spend, 0.01, 'short');
+    assert(s.because === 'spending caps' && /^Scotland minimum £9,000, placed £[\d,]+, short by £[\d,]+ because of spending caps$/.test(s.text), s.text);
+    // Money trimmed by a platform maximum does not go above the other platforms' caps either.
+    const trimmed = RAC.plan.build('SMR', { ...SEPT, regionMin: { Scotland: 9000 }, platMax: { appcast: 500 } }, env);
+    const t = trimmed.minimumShortfalls.find(x => x.kind === 'location' && x.region === 'Scotland');
+    assert(t && t.short > s.short - 0.01, 'trimmed Scotland shortfall');
+    // Floors and platform minimums stop at the caps and say so.
+    const floors = RAC.plan.build('SMR', { ...SEPT, comboMin: { Scotland: { google: 20000 } }, platMin: { meta: 90000 } }, env);
+    const kinds = floors.minimumShortfalls.map(x => x.kind).sort().join();
+    assert(kinds === 'floor,platform', 'floor and platform minimum shortfalls: ' + kinds);
+    // A minimum the caps allow is met in full.
+    const LOW = { ...SEPT, budget: 50000 };
+    const nwBase = RAC.plan.build('SMR', LOW, env).locations.find(l => l.region === 'North West');
+    const nwMin = Math.floor(P.reduce((a, p) => a + nwBase.cells[p].cap, 0) * 0.95);
+    assert(nwMin > nwBase.spend + 100, 'test minimum should be above North West\'s share');
+    const ok = RAC.plan.build('SMR', { ...LOW, regionMin: { 'North West': nwMin } }, env);
+    const nw = ok.locations.find(l => l.region === 'North West');
+    assert(!ok.minimumShortfalls.length && nw.spend >= nwMin - 0.01, `North West £${nw.spend} with shortfalls ${ok.minimumShortfalls.map(x => x.text)}`);
+    return `${n} location and platform rows checked, none above its cap or below zero; ${s.text}; with Appcast held to £500: ${t.text}; ${floors.minimumShortfalls.map(x => x.text).join('; ')}; a £${nwMin} North West minimum (95% of its caps, on a £50,000 budget) was met`;
   });
 
   check('Spending caps match a direct calculation from the data and Eploy', () => {
@@ -261,6 +292,26 @@ export default function (check, { assert, near }) {
     const cellFlags = plan.locations.flatMap(l => P.map(p => l.cells[p])).filter(c => c.range && c.range.hires && c.range.hires.lowConfidence).length;
     assert(cellFlags > 0, 'no location and platform row was flagged low confidence');
     return `paid ${t.hires.low.toFixed(1)} to ${t.hires.high.toFixed(1)} (rate uncertainty ${(t.hires.rateSd * 100).toFixed(0)}% on ${P0} matched hires; ${(thin.totals.range.hires.rateSd * 100).toFixed(0)}% on a fifth of the counts); all hires ${t.allHires.low.toFixed(1)} to ${t.allHires.high.toFixed(1)}; low confidence: ${flagged.map(l => l.region).join(', ') || 'no locations'}, ${cellFlags} location and platform rows`;
+  });
+
+  check('Hire ranges include chance variation in the number of hires', () => {
+    const plan = RAC.plan.build('SMR', SEPT, env);
+    const t = plan.totals.range.hires;
+    // Whole-number counts, wider than the rate and application uncertainty alone.
+    assert(t.high - t.low > t.expectedHigh - t.expectedLow, `paid ${t.low} to ${t.high} not wider than ${t.expectedLow} to ${t.expectedHigh}`);
+    // A row with well under one hire: a count of zero is within its range.
+    const small = cells(plan).filter(c => c.spend > 0 && c.hires > 0 && c.hires < 0.5);
+    assert(small.length > 0, 'no small row to check');
+    small.forEach(c => assert(c.range.hires.low === 0, `${c.region} ${c.platform}: ${c.hires.toFixed(2)} hires, range from ${c.range.hires.low}`));
+    // Chance alone on the total: a Poisson count around the expected hires has
+    // a 10th to 90th percentile width of about 2.56 x sqrt(hires).
+    const poissonOnly = 2 * 1.2816 * Math.sqrt(plan.totals.hires);
+    assert(t.high - t.low >= poissonOnly * 0.8, `paid width ${t.high - t.low} below chance alone ${poissonOnly}`);
+    // Other sources: the monthly counts varied by more than chance; the range covers at least chance.
+    const o = plan.totals.range.otherHires, e = plan.totals.otherHires;
+    assert(o.high - o.low >= 2 * 1.2816 * Math.sqrt(e) * 0.8, `other-source width ${o.high - o.low} for ${e}`);
+    return `paid ${plan.totals.hires.toFixed(1)}: ${t.low} to ${t.high} with chance variation (${t.expectedLow.toFixed(1)} to ${t.expectedHigh.toFixed(1)} without); ` +
+      `other sources ${e.toFixed(1)}: ${o.low} to ${o.high}; all ${plan.totals.allHires.toFixed(1)}: ${plan.totals.range.allHires.low} to ${plan.totals.range.allHires.high}; ${small.length} rows under half a hire start at 0`;
   });
 
   check('Target out of reach: most hires, the budget where hires stop rising, and multiples 1 to 3', () => {

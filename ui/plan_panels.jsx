@@ -37,7 +37,7 @@
     const t = String(s).replace(/[^0-9.]/g, '');
     return t === '' || isNaN(Number(t)) ? null : Number(t);
   };
-  const sourceLabel = (s) => (s === 'tested' ? 'tested' : s === 'agreed' ? 'agreed' : 'starting value');
+  const sourceLabel = (s) => (s === 'tested' || s === 'agreed' || s === 'agreed, informed by tests' ? s : 'starting value');
 
   function Row({ label, children, note }) {
     return (
@@ -93,8 +93,9 @@
         </Row>
         <Row label="Remaining-error adjustment"
           note={<>
-            Multiplies every planned cost per application (0.50 to 2.00). Default {s.remainingError.default.toFixed(3)}, what
-            testing on past months still missed ({sourceLabel(s.remainingError.source)}).
+            Multiplies every planned cost per application (0.50 to 2.00). Default {s.remainingError.default.toFixed(3)} ({sourceLabel(s.remainingError.source)}):
+            testing on past months still missed by {s.remainingError.tested != null ? s.remainingError.tested.toFixed(3) : 'n/a'}, which is used only
+            if costs missed in the same direction in every test month.
             {s.remainingError.changed && <> {reset(() => perRole('remainingError', null))}.</>}
           </>}>
           <NumberField field={'remaining-error-' + role} value={s.remainingError.value}

@@ -92,7 +92,7 @@ EXPECTED_JS = """(role) => {
   const plan = RAC.plan.build(role, p, RAC.app.env(window.__AVP_DATA__, 'browser-check'));
   return { apps: plan.totals.apps, hires: plan.totals.allHires, paid: plan.totals.hires, other: plan.totals.otherHires,
     deployable: plan.deployable, settledTo: plan.stamps.data.settledTo, reach: plan.reach,
-    settling: plan.settlingUsed.map(x => x.month) };
+    settling: plan.settlingUsed.map(x => x.month), shortfalls: plan.minimumShortfalls.map(x => x.text) };
 }""" % (json.dumps(working), json.dumps({'SMR': SMR_VAC, 'Patrol': PATROL_VAC}))
 
 
@@ -307,6 +307,32 @@ with sync_playwright() as pw:
     page.screenshot(path=os.path.join(OUT, 'use_those_counts.png'))
     if guard.blocked or guard.writes:
         fails.append(f'use-counts run: blocked {guard.blocked[:3]}, writes {guard.writes[:3]}')
+    ctx.close()
+
+    # A location minimum above what the spending caps allow: the caps hold and
+    # the Plan tab lists the shortfall, as the planner words it.
+    db3 = copy.deepcopy(DB)
+    db3['workspace']['months']['2026-10']['working']['regionMin']['SMR'] = {'Scotland': 9000}
+    ctx, page, guard, errors = new_page(browser, TEST, db=db3, libs=LIBS)
+    page.goto(TEST + '#planner/plan')
+    page.wait_for_selector('.app-header', timeout=60000)
+    role_button(page, 'SMR')
+    kpis(page)
+    want3 = page.evaluate(EXPECTED_JS.replace('regionMin: w.regionMin[role]', "regionMin: role === 'SMR' ? { Scotland: 9000 } : w.regionMin[role]"), 'SMR')
+    panel = page.locator('[data-panel="minimum-shortfalls"]')
+    if not want3['shortfalls']:
+        fails.append('expected the planner to report a Scotland shortfall')
+    elif panel.count() != 1:
+        fails.append('minimum shortfall notice not shown')
+    else:
+        text = panel.inner_text()
+        missing = [t for t in want3['shortfalls'] if t not in text]
+        if missing:
+            fails.append(f'shortfall notice lacks {missing}: {text[:200]}')
+        notes.append('minimum above the caps: Plan tab shows "' + '; '.join(want3['shortfalls']) + '"')
+    page.screenshot(path=os.path.join(OUT, 'minimum_shortfall.png'))
+    if errors or guard.blocked or guard.writes:
+        fails.append(f'shortfall run: errors {errors[:2]}, blocked {guard.blocked[:3]}, writes {guard.writes[:3]}')
     ctx.close()
     browser.close()
 

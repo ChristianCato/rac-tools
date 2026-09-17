@@ -17,7 +17,9 @@
 //      not place efficiently.
 //   4. Within each location, spend goes where the next hire costs least, up
 //      to each platform's spending cap. Floors set on Setup and platform
-//      minimums and maximums are then applied.
+//      minimums and maximums are then applied. No minimum or floor takes a
+//      platform above its spending cap (user decision, 17 September 2026);
+//      what a minimum could not get is listed in minimumShortfalls.
 //   5. The forecast for every location and platform, totals and ranges.
 //   6. Budget needed for the hire target, by running the plan at trial budgets.
 //      Where the caps make the target unreachable, the plan reports the most
@@ -33,7 +35,11 @@
 //     their statistical uncertainty;
 //   - the matching factor to platform hires, from the hires behind it;
 //   - the expected hires from other sources, from the month-to-month spread
-//     of their counts.
+//     of their counts;
+//   - chance variation in the number of hires itself (user decision,
+//     17 September 2026): each draw's paid-media hires are a Poisson count
+//     around its expected value; other-source hires are a count around their
+//     expected value, varying as much as their monthly counts did.
 // The range is the 10th to 90th percentile of the draws. A row is flagged low
 // confidence where its hire rate uncertainty is above low_confidence_rate_sd
 // or fewer than low_confidence_min_apps applications sat behind its cost per
@@ -61,7 +67,7 @@
 //   regionMin, regionMax (-1 means no spend), daysInMonth, capMultiple (spending cap multiple, 1 to 3),
 //   otherHiresShare (0 to 1; blank uses the file default),
 //   otherHiresMonthly (hires a month; blank uses the file default),
-//   remainingError (0.5 to 2; blank uses the tested value),
+//   remainingError (0.5 to 2; blank uses the assumptions file's value),
 //   includeSettling (count complete months still inside the settle period),
 //   bench (data window), limits: { cph: { region }, cpa: { region: { plat } } },
 //   oneRacHoldback, overrides (per-plan assumption values)
@@ -122,7 +128,7 @@
       { key: 'otherHiresMonthly', name: 'Expected hires from other sources per month', value: otherMonthly, default: get('other_hires_monthly'), source: entry('other_hires_monthly').source, unit: 'hires' },
       { key: 'remainingError', name: 'Remaining-error adjustment', value: bias, default: get('remaining_error_factor'), source: entry('remaining_error_factor').source, unit: 'multiple' },
       { key: 'includeSettling', name: 'Include months still settling', value: !!inputs.includeSettling, default: false, source: 'agreed', unit: 'yes/no' },
-    ].map(x => ({ ...x, changed: x.value !== x.default }));
+    ].map(x => ({ ...x, tested: x.key === 'remainingError' ? entry('remaining_error_factor').testedValue : null, changed: x.value !== x.default }));
     const quality = RAC.ceilings.qualityByLocation(env.eploy, hireRates, role);
     const cpaLimits = (inputs.limits && inputs.limits.cpa) || {};
     const cells = {};
@@ -171,7 +177,8 @@
   function hireDraws(base, env, fixedRates) {
     const { A, role, ds, ctx, hireRates, factors, baseline } = base;
     const n = RAC.assumptions.get(A, 'hire_range_draws');
-    const normal = U.normals(U.rng(parseInt(U.fingerprint(role + '|hire ranges'), 16)));
+    const rand = U.rng(parseInt(U.fingerprint(role + '|hire ranges'), 16));
+    const normal = U.normals(rand);
     const regions = ds.regions, K = regions.length * P().length;
     const index = {};
     regions.forEach((r, i) => P().forEach((p, j) => { index[r + '|' + p] = i * P().length + j; }));
@@ -193,11 +200,17 @@
     const P0 = (credited.paid || {}).hires || 0, O0 = (credited.other || {}).hires || 0;
     const ratio = new Float64Array(n * K);
     const z = new Float64Array(n), other = new Float64Array(n);
-    const vOther = baseline.keep * baseline.keep * baseline.dispersion * baseline.monthly * (1 + 1 / Math.max(1, baseline.months.length));
-    const draw = (x) => Math.max(0, x + normal() * Math.sqrt(Math.max(x, 0.5)));
+    // Other sources: the monthly average is uncertain (spread over the months
+    // behind it), and a month's count varies around its expected value by
+    // chance and by more than chance (the dispersion of the monthly counts).
+    const mo = Math.max(1, baseline.months.length), disp = baseline.dispersion;
+    // A count redrawn within its uncertainty: mean x, variance x, never below
+    // zero (log-normal).
+    const draw = (x) => { const s2 = Math.log(1 + 1 / Math.max(x, 0.5)); return x * Math.exp(Math.sqrt(s2) * normal() - s2 / 2); };
     for (let d = 0; d < n; d++) {
       z[d] = normal();
-      other[d] = Math.max(0, baseline.hires + normal() * Math.sqrt(vOther));
+      const mean = Math.max(0, baseline.monthly + normal() * Math.sqrt(disp * baseline.monthly / mo));
+      other[d] = otherCount(rand, normal, baseline.keep * mean, baseline.keep * baseline.keep * mean * (disp - 1));
       if (fixedRates) { ratio.fill(1, d * K, (d + 1) * K); continue; }
       const r = RAC.rates.combine(RAC.rates.redraw(hireRates.counts, normal), hireRates.blend, regions);
       const hpa = hpaOf(r);
@@ -210,10 +223,26 @@
     return { n, K, index, ratio, z, other, paidHires: P0, otherHires: O0, months };
   }
 
+  // A month's count of hires from other sources: expected value e, with extra
+  // variance v beyond chance carried by a log-normal multiplier of mean 1,
+  // then chance variation (Poisson).
+  function otherCount(rand, normal, e, v) {
+    if (!(e > 0)) return 0;
+    let lambda = e;
+    if (v > 0) {
+      const s2 = Math.log(1 + v / (e * e));
+      lambda = e * Math.exp(Math.sqrt(s2) * normal() - s2 / 2);
+    }
+    return U.poisson(rand, normal, lambda);
+  }
+
   // A hire range for a set of cells: the application range (widened by w)
-  // combined with the rate draws. Returns the 10th and 90th percentiles, the
-  // rate uncertainty and whether the row is low confidence (evidence: the
-  // applications behind the row's cost per application; none for the total).
+  // combined with the rate draws, then chance variation in the count of hires
+  // (Poisson around each draw's expected hires; user decision, 17 September
+  // 2026). Returns the 10th and 90th percentiles (and, as expectedLow and
+  // expectedHigh, the same without chance variation), the rate uncertainty
+  // and whether the row is low confidence (evidence: the applications behind
+  // the row's cost per application; none for the total).
   function hireRange(base, cells, w, evidence = Infinity) {
     const D = base.draws, r = base.ranges;
     const hires = U.sum(cells.map(c => c.hires));
@@ -222,21 +251,27 @@
     const L = Math.log(1 + band.low), H = Math.log(1 + band.high);
     const mid = (L + H) / 2, half = (H - L) / 2 / Z90;
     const idx = cells.map(c => D.index[c.region + '|' + c.platform]);
-    const total = new Float64Array(D.n), logRate = new Float64Array(D.n);
+    // Its own seed, so a row's range does not depend on which rows came before.
+    const rand = U.rng(parseInt(U.fingerprint(base.role + '|hire counts|' + idx.join(',')), 16));
+    const normal = U.normals(rand);
+    const expected = new Float64Array(D.n), total = new Float64Array(D.n), logRate = new Float64Array(D.n);
     for (let d = 0; d < D.n; d++) {
       let h = 0;
       for (let j = 0; j < cells.length; j++) h += cells[j].hires * D.ratio[d * D.K + idx[j]];
       logRate[d] = Math.log(Math.max(h, 1e-12) / hires);
-      total[d] = h * Math.exp(mid + half * D.z[d]);
+      expected[d] = h * Math.exp(mid + half * D.z[d]);
+      total[d] = U.poisson(rand, normal, expected[d]);
     }
     const [plo, phi] = r.percentiles;
-    const low = U.percentileInc(Array.from(total), plo), high = U.percentileInc(Array.from(total), phi);
+    const q = (xs, p) => U.percentileInc(Array.from(xs), p);
+    const low = q(total, plo), high = q(total, phi);
     const m = logRate.reduce((a, x) => a + x, 0) / D.n;
     const rateSd = Math.sqrt(logRate.reduce((a, x) => a + (x - m) ** 2, 0) / Math.max(1, D.n - 1));
     const reasons = [];
     if (rateSd > r.lowConfidenceRateSd) reasons.push('few hires behind the hire rate');
     if (evidence < r.lowConfidenceMinApps) reasons.push('few applications behind the cost per application');
-    return { low, high, lowPct: low / hires - 1, highPct: high / hires - 1, rateSd, lowConfidence: reasons.length > 0, reasons, draws: total };
+    return { low, high, lowPct: low / hires - 1, highPct: high / hires - 1, expectedLow: q(expected, plo), expectedHigh: q(expected, phi),
+      rateSd, lowConfidence: reasons.length > 0, reasons, draws: total };
   }
 
   // Steps 1 and 3 to 5 for one budget. Ranges are left out during the budget
@@ -278,10 +313,19 @@
       ];
       const [cap, reason] = options.reduce((a, b) => (b[0] < a[0] ? b : a));
       l.cap = cap; l.capReason = reason;
-      l.floor = regionMin[l.region] > 0 ? regionMin[l.region] : 0;
+      l.floorAsked = regionMin[l.region] > 0 ? regionMin[l.region] : 0;
+      l.floor = l.floorAsked;
       if (l.floor > maxCap) {
         // Two instructions disagree. The minimum is applied, as before, and said.
         steps.push({ step: 'between locations', region: l.region, amount: 0, reason: `location minimum £${Math.round(l.floor)} is above its maximum; the minimum was applied` });
+      }
+      // A minimum never takes a location above its spending caps or cost
+      // limits (user decision, 17 September 2026). The shortfall is reported.
+      const room = base.softCaps ? Infinity : Math.min(l.capacity, l.cphCap);
+      if (l.floor > room + 0.005) {
+        l.floor = room;
+        steps.push({ step: 'between locations', region: l.region, amount: 0,
+          reason: `location minimum £${Math.round(l.floorAsked)} is above what its spending caps${l.cphCap < l.capacity ? ' and cost per hire limit' : ''} allow (£${Math.round(room)}); the caps held` });
       }
       l.base = (locs.length ? coverageReserve / locs.length : 0) + (totalVac > 0 ? demandPool * l.vacancies / totalVac : 0);
       l.spend = l.base;
@@ -296,10 +340,17 @@
 
     // Step 4: within each location.
     const comboMin = p.comboMin || {};
-    const aboveByInstruction = {};
+    const aboveByInstruction = {};   // comparison with the previous version only
+    const shortfalls = [];           // minimums the caps did not allow
     locs.forEach(l => {
       const floors = {};
-      l.cells.forEach(c => { const f = (comboMin[l.region] || {})[c.plat]; if (f > 0) floors[c.plat] = f; });
+      l.cells.forEach(c => {
+        const f = (comboMin[l.region] || {})[c.plat];
+        if (!(f > 0)) return;
+        // Floors set on Setup stop at the platform's spending cap too.
+        floors[c.plat] = base.softCaps ? f : Math.min(f, c.cap);
+        if (f > floors[c.plat] + 0.005) shortfalls.push({ kind: 'floor', region: l.region, platform: c.plat, asked: f, allowed: floors[c.plat] });
+      });
       l.fixed = {};
       let s = RAC.allocate.splitLocation(l.cells, l.spend, l.fixed);
       for (let i = 0; i < 5; i++) {
@@ -313,20 +364,24 @@
         // Floors asked for more than the location has: keep their proportions.
         const k = l.spend / (l.spend + s.shortfall);
         Object.keys(l.split).forEach(plat => { l.split[plat] *= k; });
+        Object.keys(l.fixed).forEach(plat => { l.fixed[plat] = l.split[plat]; });
         l.floorShortfall = s.shortfall;
       }
-      if (s.leftover > 0.005) {
-        // Only an instruction (a location minimum) can put more into a location
-        // than its platforms' caps allow. Spread it by cap and record it.
+      if (s.leftover > 0.005 && base.softCaps) {
+        // Comparison with the previous version: spread above the biggest month.
         const capSum = U.sum(l.cells.map(c => c.cap)) || l.cells.length;
         l.cells.forEach(c => {
           const add = s.leftover * ((U.sum(l.cells.map(x => x.cap)) ? c.cap : 1) / capSum);
           l.split[c.plat] += add;
           aboveByInstruction[l.region + '|' + c.plat] = add;
         });
-        steps.push({ step: 'within location', region: l.region, amount: s.leftover, reason: base.softCaps
-          ? 'comparison with the previous version: spread above the biggest month'
-          : 'location minimum above its spending caps; spent above the caps as instructed' });
+        steps.push({ step: 'within location', region: l.region, amount: s.leftover, reason: 'comparison with the previous version: spread above the biggest month' });
+      } else if (s.leftover > 0.005) {
+        // Floors fixed below what the location was given: what does not fit
+        // under the other platforms' caps is not placed.
+        unplaced += s.leftover; unplacedReasons['spending caps (largest successful month x multiple)'] = true;
+        l.spend -= s.leftover;
+        steps.push({ step: 'within location', region: l.region, amount: -s.leftover, reason: 'no platform here had room under its spending cap' });
       }
     });
 
@@ -348,7 +403,9 @@
       holders.forEach(l => {
         const cur = l.split[plat] || 0;
         const share = total > 0 ? cur / total : 1 / holders.length;
-        l.fixed[plat] = target < total ? cur * (target / total) : cur + (target - total) * share;
+        const cellCap = base.softCaps ? Infinity : l.cells.find(c => c.plat === plat).cap;
+        l.fixed[plat] = target < total ? cur * (target / total) : Math.min(cellCap, cur + (target - total) * share);
+        if (target < total) l.trimmedBy = (l.trimmedBy || 0) + (cur - l.fixed[plat]);
         const s = RAC.allocate.splitLocation(l.cells, l.spend, l.fixed);
         l.split = s.spend;
         if (s.leftover > 0.005 && base.softCaps) {
@@ -357,16 +414,52 @@
           const capSum = U.sum(free.map(c => c.cap)) || free.length;
           free.forEach(c => { l.split[c.plat] += s.leftover * ((U.sum(free.map(x => x.cap)) ? c.cap : 1) / capSum); });
         } else if (s.leftover > 0.005) {
+          // The location's other platforms took what they could up to their
+          // caps; the rest is not placed, even where that leaves a location
+          // below its minimum (reported below).
           unplaced += s.leftover; unplacedReasons['platform maximum'] = true;
           l.spend -= s.leftover;
           steps.push({ step: 'platform limits', region: l.region, platform: plat, amount: -s.leftover, reason: 'platform maximum: no other platform here had room' });
         }
         if (s.shortfall > 0.005) {
-          l.fixed[plat] -= s.shortfall; l.split[plat] -= s.shortfall;
+          // The location has less than its fixed spends: this platform gives
+          // way first, then every fixed spend in proportion.
+          l.fixed[plat] = Math.max(0, l.fixed[plat] - s.shortfall);
+          const s2 = RAC.allocate.splitLocation(l.cells, l.spend, l.fixed);
+          l.split = s2.spend;
+          if (s2.shortfall > 0.005) {
+            const k = l.spend / (l.spend + s2.shortfall);
+            Object.keys(l.split).forEach(q => { l.split[q] *= k; });
+            Object.keys(l.fixed).forEach(q => { l.fixed[q] = l.split[q]; });
+          }
         }
       });
       steps.push({ step: 'platform limits', platform: plat, amount: target - total, reason: target < total ? 'platform maximum' : 'platform minimum' });
     }
+
+    // Minimums the caps did not allow (user decision, 17 September 2026).
+    P().forEach(plat => {
+      const lo = platMin[plat] > 0 ? platMin[plat] : 0;
+      const got = U.sum(locs.map(l => l.split[plat] || 0));
+      if (lo > got + 0.5) shortfalls.push({ kind: 'platform', platform: plat, asked: lo, placed: got, short: lo - got, because: 'spending caps' });
+    });
+    locs.forEach(l => {
+      const placed = U.sum(Object.values(l.split));
+      if (!(l.floorAsked > 0 && l.floorAsked > placed + 0.5)) return;
+      const because = l.floorAsked > l.floor + 0.005 ? (l.cphCap < l.capacity ? 'spending caps and the cost per hire limit' : 'spending caps')
+        : l.trimmedBy > 0.005 ? 'spending caps, after the platform maximum' : 'the budget available';
+      shortfalls.push({ kind: 'location', region: l.region, asked: l.floorAsked, placed, short: l.floorAsked - placed, because });
+    });
+    shortfalls.forEach(s => {
+      if (s.kind === 'floor') {
+        s.placed = (locs.find(l => l.region === s.region).split[s.platform]) || 0;
+        s.short = s.asked - s.placed;
+        s.because = 'spending caps';
+      }
+      const what = s.kind === 'location' ? `${s.region} minimum` : s.kind === 'platform' ? `${RAC.PLATFORM_LABELS[s.platform]} minimum`
+        : `${s.region} ${RAC.PLATFORM_LABELS[s.platform]} floor`;
+      s.text = `${what} £${Math.round(s.asked).toLocaleString('en-GB')}, placed £${Math.round(s.placed).toLocaleString('en-GB')}, short by £${Math.round(s.short).toLocaleString('en-GB')} because of ${s.because}`;
+    });
 
     // Step 5: forecast.
     const r = base.ranges;
@@ -435,6 +528,7 @@
       locations, platforms, totals, idleCells, allRegions: base.ds.regions.slice(),
       placed,
       unplaced: { total: unplaced, reasons: Object.keys(unplacedReasons) },
+      minimumShortfalls: shortfalls,
       aboveLargestSuccessful: { total: aboveLargestSuccessful, share: placed > 0 ? aboveLargestSuccessful / placed : 0 },
       aboveLargestMonth: { total: aboveLargestMonth, share: placed > 0 ? aboveLargestMonth / placed : 0 },
       platMin, platMax, regionMin, regionMax,
@@ -566,7 +660,10 @@
       const mid = (lo + hi) / 2;
       if (at(mid) < goal) lo = mid; else hi = mid;
     }
-    out.budgetForTarget = Math.ceil(hi / 50) * 50;
+    // The search stops within £2, so the £50 step below can already be enough.
+    let answer = Math.ceil(hi / 50) * 50;
+    if (answer - 50 >= holdbacks && at(answer - 50) >= goal) answer -= 50;
+    out.budgetForTarget = answer;
     return out;
   }
 
