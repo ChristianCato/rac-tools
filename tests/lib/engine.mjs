@@ -29,7 +29,11 @@ const EXPORTS = ['DATA', 'buildFundingPlan', 'benchWeight', 'dataMonths', 'apply
 // engine and its own caches, the same as a fresh page load.
 export function loadEngine(source, data) {
   const window = { __AVP_DATA__: data, location: { hostname: 'node-test' } };
-  const body = source + '\nreturn {' + EXPORTS.join(',') + '};';
+  // Since Stage 2 the engine in index.html names its plan function
+  // legacyBuildFundingPlan; the frozen copy still calls it buildFundingPlan.
+  const names = EXPORTS.map(n => (n === 'buildFundingPlan'
+    ? "buildFundingPlan: typeof legacyBuildFundingPlan === 'function' ? legacyBuildFundingPlan : buildFundingPlan" : n));
+  const body = source + '\nreturn {' + names.join(',') + '};';
   return new Function('window', body)(window);
 }
 

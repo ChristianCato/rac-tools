@@ -19,9 +19,13 @@ picked up automatically. `lib/planner.mjs` loads the planner files listed in
 `planner/manifest.json`, the same list the app loads, so no code is cut out of
 index.html for them.
 
-The browser check is separate, because it needs a browser:
+The browser checks are separate, because they need a browser:
 
-    python3 tests/browser/save_guard.py
+    python tests/browser/save_guard.py
+    python tests/browser/app_checks.py
+
+Both use `browser/guard.py`, which answers or blocks every request the page
+makes (see below).
 
 Needs Python 3 and Playwright (`pip install playwright`, then
 `playwright install chromium`). The script's opening comment explains the
@@ -32,12 +36,13 @@ Needs Python 3 and Playwright (`pip install playwright`, then
 | Check | What it proves |
 |---|---|
 | Frozen engine rebuilds September SMR plan 2a | The engine as it was on 14 September, fed plan 2a's data and settings, gives the plan sent to RAC on 28 August: applications, hires, range, spend above ceiling, and every location and platform row. |
-| Current engine rebuilds September SMR plan 2a | The same, on the engine in index.html. Stage 2 replaces the forecast, and this check is retired then; the frozen check stays. |
 | Frozen engine rebuilds the saved plan as held on 16 September | Replays how the live app loaded that day and matches the live workings export. It also records that the plan and its workings disagreed on Meta rows that day, and why. |
 | Frozen engine shows the fault | A month added after the app opened got no weight. Kept so the diagnosis stays on record. |
 | Current engine: a month added after opening is weighted | The fix: after August is added, the window moves to June to August and the plan matches a clean load of the same data. |
 | Only rac-tools.vercel.app can write to the database | The save function returns before writing on any other address, and nothing else writes to the database. |
 | September Patrol plan rebuild | Skipped until a Patrol workings export is available. |
+| Planner checks (`checks/`) | Assumptions file, Eploy import, part months and cost per application, hire rates and forecast, testing on past months and tested values, spending limits and allocation, and the connection to the app, including pacing for plans made before the release. Each check's note says what it compared. |
+| Browser: app_checks.py | In a real browser at the test link address: the Plan tab equals the planner, changing Patrol's window on Benchmarks leaves SMR unchanged, a broken assumptions.csv stops the app naming the row, and nothing is written. |
 | Browser: save_guard.py | In a real browser, the live address saves and a test link reads but never writes, shows the test version banner and shows Not saved. |
 | Browser: network guard | Every request the page makes is either handled by the check or blocked, so no browser check can reach a real server other than the listed library files. Probe requests confirm the block works; any other blocked request fails the check. |
 

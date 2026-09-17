@@ -11,6 +11,8 @@
     "planner/backtest.js",
     "planner/ceilings.js",
     "planner/allocate.js",
-    "planner/plan.js"
+    "planner/plan.js",
+    "planner/legacy_shape.js",
+    "planner/app.js"
   ]
 }

@@ -50,8 +50,8 @@ function plan2a(source) {
   return `apps ${plan.predictedApps.toFixed(2)}, hires ${plan.predictedHires.toFixed(3)}, largest cell gaps £${c.maxSpend.toFixed(2)} spend, £${c.maxCpa.toFixed(3)} per application`;
 }
 check('Frozen engine rebuilds September SMR plan 2a', () => plan2a(LEGACY));
-// Valid until Stage 2 replaces the forecast; after that only the frozen engine is held to plan 2a.
-check('Current engine rebuilds September SMR plan 2a', () => plan2a(CURRENT));
+// "Current engine rebuilds September SMR plan 2a" was retired in Stage 2, when
+// the planner files replaced the forecast. The frozen engine is still held to it.
 
 // ---- Saved September SMR plan as the live app held it on 16 September ------
 // Replays what the app did: open on the repo data file, then fold in the months

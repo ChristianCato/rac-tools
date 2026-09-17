@@ -92,6 +92,18 @@ async function pull(c, apiKey, from, to) {
 
 export default async function handler(req, res) {
   try {
+    // GET /api/windsor-spend?version=1 returns the deployed commit, for the
+    // version stamp on PDFs and workings. It needs Vercel's system environment
+    // variables exposed; without them the commit reads null. Nothing secret is
+    // returned, so it needs no sign-in.
+    if ((req.query || {}).version) {
+      return res.status(200).json({
+        commit: process.env.VERCEL_GIT_COMMIT_SHA || null,
+        branch: process.env.VERCEL_GIT_COMMIT_REF || null,
+        environment: process.env.VERCEL_ENV || null,
+      });
+    }
+
     const { WINDSOR_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
     if (!WINDSOR_API_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
       return res.status(500).json({ error: "Server is missing WINDSOR_API_KEY, SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY." });

@@ -233,6 +233,16 @@
       apps: { low: totals.apps * (1 + r.apps.low), high: totals.apps * (1 + r.apps.high), lowPct: r.apps.low, highPct: r.apps.high },
       hires: { low: totals.hires * (1 + r.hires.low), high: totals.hires * (1 + r.hires.high), lowPct: r.hires.low, highPct: r.hires.high },
     };
+    // Locations not in the plan, at no spend, for tables that list every location.
+    const liveSet = new Set(locations.map(l => l.region));
+    const idleCells = {};
+    base.ds.regions.filter(region => !liveSet.has(region)).forEach(region => {
+      idleCells[region] = {};
+      P().forEach(plat => {
+        const c = base.cells[region][plat];
+        idleCells[region][plat] = cellResult(base, c, 0, RAC.forecast.at(c.pc, 0), false, 0);
+      });
+    });
     const aboveLargestSuccessful = U.sum(all.map(c => c.aboveLargestSuccessful));
     const aboveLargestMonth = U.sum(all.map(c => c.aboveLargestMonth));
     const placed = U.sum(locations.map(l => l.spend));
@@ -241,7 +251,7 @@
       role, budget, daysInMonth: days,
       holdbacks: { premium, combined, oneRac, total: premium + combined + oneRac },
       deployable, coverageReserve, demandPool, totalVac, liveCount: locations.length,
-      locations, platforms, totals,
+      locations, platforms, totals, idleCells, allRegions: base.ds.regions.slice(),
       placed,
       unplaced: { total: unplaced, reasons: Object.keys(unplacedReasons) },
       aboveLargestSuccessful: { total: aboveLargestSuccessful, share: placed > 0 ? aboveLargestSuccessful / placed : 0 },
@@ -255,6 +265,7 @@
     const pc = c.pc;
     const r = base.ranges;
     const u = pc.usual;
+    const ws = RAC.cost.windowStats(base.ctx, pc.plat, pc.region);
     const w = RAC.backtest.widen(r.apps, r.widen, u.apps, S, pc.spendUsual, base.d1[pc.plat].seUsed);
     const apps = RAC.backtest.band(r.apps, w);
     return {
@@ -263,7 +274,8 @@
       cpa: f.apps > 0 ? f.cpa : null,
       cph: f.hires > 0 ? S / f.hires : null,
       // Cost per application build-up.
-      historicCpa: u.rawCpa, historicApps: u.apps, historicSpend: u.spend, windowMonths: base.ctx.windowMonths,
+      historicCpa: u.rawCpa, historicApps: u.apps, historicSpend: u.spend,
+      applyRate: ws.clicks > 0 ? ws.apps / ws.clicks : null,
       platformCpa: u.platform.cpa, thinAdjustment: u.thinAdjustment, usualCpa: u.cpa, cpaSource: u.source,
       spendUsual: pc.spendUsual, spendBasis: pc.spendBasis, diminishingRate: pc.b,
       spendAdjustment: f.spendAdjustment, remainingError: pc.bias, plannedCpa: f.cpa,

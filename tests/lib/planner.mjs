@@ -9,14 +9,20 @@ export const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..'
 export const readRoot = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 export const manifest = () => JSON.parse(readRoot('planner/manifest.json'));
 
-export function loadPlanner() {
-  const context = { console, structuredClone };
+export function loadPlanner(globals = {}) {
+  return loadPlannerContext(globals).RAC;
+}
+
+// The planner and the window object it sees, for checks that set app globals
+// (__AVP_DATA__ before loading, __RAC_BENCH__ and __RAC_HIRE__ after).
+export function loadPlannerContext(globals = {}) {
+  const context = { console, structuredClone, ...globals };
   context.window = context;
   vm.createContext(context);
   for (const f of manifest().files) {
     vm.runInContext(readRoot(f), context, { filename: f });
   }
-  return context.RAC;
+  return { RAC: context.RAC, window: context };
 }
 
 // The assumptions file as committed, parsed and checked.

@@ -14,6 +14,20 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script src="rac_data.js"></script>
+<!-- The planner (planner/manifest.json lists these files in this order). -->
+<script src="planner/core.js"></script>
+<script src="planner/assumptions.js"></script>
+<script src="planner/data.js"></script>
+<script src="planner/cost.js"></script>
+<script src="planner/rates.js"></script>
+<script src="planner/forecast.js"></script>
+<script src="planner/testing.js"></script>
+<script src="planner/backtest.js"></script>
+<script src="planner/ceilings.js"></script>
+<script src="planner/allocate.js"></script>
+<script src="planner/plan.js"></script>
+<script src="planner/legacy_shape.js"></script>
+<script src="planner/app.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -430,6 +444,7 @@ input[type=range]::-moz-range-thumb {
   font-size: 12.5px; line-height: 1.45; padding: 7px 20px;
 }
 .test-banner strong { color: #9A3D00; }
+.planner-errors { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.5; color: var(--ink); }
 .signin-wrap {
   min-height: 100vh; display: flex; align-items: center; justify-content: center;
   background: var(--rac-navy); padding: 20px;
@@ -588,6 +603,7 @@ input[type=range]::-moz-range-thumb {
 </head>
 <body>
 <div id="root"></div>
+<script type="text/babel" src="ui/benchmarks_tab.jsx"></script>
 <script type="text/babel" data-type="module">
 const { useState, useEffect, useMemo, useRef, createContext, useContext } = React;
 
@@ -896,6 +912,9 @@ function predictionBand(platform, region, role) {
 }
 
 // ====================================================================
+// LEGACY from here to the end of legacyBuildFundingPlan: the previous
+// engine. Kept until phase 2 because older export, history and Location
+// priorities code still reads some of its helpers. New plans do not use it.
 // ALLOCATION ENGINE
 // For one role, given a budget, the live locations, and a flat coverage
 // floor per location: place the floor first (best-CPA platform per
@@ -1458,7 +1477,11 @@ function rolePlatformBand(plat, role) {
 //     giving every location its own sub-target to plan against.
 //   Predicted applications scale linearly with the deployable budget, so the
 //   budget needed to hit the target is a direct calculation, not a search.
-function buildFundingPlan(role, p) {
+// LEGACY (not used for plans since 18 September 2026; kept until phase 2).
+// The previous engine. Plans now come from planner/plan.js through
+// buildFundingPlan below planParams. Plans made before the release pace on a
+// frozen copy of this engine (planner/legacy_engine_46aaae2.js).
+function legacyBuildFundingPlan(role, p) {
   if (!p._solving) {
     const key = role + '|' + JSON.stringify(p) + '|' + JSON.stringify(BENCH) + '|' + CAP_MULTIPLE;
     const hit = _planCache.get(key);
@@ -2121,7 +2144,7 @@ function buildFundingPlanUncached(role, p) {
   // So: find out whether the caps are binding, by asking what a much larger
   // budget would deliver.
   const capsBinding = !p._solving && appTarget > 0 && (() => {
-    const more = buildFundingPlan(role, { ...p, budget: (p.budget || 0) * 2 + 50000, _solving: true });
+    const more = legacyBuildFundingPlan(role, { ...p, budget: (p.budget || 0) * 2 + 50000, _solving: true });
     return Math.abs(more.predictedApps - predictedApps) < 0.5;
   })();
 
@@ -2139,7 +2162,7 @@ function buildFundingPlanUncached(role, p) {
     budgetForTarget = Math.ceil((minTotal + premiumHoldback + acHoldback) / 50) * 50;
   } else if (solveTarget > 0 && !p._solving) {
     const at = (b) => {
-      const q = buildFundingPlan(role, { ...p, budget: b, _solving: true });
+      const q = legacyBuildFundingPlan(role, { ...p, budget: b, _solving: true });
       return solveOnHires ? q.predictedHires : q.predictedApps;
     };
     // The top of the search must not depend on the budget currently set, or
@@ -2258,6 +2281,16 @@ function planParams(role, s) {
     capMultiple: s.capMultiple || 1.0,
     bench: (s.bench && s.bench[role]) || null,
   };
+}
+
+// The plan every screen reads, from the planner files (planner/plan.js), in the
+// shape the screens were written for. The data window and spending limit
+// multiple are also passed to the previous engine's shared settings, which the
+// older export and history code still reads until Stage 3 replaces it.
+function buildFundingPlan(role, p) {
+  setCapMultiple(p.capMultiple);
+  setBenchWindow(p.bench);
+  return RAC.app.buildFundingPlan(role, p, DATA, DATA_VERSION);
 }
 
 // Applications per hire, blended across the locations that are live this
@@ -2971,8 +3004,8 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
                 <div className="banner banner-warn" style={{ marginBottom: 14 }}>
                   <div className="banner-icon">!</div>
                   <div>
-                    <strong>{fmtGBP(pl.beyondProven)} ({pct.toFixed(0)}%) is above spend levels already
-                    run.</strong> It is in the plan. That part is an estimate rather than something measured.
+                    <strong>{fmtGBP(pl.beyondProven)} ({pct.toFixed(0)}%) is above the largest successful month
+                    already run.</strong> It is within the spending limits. That part is an estimate rather than something measured.
                   </div>
                 </div>
               );
@@ -3206,8 +3239,9 @@ function PlanTab({ state, setState, role: roleView, setRole: setRoleView }) {
           <div>
             {plan.unplacedBudget > 1 && (
               <>
-                <strong>{fmtGBP(plan.unplacedBudget)} could not be placed.</strong> Every location has hit its
-                maximum budget, so this money has nowhere to go. Raise a cap, or lower the budget to
+                <strong>{fmtGBP(plan.unplacedBudget)} could not be placed efficiently.</strong> Every location that
+                could take it has reached its maximum budget, its spending limit or its cost limit, so this money has
+                nowhere to go. Raise a limit, or lower the budget to
                 {' '}{fmtGBP(plan.deployable - plan.unplacedBudget + plan.premiumHoldback + plan.acHoldback)}.
               </>
             )}
@@ -3553,6 +3587,7 @@ function resetDataCaches() {
   Object.keys(_platformCPACache).forEach(k => delete _platformCPACache[k]);
   Object.keys(_typicalCache).forEach(k => delete _typicalCache[k]);
   DATA_VERSION += 1;
+  if (window.RAC && window.RAC.app) window.RAC.app.invalidate();   // the planner's stored plans go too
 }
 function dataMonths() {
   if (_monthsCache) return _monthsCache;
@@ -3620,6 +3655,8 @@ function windowStats(plat, region, role, from, to) {
 
 
 
+// LEGACY (not shown since 18 September 2026; kept until phase 2). The
+// Benchmarks tab now comes from ui/benchmarks_tab.jsx, on the planner's figures.
 function BenchmarksTab({ state, setState, role: roleView, setRole: setRoleView }) {
   const role = roleView;
   const months = useMemo(() => dataMonths(), [DATA_VERSION]);
@@ -5338,6 +5375,8 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '18 Sep', items: [
+    'New planning calculations, in their own files (planner folder), used by Setup, Plan, Platforms, Compare, Benchmarks and pacing for plans from October 2026. Cost per application is one method everywhere, on settled months only: a month counts once 24 days have passed after it ended. Cost per application rises with spend (diminishing returns), with a remaining-error adjustment set by testing on past months. Hires are worked out from RAC’s applicant tracking data: screening pass rate by platform, adjusted by location, times the hire rate after screening, scaled so past predictions match every hire RAC recorded. Each location and platform is capped at its largest successful month times the spending limit multiple; money that no location can take is shown as not placed. Ranges come from how far predictions missed in testing. Every value the model uses is in assumptions.csv.',
+    'Plans for September 2026 and earlier pace exactly as before, on the previous engine, so pacing for the rest of September is unchanged. Pacing history and Location priorities still use the previous cost method and say so on screen.',
     'Test links no longer save. Vercel builds a test version of the app for every branch, and those versions used the same database as the live app, so trying a change on one could overwrite the plans and data everyone works from. Only rac-tools.vercel.app now saves. Test versions still read the live plans and data, show a banner saying nothing is saved, and show Not saved where the live app shows Saved.',
     'Months added after the app has opened now count in the plan. The app worked out its list of months once, when it first needed it, and never again. The shared database is read a moment after the app loads, so a month held only there could miss that list: the September SMR plan held August in its data but gave it no weight, and planned on May to July rather than June to August. The month list, the weighting and every stored figure built from them are now cleared whenever months are added, whether from the database or the Data tab.',
     'Added automatic checks in a tests folder, which is not published with the app. They rebuild the September SMR plan as sent on 28 August and as the app held it on 16 September and confirm the figures match, confirm a month added after the app opens is weighted, and confirm a test version cannot save.',
@@ -5601,7 +5640,7 @@ function defaultPlannerState() {
     budget: { SMR: 35000, Patrol: 28000 },
     hireTarget: { SMR: 26, Patrol: 26 },
     coverageFloor: 1000,
-    capMultiple: 1.0,
+    capMultiple: RAC.app.defaultCapMultiple(),   // assumptions.csv cap_multiple_default
     bench: { SMR: null, Patrol: null },
     commentary: { SMR: '', Patrol: '' },
     commentaryLegacy: { SMR: '', Patrol: '' },
@@ -6416,6 +6455,7 @@ function MonthOnMonth({ ws, month, role }) {
           <div className="kpi-sub">
             {bA ? fmtGBP(bA) : '-'} in {label(a)}, {bB ? fmtGBP(bB) : '-'} in {label(b)}.
             {' '}What the money buys across the mix, on historic rates, with budget following the roles.
+            {' '}<strong>Uses the previous cost method.</strong>
           </div>
         </div>
       </div>
@@ -6463,6 +6503,7 @@ function MonthOnMonth({ ws, month, role }) {
             </tbody>
           </table>
           <div className="help-text" style={{ padding: '10px 16px' }}>
+            <strong>Historic CPA uses the previous cost method.</strong>{' '}
             Both months are taken at their last recorded day. Historic CPA is what that location has cost
             per application across the whole dataset, so the blended figure above says whether this month's
             spread of roles is a more expensive one to fill than last month's, before anything about how
@@ -6789,7 +6830,9 @@ function planBaseline(month, container, version) {
     : composePlannerState(month, container);
   const rows = [];
   ROLES.forEach(role => {
-    const plan = buildFundingPlan(role, { ...planParams(role, state), appTarget: state.appTarget[role] || 0 });
+    // Plans up to September 2026 pace on the previous engine, exactly as
+    // before the release; later plans on the planner (planner/app.js).
+    const plan = RAC.app.pacingPlan(month, role, { ...planParams(role, state), appTarget: state.appTarget[role] || 0 }, DATA, DATA_VERSION);
     PLATFORMS.forEach(plat => {
       ((plan.regionChannel && plan.regionChannel[plat]) || []).forEach(r => {
         if (!(r.spend > 0) && !(r.predApps > 0)) return;
@@ -7417,6 +7460,10 @@ function WhyView({ pacing, planDemand, liveDemand }) {
         </div>
       </div>
 
+      <div className="help-text" style={{ marginBottom: 6 }}>
+        <strong>Uses the previous cost method</strong> for locations and platforms the plan gave nothing to:
+        they are priced on the historic cost per application the previous version of the planner used.
+      </div>
       <div className="help-text" style={{ marginBottom: 18 }}>
         Open roles: {rolesNow == null ? 'no plan snapshot' : rolesNow + ' now'}
         {rolesThen != null && rolesThen !== rolesNow
@@ -9720,7 +9767,8 @@ function App() {
                   onOpenPriorities={() => setTool('priorities')} />}
                 {tab === 'plan' && <PlanTab state={plannerState} setState={setPlannerState} role={roleView} setRole={setRoleView} />}
                 {tab === 'platforms' && <PlatformsTab state={plannerState} role={roleView} setRole={setRoleView} />}
-                {tab === 'benchmarks' && <BenchmarksTab state={plannerState} setState={setPlannerState} role={roleView} setRole={setRoleView} />}
+                {tab === 'benchmarks' && <RACUI.BenchmarksTab state={plannerState} setState={setPlannerState} role={roleView} setRole={setRoleView}
+                  dataVersion={DATA_VERSION} fmt={{ fmtGBP, fmtInt, monthShort }} />}
                 {tab === 'method' && <MethodTab state={plannerState} />}
               </>
             )}
@@ -9769,7 +9817,30 @@ function Root() {
     return () => { live = false; };
   }, [inSession]);
 
+  // The planner reads assumptions.csv and its data files before anything is
+  // planned. If the assumptions file has a problem, the app says which rows and
+  // does not plan on a guess.
+  const [planner, setPlanner] = useState(RAC.app.status());
+  useEffect(() => {
+    if (!inSession) return;
+    let live = true;
+    RAC.app.load().then(s => { if (live) setPlanner(s.status); });
+    return () => { live = false; };
+  }, [inSession]);
+
   if (!inSession) return <SignIn onIn={() => setInSession(true)} />;
+  if (planner === 'error') {
+    const e = RAC.app.state.error;
+    return (
+      <div className="signin-wrap">
+        <div className="card" style={{ maxWidth: 720 }}><div className="card-body">
+          <div className="card-title" style={{ marginBottom: 10 }}>{e.title}</div>
+          <ul className="planner-errors">{e.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
+        </div></div>
+      </div>
+    );
+  }
+  if (planner !== 'ready') return <div className="signin-wrap"><div className="help-text" style={{ color: '#fff' }}>Loading the planner</div></div>;
   return <App key={benchStamp} />;
 }
 
