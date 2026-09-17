@@ -27,6 +27,7 @@
 <script src="planner/allocate.js"></script>
 <script src="planner/plan.js"></script>
 <script src="planner/onerac.js"></script>
+<script src="planner/snapshot.js"></script>
 <script src="planner/legacy_shape.js"></script>
 <script src="planner/app.js"></script>
 <script src="exports/text.js"></script>
@@ -2313,6 +2314,31 @@ function planParams(role, s) {
   };
 }
 
+// ISSUED PLANS (C1 and C2). A plan marked as issued is stored as a snapshot
+// under its own database key, written once. While such a plan is the one on
+// screen, every figure comes from that snapshot: the screens, the PDF and the
+// workings show exactly what was sent, whatever has changed in the data or the
+// assumptions file since. Editing anything drops back to the working plan, so
+// an issued plan can never be written over.
+let ISSUED_VIEW = null;
+const ISSUED_SHAPED = new WeakMap();
+
+function setIssuedView(view) {
+  ISSUED_VIEW = view || null;
+  RAC.plan.invalidate();
+}
+
+function issuedDoc(role) {
+  if (!ISSUED_VIEW) return null;
+  return ISSUED_VIEW.docs.find(d => d.role === role) || null;
+}
+
+// The snapshot's plan in the shape the screens read, worked out once.
+function issuedShaped(doc) {
+  if (!ISSUED_SHAPED.has(doc)) ISSUED_SHAPED.set(doc, RAC.legacyShape.toLegacy(doc.plan));
+  return ISSUED_SHAPED.get(doc);
+}
+
 // The OneRAC plan: one set of campaigns for both roles in its locations.
 function oneRacParams(s) {
   const one = oneRacState(s);
@@ -2336,6 +2362,41 @@ function oneRacParams(s) {
     selfCompetition: one.setup.selfCompetition != null ? one.setup.selfCompetition
       : assumptionOr('onerac_self_competition', 0),
   };
+}
+
+// Everything an issued plan has to keep: one document per role, plus the
+// OneRAC plan where OneRAC has started.
+function issuedDocsFor(state) {
+  const docs = ROLES.map(role => {
+    const plan = buildFundingPlan(role, { ...planParams(role, state), appTarget: (state.appTarget || {})[role] || 0 });
+    return { role, roleName: `${role} (${ROLE_FULL[role]})`, plan: plan.v2,
+      commentary: { legacy: commentaryPoints(state, role, 'legacy'), plan: commentaryPoints(state, role, 'plan') } };
+  });
+  const one = buildOneRacPlan(state);
+  if (one) docs.push({ role: 'OneRAC', roleName: 'OneRAC (SMR and Patrol together)', plan: one,
+    commentary: { legacy: [], plan: commentaryPoints(state, 'OneRAC', 'plan') } });
+  return docs;
+}
+
+// Store a plan as issued. The key is written once: if it already holds a
+// snapshot, nothing is written and the reason is returned.
+async function issuePlan(state, version, month) {
+  const key = RAC.snapshot.key(month, version.id);
+  const existing = await sbGet(key);
+  if (existing) return { ok: false, why: 'This plan has already been issued, and an issued plan is never written over.' };
+  const monthLabel = (DATA.month_labels && DATA.month_labels[month]) || month;
+  const snap = RAC.snapshot.of(issuedDocsFor(state), {
+    month, monthLabel, planId: version.id, planName: version.name,
+    backtest: RAC.app.state.backtest, issuedBy: sbEmail() || null,
+  });
+  if (!CAN_SAVE) return { ok: false, why: 'This is the test version of the app, so nothing was stored. Issue the plan from the live address.', snap };
+  await sbSet(key, snap);
+  return { ok: true, key, snap, roles: snap.docs.map(d => d.role) };
+}
+
+async function readIssuedPlan(month, planId) {
+  const snap = await sbGet(RAC.snapshot.key(month, planId));
+  return snap ? RAC.snapshot.restore(snap) : null;
 }
 
 // What the SMR and Patrol plans would have put into the OneRAC locations this
@@ -2382,6 +2443,8 @@ async function exportOneRacWorkings(state, opts) {
 }
 
 function buildOneRacPlan(s) {
+  const issued = issuedDoc('OneRAC');
+  if (issued) return issued.plan;
   const one = oneRacState(s);
   if (!one.regions.length) return null;
   setCapMultiple(s.capMultiple || 1.0);
@@ -2394,6 +2457,8 @@ function buildOneRacPlan(s) {
 // multiple are also passed to the previous engine's shared settings, which the
 // older export and history code still reads until Stage 3 replaces it.
 function buildFundingPlan(role, p) {
+  const issued = issuedDoc(role);
+  if (issued) return issuedShaped(issued);
   setCapMultiple(p.capMultiple);
   setBenchWindow(p.bench);
   return RAC.app.buildFundingPlan(role, p, DATA, DATA_VERSION);
@@ -4213,6 +4278,8 @@ async function exportWorkings(state, role, opts) {
   if (!window.ExcelJS) { alert('The spreadsheet writer did not load. Check the connection and reload.'); return; }
   try {
     const o = opts || {};
+    const issued = issuedDoc(role);
+    if (issued) { await RAC.workings.save(window.ExcelJS, [issued], ISSUED_VIEW.opts); return; }
     const plan = buildFundingPlan(role, { ...planParams(role, state), appTarget: (state.appTarget || {})[role] || 0 });
     const monthLabel = (DATA.month_labels && DATA.month_labels[state.planMonth]) || state.planMonth;
     await RAC.workings.save(window.ExcelJS, [{ role, roleName: `${role} (${ROLE_FULL[role]})`, plan: plan.v2 }],
@@ -4652,6 +4719,11 @@ function planBlendedCVR(plan, role) {
 function exportPDF(state, role, opts) {
   try {
     const o = opts || {};
+    const issued = issuedDoc(role);
+    if (issued) {
+      RAC.pdf.save(window.jspdf.jsPDF, [issued], { ...ISSUED_VIEW.opts, notes: o.notes !== false });
+      return;
+    }
     const plan = buildFundingPlan(role, { ...planParams(role, state), appTarget: (state.appTarget || {})[role] || 0 });
     const monthLabel = (DATA.month_labels && DATA.month_labels[state.planMonth]) || state.planMonth;
     RAC.pdf.save(window.jspdf.jsPDF, [{
@@ -5528,6 +5600,7 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '18 Sep', items: [
+    'Plans can now be marked as issued. A plan that has been sent to RAC is stored exactly as it was, under its own record, written once: from then on it shows the figures RAC was sent, whatever changes in the data or the assumptions since, and its PDF and workings are made from the stored copy rather than worked out again. An issued plan cannot be renamed, deleted or written over, and changing anything while it is open starts a new plan instead. The plan list marks issued plans, and a banner says when a plan was issued and by whom.',
     'OneRAC planning added, on its own tab. Pick the locations OneRAC runs in and the month each one starts; from that month they are planned there and left out of the SMR and Patrol plans, so nothing is planned twice. Open roles are the two roles’ open roles in those locations added together, and past performance is their spend and applications added together, which is what a combined campaign would have spent and received. Cost per application is then blended to the mix of open roles, and a self-competition setting (0% until it is measured) lowers it for the two roles no longer bidding against each other. Quality and hire rates, diminishing returns, spending caps, cost limits and ranges are the same as a role plan. The OneRAC budget comes off both role budgets, split by the open roles in those locations, unless that is switched off; each role plan shows it as a OneRAC hold-back. OneRAC has its own PDF and workings export. Campaign names with OneRAC in the role position are read by the Windsor pull and the pacing tool, and the Data tab takes OneRAC rows from the master file without changing SMR or Patrol.',
     'Workings export rebuilt from the new calculations. Ten sheets: the summary, every location and platform left to right from past performance to predicted hires, every value the plan used with its source, every monthly figure with where it came from and what it counts for, how the window figures are arrived at, the applicant tracking counts behind the quality and hire rates, how far the model missed on past months, which months counted towards each spending cap, every move the split made, and the method in full. Indeed, Meta and Google rows show media, fee and total. Nothing is a pasted answer: the spreadsheet works out every figure when it opens, and an automatic check recalculates the whole workbook and compares all 1,300 formulas with the plan.',
     'Quality applications now come from RAC’s own quality measure in the applicant tracking data, in place of applications that progressed past screening. A quality application is one that progressed past screening, or was closed at screening for a reason other than the candidate’s suitability, such as location, salary, the role being filled, withdrawal, or being banked for future roles. Repeat applications from the same candidate are not counted. This raised the quality rate (SMR 15.5% to 21.7% of applications, Patrol 9.7% to 19.5%) and lowered the hire rate after quality by about the same amount, so predicted hires barely moved. The screens, the PDF and the workings now say quality rate and hire rate after quality.',
@@ -9693,7 +9766,19 @@ function App() {
   const plannerState = useMemo(() => composePlannerState(month, container), [month, container]);
   // The planner writes back its own fields only. Demand, live locations and
   // the application target are derived, so they are stripped on the way in.
-  const setPlannerState = (updater) => setPlanner(w => {
+  const setPlannerState = (updater) => {
+    // An issued plan is never edited. The first change drops back to the
+    // working plan, which already holds its settings, so the edit starts a
+    // draft rather than touching what RAC was sent.
+    if (loadedVersion && loadedVersion.issued) {
+      setIssuedView(null);
+      setIssued({ state: null, view: null, id: null });
+      patchMonth({ loaded: null });
+    }
+    return setPlannerStateRaw(updater);
+  };
+
+  const setPlannerStateRaw = (updater) => setPlanner(w => {
     const composed = composePlannerState(month, { ...container, working: w });
     const next = typeof updater === 'function' ? updater(composed) : updater;
     const out = { ...next };
@@ -9702,6 +9787,49 @@ function App() {
   });
 
   const loadedVersion = (container.versions || []).find(v => v.id === container.loaded) || null;
+  // An issued plan is shown from its snapshot: the same figures RAC was sent,
+  // whatever has changed since. `issuedState` is 'reading', 'open' or an error.
+  const [issued, setIssued] = useState({ state: null, view: null, id: null });
+  useEffect(() => {
+    const v = loadedVersion;
+    if (!v || !v.issued) { setIssuedView(null); setIssued({ state: null, view: null, id: null }); return; }
+    if (issued.id === v.id && issued.state === 'open') return;
+    let gone = false;
+    setIssued({ state: 'reading', view: null, id: v.id });
+    readIssuedPlan(month, v.id)
+      .then(view => {
+        if (gone) return;
+        if (!view) { setIssued({ state: 'missing', view: null, id: v.id }); setIssuedView(null); return; }
+        setIssuedView(view);
+        setIssued({ state: 'open', view, id: v.id });
+      })
+      .catch(e => { if (!gone) setIssued({ state: 'error', view: null, id: v.id, why: e.message }); });
+    return () => { gone = true; };
+  }, [month, loadedVersion && loadedVersion.id, loadedVersion && !!loadedVersion.issued]);
+  const showingIssued = issued.state === 'open';
+
+  // Marking a plan as issued. The snapshot is written once; the version then
+  // carries the date it was issued and by whom.
+  const [issuing, setIssuing] = useState(false);
+  const markIssued = async () => {
+    const v = loadedVersion;
+    if (!v || v.issued || issuing) return;
+    if (!window.confirm('Mark "' + v.name + '" as issued?\n\nIt will be stored exactly as it is now and locked. '
+      + 'From then on it shows the figures RAC was sent, whatever changes in the data or the assumptions, and it cannot be renamed, '
+      + 'deleted or written over. Further changes make a new plan.')) return;
+    setIssuing(true);
+    try {
+      const out = await issuePlan(plannerState, v, month);
+      if (!out.ok) { window.alert(out.why); return; }
+      patchMonth({ versions: container.versions.map(x => (x.id === v.id
+        ? { ...x, issued: { at: out.snap.issuedAt, by: out.snap.issuedBy, key: out.key, roles: out.roles, fingerprint: out.snap.fingerprint } }
+        : x)) });
+    } catch (e) {
+      window.alert('The plan could not be marked as issued: ' + e.message);
+    } finally {
+      setIssuing(false);
+    }
+  };
   const dirty = loadedVersion
     ? JSON.stringify(loadedVersion.planner) !== JSON.stringify(container.working)
     : (container.versions || []).length > 0;
@@ -9722,7 +9850,18 @@ function App() {
     patchMonth({ versions: [...versions, entry], loaded: id });
   };
 
+  const issuedGuard = (id, what) => {
+    const v = (container.versions || []).find(x => x.id === id);
+    if (v && v.issued) {
+      window.alert('"' + v.name + '" was issued on ' + fmtDay(String(v.issued.at).slice(0, 10))
+        + ', so it cannot be ' + what + '. An issued plan stays exactly as it was sent.');
+      return true;
+    }
+    return false;
+  };
+
   const renameVersion = (id) => {
+    if (issuedGuard(id, 'renamed')) return;
     const v = (container.versions || []).find(x => x.id === id);
     if (!v) return;
     const name = window.prompt('Name for this plan', v.name);
@@ -9733,6 +9872,7 @@ function App() {
   };
 
   const deleteVersion = (id) => {
+    if (issuedGuard(id, 'deleted')) return;
     const v = (container.versions || []).find(x => x.id === id);
     if (!v) return;
     const ok = window.confirm('Delete "' + v.name + '"?\n\nThis cannot be undone. Any pacing measured against it will need a different plan.');
@@ -9914,15 +10054,18 @@ function App() {
                   <label>Plan</label>
                   <select value={container.loaded || ''} onChange={e => loadVersion(e.target.value)}>
                     <option value="">Working plan</option>
-                    {versions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                    {versions.map(v => <option key={v.id} value={v.id}>{v.name}{v.issued ? ' (issued)' : ''}</option>)}
                   </select>
                   {dirty && <span className="dirty-dot" title="Unsaved changes" />}
                 </div>
                 <button className="btn btn-sm" onClick={saveVersion}>Save as new plan</button>
-                {loadedVersion && (
+                {loadedVersion && !loadedVersion.issued && (
                   <>
                     <button className="btn btn-sm" onClick={() => renameVersion(loadedVersion.id)}>Rename</button>
                     <button className="btn btn-sm" onClick={() => deleteVersion(loadedVersion.id)}>Delete</button>
+                    <button className="btn btn-sm" data-action="mark-issued" disabled={issuing}
+                      title="Store this plan exactly as it is and lock it, because it has been sent to RAC"
+                      onClick={markIssued}>{issuing ? 'Storing...' : 'Mark as issued'}</button>
                   </>
                 )}
                 <button className="btn btn-sm" onClick={() => setComparing(c => !c)}
@@ -9958,7 +10101,34 @@ function App() {
             </div>
           )}
 
-          <div className="main">
+          {/* The key changes when an issued plan opens or closes, so the
+              screens build their figures again from the snapshot rather
+              than keeping the ones they worked out from the live data. */}
+          <div className="main" key={'issued:' + (issued.id || '') + ':' + (issued.state || '')}>
+            {tool === 'planner' && loadedVersion && loadedVersion.issued && (
+              <div className={'banner ' + (showingIssued ? 'banner-info' : 'banner-warn')} data-panel="issued" style={{ marginBottom: 18 }}>
+                <div className="banner-icon">{showingIssued ? 'i' : '!'}</div>
+                <div>
+                  {showingIssued ? (
+                    <>
+                      <strong>{loadedVersion.name} was issued on {fmtDay(String(loadedVersion.issued.at).slice(0, 10))}
+                      {loadedVersion.issued.by ? ' by ' + loadedVersion.issued.by : ''}.</strong>{' '}
+                      Every figure here comes from what was stored that day, so it is what RAC was sent, whatever has changed in the
+                      data or the assumptions since. It cannot be renamed, deleted or written over, and the PDF and the workings are
+                      rendered from it rather than worked out again. Changing anything starts a new plan.
+                      {issued.view && issued.view.docs && (
+                        <> Stored for {issued.view.docs.map(d => d.role).join(', ')}. {issued.view.opts.code
+                          ? 'Code ' + String(issued.view.opts.code.commit || '').slice(0, 7) + '.' : ''}</>
+                      )}
+                    </>
+                  ) : issued.state === 'reading' ? <>Opening the issued plan...</>
+                    : issued.state === 'missing' ? <><strong>{loadedVersion.name} is marked as issued, but its stored copy could not be found.</strong>{' '}
+                        The figures below have been worked out again, so they may differ from what RAC was sent. Do not send them without checking.</>
+                    : <><strong>{loadedVersion.name} is marked as issued, but its stored copy could not be read.</strong>{' '}
+                        {issued.why || ''} The figures below have been worked out again, so they may differ from what RAC was sent.</>}
+                </div>
+              </div>
+            )}
             {tool === 'planner' && comparing && (
               <CompareView month={month} container={container} onClose={() => setComparing(false)} />
             )}

@@ -16,6 +16,7 @@ Anything else is blocked and recorded; checks fail if anything was blocked.
 Service workers are blocked; WebSockets are closed and recorded.
 """
 import base64, json, os, re, time
+from urllib.parse import unquote
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SB = 'https://xtyqmqjgvsynoeswtkpv.supabase.co'
@@ -44,7 +45,7 @@ def fake_session(email='test.user@enhancemedia.co.uk'):
 class Guard:
     def __init__(self, page, url, db=None, files=None, libs=None):
         self.url, self.db, self.files, self.libs = url, db or {}, files or {}, libs
-        self.writes, self.reads, self.blocked, self.served = [], [], [], []
+        self.writes, self.reads, self.blocked, self.served, self.saved = [], [], [], [], []
         page.route('**/*', self.handle)
         if hasattr(page, 'route_web_socket'):
             page.route_web_socket('**/*', lambda ws: (self.blocked.append(('WS', ws.url[:120])), ws.close()))
@@ -78,10 +79,19 @@ class Guard:
         if u.startswith(SB):
             if req.method in ('POST', 'PATCH', 'PUT', 'DELETE'):
                 self.writes.append((req.method, u.split('?')[0], (req.post_data or '')[:60]))
+                # The stand-in database keeps what was written, so a check can
+                # read a row back the way the app would. Nothing leaves here.
+                try:
+                    row = json.loads(req.post_data or '')
+                    if isinstance(row, dict) and 'k' in row:
+                        self.saved.append((row['k'], row.get('v')))
+                        self.db[row['k']] = row.get('v')
+                except Exception:
+                    pass
                 return route.fulfill(status=201, body='')
             self.reads.append(u.split('?')[0])
             m = re.search(r'[?&]k=eq\.([^&]+)', u)
-            key = m and m.group(1).replace('%3A', ':')
+            key = m and unquote(m.group(1))
             if key in self.db:
                 return route.fulfill(status=200, content_type='application/json', body=json.dumps([{'v': self.db[key]}]))
             return route.fulfill(status=200, content_type='application/json', body='[]')

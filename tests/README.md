@@ -24,6 +24,7 @@ The browser checks are separate, because they need a browser:
     python tests/browser/save_guard.py
     python tests/browser/app_checks.py
     python tests/browser/export_checks.py
+    python tests/browser/issued_checks.py
 
 Both use `browser/guard.py`, which answers or blocks every request the page
 makes (see below).
@@ -49,6 +50,7 @@ LibreOffice or openpyxl it says so and reports that part as skipped.
 | Pacing for saved September plans | Runs when `RAC_PACING_DIR` points at the folder holding `LIVE_pacing_<name>.xlsx` and `TEST_pacing_<name>.xlsx` (Performance Pacing exports of the same saved plan from the live app and the test link); skipped otherwise. Each pair goes through `python tools/compare_pacing.py`, which compares every plan spend and plan applications figure and the plan name. Exports hold RAC spend figures, so they stay in the data folder. |
 | Browser: OneRAC | In the browser, with London on OneRAC from this month: the OneRAC tab shows the planner's own figures for its plan, London is out of the SMR plan, and the OneRAC hold-back on the SMR budget is the open-roles share of the OneRAC budget. |
 | Browser: export_checks.py | In a real browser at the test link address: the PDF button saves a document whose text (read with pypdf) holds the planner's figures, the title with the hire target and the version stamp on every page; "PDF, no notes" drops only the notes page; and the Workings button saves a workbook that carries no saved answers, so LibreOffice works out all of its formulas from scratch, and every one of them then gives the planner's own figure. |
+| Browser: issued_checks.py | On the live address, because issuing writes: "Mark as issued" stores a snapshot under its own key once, a second attempt writes nothing, opening the plan again shows the stored figures even after the data behind them changed (861 applications as issued against 1,354 from a fresh calculation), Rename and Delete are not offered, and editing drops back to the working plan without touching the stored copy. |
 | Browser: save_guard.py | In a real browser, the live address saves and a test link reads but never writes, shows the test version banner and shows Not saved. |
 | Browser: network guard | Every request the page makes is either handled by the check or blocked, so no browser check can reach a real server other than the listed library files. Probe requests confirm the block works; any other blocked request fails the check. |
 
