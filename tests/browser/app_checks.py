@@ -341,6 +341,17 @@ with sync_playwright() as pw:
         if want not in low:
             fails.append(f'the Assumptions tab does not show {want!r}')
     notes.append(f'Assumptions tab: {rows} values with their source, date and tested figure')
+    # The market guide on Setup: read from data/market.json, shown as an index.
+    page.locator('.tab-btn', has_text='Setup').click()
+    page.wait_for_selector('[data-panel="market"]', timeout=30000)
+    page.wait_for_timeout(600)
+    market_rows = page.locator('[data-panel="market"] tbody tr').count()
+    market_text = page.inner_text('[data-panel="market"]')
+    if market_rows < 10:
+        fails.append(f'the market table shows {market_rows} months')
+    if '100 is an average month' not in market_text:
+        fails.append('the market table does not say what the index means')
+    notes.append(f'market guide on Setup: {market_rows} months of cost index and search interest')
     page.screenshot(path=os.path.join(OUT, 'assumptions.png'), full_page=True)
     page.screenshot(path=os.path.join(OUT, 'onerac.png'), full_page=True)
     if errors or guard.blocked or guard.writes:

@@ -615,6 +615,7 @@ input[type=range]::-moz-range-thumb {
 <script type="text/babel" src="ui/method_tab.jsx"></script>
 <script type="text/babel" src="ui/onerac_tab.jsx"></script>
 <script type="text/babel" src="ui/assumptions_tab.jsx"></script>
+<script type="text/babel" src="ui/market_table.jsx"></script>
 <script type="text/babel" data-type="module">
 const { useState, useEffect, useMemo, useRef, createContext, useContext } = React;
 
@@ -3306,6 +3307,13 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
               plan={buildFundingPlan(role, { ...planParams(role, state), appTarget: state.appTarget[role] || 0 })}
               fmt={{ fmtGBP, fmtInt, monthShort }} />
 
+            {role === ROLES[0] && (
+              <>
+                <div className="section-label" style={{ marginTop: 16 }}>What the market was doing</div>
+                <RACUI.MarketTable />
+              </>
+            )}
+
             {(container && container.demand && container.demand._carriedFrom && !pinned) && (
               <div className="banner banner-warn" style={{ marginBottom: 12 }}>
                 <div className="banner-icon">!</div>
@@ -5693,6 +5701,7 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '18 Sep', items: [
+    'Setup now shows what the market was doing each month, beside the remaining-error adjustment: how the cost of a click and of a thousand impressions moved on Google and Meta, and how many people were searching for these jobs. It is a guide, not part of the plan, and none of it goes into the PDF or the workings. Cost is shown as an index against each platform’s own average, so 100 is an average month.',
     'The Changelog screen now also shows what has been changed in the plans: the budget, the hire target and the five planning settings, and months folded in on the Data tab, with who changed each one, when, what it was and what it became. Each change is written down on its own, so nothing here can be overwritten. Changes to the model itself are changes to assumptions.csv, and the screen links to that file’s history.',
     'New Assumptions tab: every value the model uses, what this plan used, what testing gave, where it came from and when it was set, with the reasoning behind each one underneath. Values live in assumptions.csv in the repository, not in the code, so changing one means editing that file on a branch, checking it on the test link and merging, and every change carries a date and an author. The tab flags any value set for this plan rather than taken from the file, and any agreed value whose tested figure has met the rule for switching.',
     'Plans made before this release stay exactly as they were, in an archive copy of the old app at /archive/. It is read-only, shows an amber banner, and reads its own copy of the plans and data, taken automatically the first time this release loads on the live address, before anything is written. It runs the previous engine on the data it had, in the same order, so it gives the figures those plans were made with. Reopening one of those plans in the live app will show different figures, because the calculations changed; the archive is where the originals are.',

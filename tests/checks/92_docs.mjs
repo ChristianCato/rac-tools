@@ -56,6 +56,30 @@ export default function (check, { assert }) {
     return `${want.length} figures in docs/trace_guide.md match the planner, from the monthly rows to ${c.hires.toFixed(2)} hires`;
   });
 
+  check('Market data is a guide on Setup only, and never reaches anything RAC sees', () => {
+    const market = JSON.parse(readRoot('data/market.json'));
+    // It holds no cost of RAC's, only the shape of the market.
+    const text = JSON.stringify(market);
+    assert(!/"cpc"|"cpm"|"spend"|"campaign"\s*:\s*"/.test(text), 'the market file holds cost figures or campaign names');
+    market.months.forEach(m => ['google', 'meta'].forEach(p => {
+      if (!m[p]) return;
+      assert(m[p].cpc_index === null || (m[p].cpc_index > 0 && m[p].cpc_index < 1000), `${m.month} ${p} index ${m[p].cpc_index}`);
+    }));
+    // The Hiring Lab series is not in the file at all. Its absence is explained
+    // in the file's own note, which is the only place the name may appear.
+    assert(!/hiring\s*lab/i.test(JSON.stringify(market.months)), 'the market file holds Hiring Lab figures');
+    assert(/hiring lab/i.test(market.note), 'the market file does not say why the Hiring Lab series is absent');
+    // Nothing that RAC sees can read it: only the Setup panel does.
+    ['exports/text.js', 'exports/pdf.js', 'exports/workings.js', 'planner/plan.js', 'planner/cost.js', 'planner/forecast.js']
+      .forEach(f => assert(!/market\.json|RACUI\.MarketTable|cpc_index|cpm_index/.test(readRoot(f)),
+        `${f} reads the market data; it must stay a guide on Setup`));
+    const ui = readRoot('ui/market_table.jsx');
+    assert(ui.includes("fetch('data/market.json'"), 'the Setup panel does not read the market file');
+    assert(readRoot('index.html').includes('<RACUI.MarketTable />'), 'the market table is not on Setup');
+    return `${market.months.length} months of market shape (cost as an index, search interest), read only by the Setup panel; ` +
+      'no cost figure of RAC’s and no Hiring Lab figure in the repository';
+  });
+
   check('Release steps: the release document covers the archive copy and the checks to run', () => {
     const doc = readRoot('docs/release.md');
     ['node tests/run.mjs', 'tests/browser/save_guard.py', 'tests/browser/app_checks.py', 'tests/browser/export_checks.py',

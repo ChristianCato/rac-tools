@@ -1,0 +1,589 @@
+{
+ "note": "A guide beside the remaining-error adjustment, not part of the model. Cost per click and per thousand impressions are given as an index: each month as a percentage of that platform's average over the whole period, so 100 is an average month. The repository is public, so no cost figure of RAC's is written into it. Google Trends search interest is as Google publishes it. Written by tools/market_import.py. The Indeed Hiring Lab series is deliberately not here: its access terms have not been checked.",
+ "sources": {
+  "ads": {
+   "file": "Google & Meta Ads CPM & CPC Data.xlsx",
+   "file_date": "2026-09-17"
+  },
+  "trends": {
+   "file": "Google Trends Data.xlsx",
+   "file_date": "2026-09-17",
+   "terms": [
+    "mechanic jobs",
+    "vehicle technician jobs"
+   ]
+  }
+ },
+ "left_out": {
+  "remarketing": 67
+ },
+ "months": [
+  {
+   "month": "2021-09",
+   "searches": {
+    "mechanic jobs": 64.0,
+    "vehicle technician jobs": 14.0
+   }
+  },
+  {
+   "month": "2021-10",
+   "searches": {
+    "mechanic jobs": 56.0,
+    "vehicle technician jobs": 11.0
+   }
+  },
+  {
+   "month": "2021-11",
+   "searches": {
+    "mechanic jobs": 54.0,
+    "vehicle technician jobs": 9.0
+   }
+  },
+  {
+   "month": "2021-12",
+   "searches": {
+    "mechanic jobs": 42.0,
+    "vehicle technician jobs": 6.0
+   }
+  },
+  {
+   "month": "2022-01",
+   "searches": {
+    "mechanic jobs": 60.0,
+    "vehicle technician jobs": 12.0
+   }
+  },
+  {
+   "month": "2022-02",
+   "searches": {
+    "mechanic jobs": 59.0,
+    "vehicle technician jobs": 12.0
+   }
+  },
+  {
+   "month": "2022-03",
+   "searches": {
+    "mechanic jobs": 56.0,
+    "vehicle technician jobs": 10.0
+   }
+  },
+  {
+   "month": "2022-04",
+   "searches": {
+    "mechanic jobs": 53.0,
+    "vehicle technician jobs": 8.0
+   }
+  },
+  {
+   "month": "2022-05",
+   "searches": {
+    "mechanic jobs": 49.0,
+    "vehicle technician jobs": 7.0
+   }
+  },
+  {
+   "month": "2022-06",
+   "searches": {
+    "mechanic jobs": 50.0,
+    "vehicle technician jobs": 9.0
+   }
+  },
+  {
+   "month": "2022-07",
+   "searches": {
+    "mechanic jobs": 52.0,
+    "vehicle technician jobs": 9.0
+   }
+  },
+  {
+   "month": "2022-08",
+   "searches": {
+    "mechanic jobs": 53.0,
+    "vehicle technician jobs": 8.0
+   }
+  },
+  {
+   "month": "2022-09",
+   "searches": {
+    "mechanic jobs": 57.0,
+    "vehicle technician jobs": 9.0
+   }
+  },
+  {
+   "month": "2022-10",
+   "searches": {
+    "mechanic jobs": 53.0,
+    "vehicle technician jobs": 7.0
+   }
+  },
+  {
+   "month": "2022-11",
+   "searches": {
+    "mechanic jobs": 50.0,
+    "vehicle technician jobs": 6.0
+   }
+  },
+  {
+   "month": "2022-12",
+   "searches": {
+    "mechanic jobs": 40.0,
+    "vehicle technician jobs": 8.0
+   }
+  },
+  {
+   "month": "2023-01",
+   "searches": {
+    "mechanic jobs": 59.0,
+    "vehicle technician jobs": 9.0
+   }
+  },
+  {
+   "month": "2023-02",
+   "searches": {
+    "mechanic jobs": 58.0,
+    "vehicle technician jobs": 7.0
+   }
+  },
+  {
+   "month": "2023-03",
+   "searches": {
+    "mechanic jobs": 62.0,
+    "vehicle technician jobs": 7.0
+   }
+  },
+  {
+   "month": "2023-04",
+   "searches": {
+    "mechanic jobs": 50.0,
+    "vehicle technician jobs": 8.0
+   }
+  },
+  {
+   "month": "2023-05",
+   "searches": {
+    "mechanic jobs": 54.0,
+    "vehicle technician jobs": 6.0
+   }
+  },
+  {
+   "month": "2023-06",
+   "searches": {
+    "mechanic jobs": 54.0,
+    "vehicle technician jobs": 8.0
+   }
+  },
+  {
+   "month": "2023-07",
+   "searches": {
+    "mechanic jobs": 55.0,
+    "vehicle technician jobs": 8.0
+   }
+  },
+  {
+   "month": "2023-08",
+   "searches": {
+    "mechanic jobs": 55.0,
+    "vehicle technician jobs": 9.0
+   }
+  },
+  {
+   "month": "2023-09",
+   "searches": {
+    "mechanic jobs": 54.0,
+    "vehicle technician jobs": 8.0
+   }
+  },
+  {
+   "month": "2023-10",
+   "searches": {
+    "mechanic jobs": 56.0,
+    "vehicle technician jobs": 10.0
+   }
+  },
+  {
+   "month": "2023-11",
+   "searches": {
+    "mechanic jobs": 48.0,
+    "vehicle technician jobs": 7.0
+   }
+  },
+  {
+   "month": "2023-12",
+   "searches": {
+    "mechanic jobs": 45.0,
+    "vehicle technician jobs": 6.0
+   }
+  },
+  {
+   "month": "2024-01",
+   "searches": {
+    "mechanic jobs": 66.0,
+    "vehicle technician jobs": 11.0
+   }
+  },
+  {
+   "month": "2024-02",
+   "searches": {
+    "mechanic jobs": 62.0,
+    "vehicle technician jobs": 12.0
+   }
+  },
+  {
+   "month": "2024-03",
+   "searches": {
+    "mechanic jobs": 55.0,
+    "vehicle technician jobs": 7.0
+   }
+  },
+  {
+   "month": "2024-04",
+   "searches": {
+    "mechanic jobs": 56.0,
+    "vehicle technician jobs": 8.0
+   }
+  },
+  {
+   "month": "2024-05",
+   "searches": {
+    "mechanic jobs": 54.0,
+    "vehicle technician jobs": 5.0
+   }
+  },
+  {
+   "month": "2024-06",
+   "searches": {
+    "mechanic jobs": 59.0,
+    "vehicle technician jobs": 9.0
+   }
+  },
+  {
+   "month": "2024-07",
+   "searches": {
+    "mechanic jobs": 59.0,
+    "vehicle technician jobs": 10.0
+   }
+  },
+  {
+   "month": "2024-08",
+   "searches": {
+    "mechanic jobs": 66.0,
+    "vehicle technician jobs": 10.0
+   }
+  },
+  {
+   "month": "2024-09",
+   "searches": {
+    "mechanic jobs": 64.0,
+    "vehicle technician jobs": 9.0
+   }
+  },
+  {
+   "month": "2024-10",
+   "searches": {
+    "mechanic jobs": 64.0,
+    "vehicle technician jobs": 14.0
+   }
+  },
+  {
+   "month": "2024-11",
+   "searches": {
+    "mechanic jobs": 55.0,
+    "vehicle technician jobs": 12.0
+   }
+  },
+  {
+   "month": "2024-12",
+   "searches": {
+    "mechanic jobs": 46.0,
+    "vehicle technician jobs": 9.0
+   }
+  },
+  {
+   "month": "2025-01",
+   "searches": {
+    "mechanic jobs": 65.0,
+    "vehicle technician jobs": 12.0
+   }
+  },
+  {
+   "month": "2025-02",
+   "searches": {
+    "mechanic jobs": 76.0,
+    "vehicle technician jobs": 12.0
+   }
+  },
+  {
+   "month": "2025-03",
+   "searches": {
+    "mechanic jobs": 62.0,
+    "vehicle technician jobs": 11.0
+   }
+  },
+  {
+   "month": "2025-04",
+   "searches": {
+    "mechanic jobs": 64.0,
+    "vehicle technician jobs": 7.0
+   }
+  },
+  {
+   "month": "2025-05",
+   "searches": {
+    "mechanic jobs": 58.0,
+    "vehicle technician jobs": 8.0
+   }
+  },
+  {
+   "month": "2025-06",
+   "searches": {
+    "mechanic jobs": 59.0,
+    "vehicle technician jobs": 8.0
+   }
+  },
+  {
+   "month": "2025-07",
+   "google": {
+    "cpc_index": 109.7,
+    "cpm_index": 254.6,
+    "campaigns": 43
+   },
+   "meta": {
+    "cpc_index": 61.8,
+    "cpm_index": 97.1,
+    "campaigns": 4
+   },
+   "searches": {
+    "mechanic jobs": 56.0,
+    "vehicle technician jobs": 9.0
+   }
+  },
+  {
+   "month": "2025-08",
+   "google": {
+    "cpc_index": 50.2,
+    "cpm_index": 135.1,
+    "campaigns": 38
+   },
+   "meta": {
+    "cpc_index": 54.1,
+    "cpm_index": 95.8,
+    "campaigns": 4
+   },
+   "searches": {
+    "mechanic jobs": 63.0,
+    "vehicle technician jobs": 9.0
+   }
+  },
+  {
+   "month": "2025-09",
+   "google": {
+    "cpc_index": 58.9,
+    "cpm_index": 138.0,
+    "campaigns": 26
+   },
+   "meta": {
+    "cpc_index": 60.3,
+    "cpm_index": 90.2,
+    "campaigns": 3
+   },
+   "searches": {
+    "mechanic jobs": 63.0,
+    "vehicle technician jobs": 8.0
+   }
+  },
+  {
+   "month": "2025-10",
+   "google": {
+    "cpc_index": 87.8,
+    "cpm_index": 157.4,
+    "campaigns": 8
+   },
+   "meta": {
+    "cpc_index": 69.2,
+    "cpm_index": 93.8,
+    "campaigns": 4
+   },
+   "searches": {
+    "mechanic jobs": 55.0,
+    "vehicle technician jobs": 7.0
+   }
+  },
+  {
+   "month": "2025-11",
+   "google": {
+    "cpc_index": 119.4,
+    "cpm_index": 91.5,
+    "campaigns": 6
+   },
+   "meta": {
+    "cpc_index": 94.0,
+    "cpm_index": 110.6,
+    "campaigns": 5
+   },
+   "searches": {
+    "mechanic jobs": 54.0,
+    "vehicle technician jobs": 8.0
+   }
+  },
+  {
+   "month": "2025-12",
+   "google": {
+    "cpc_index": 106.0,
+    "cpm_index": 94.0,
+    "campaigns": 22
+   },
+   "meta": {
+    "cpc_index": 105.4,
+    "cpm_index": 94.6,
+    "campaigns": 24
+   },
+   "searches": {
+    "mechanic jobs": 48.0,
+    "vehicle technician jobs": 8.0
+   }
+  },
+  {
+   "month": "2026-01",
+   "google": {
+    "cpc_index": 80.8,
+    "cpm_index": 34.9,
+    "campaigns": 28
+   },
+   "meta": {
+    "cpc_index": 110.4,
+    "cpm_index": 82.7,
+    "campaigns": 22
+   },
+   "searches": {
+    "mechanic jobs": 63.0,
+    "vehicle technician jobs": 11.0
+   }
+  },
+  {
+   "month": "2026-02",
+   "google": {
+    "cpc_index": 103.1,
+    "cpm_index": 28.9,
+    "campaigns": 26
+   },
+   "meta": {
+    "cpc_index": 119.4,
+    "cpm_index": 87.0,
+    "campaigns": 43
+   },
+   "searches": {
+    "mechanic jobs": 62.0,
+    "vehicle technician jobs": 9.0
+   }
+  },
+  {
+   "month": "2026-03",
+   "google": {
+    "cpc_index": 61.4,
+    "cpm_index": 10.8,
+    "campaigns": 11
+   },
+   "meta": {
+    "cpc_index": 151.3,
+    "cpm_index": 103.8,
+    "campaigns": 57
+   },
+   "searches": {
+    "mechanic jobs": 65.0,
+    "vehicle technician jobs": 12.0
+   }
+  },
+  {
+   "month": "2026-04",
+   "google": {
+    "cpc_index": 143.1,
+    "cpm_index": 79.6,
+    "campaigns": 22
+   },
+   "meta": {
+    "cpc_index": 104.2,
+    "cpm_index": 91.3,
+    "campaigns": 51
+   },
+   "searches": {
+    "mechanic jobs": 63.0,
+    "vehicle technician jobs": 9.0
+   }
+  },
+  {
+   "month": "2026-05",
+   "google": {
+    "cpc_index": 117.3,
+    "cpm_index": 32.5,
+    "campaigns": 22
+   },
+   "meta": {
+    "cpc_index": 144.0,
+    "cpm_index": 100.0,
+    "campaigns": 25
+   },
+   "searches": {
+    "mechanic jobs": 64.0,
+    "vehicle technician jobs": 8.0
+   }
+  },
+  {
+   "month": "2026-06",
+   "google": {
+    "cpc_index": 142.0,
+    "cpm_index": 85.0,
+    "campaigns": 23
+   },
+   "meta": {
+    "cpc_index": 121.6,
+    "cpm_index": 106.6,
+    "campaigns": 23
+   },
+   "searches": {
+    "mechanic jobs": 65.0,
+    "vehicle technician jobs": 11.0
+   }
+  },
+  {
+   "month": "2026-07",
+   "google": {
+    "cpc_index": 104.5,
+    "cpm_index": 117.2,
+    "campaigns": 27
+   },
+   "meta": {
+    "cpc_index": 101.8,
+    "cpm_index": 126.6,
+    "campaigns": 41
+   },
+   "searches": {
+    "mechanic jobs": 67.0,
+    "vehicle technician jobs": 8.0
+   }
+  },
+  {
+   "month": "2026-08",
+   "google": {
+    "cpc_index": 115.8,
+    "cpm_index": 140.2,
+    "campaigns": 24
+   },
+   "meta": {
+    "cpc_index": 102.4,
+    "cpm_index": 119.9,
+    "campaigns": 24
+   },
+   "searches": {
+    "mechanic jobs": 100.0,
+    "vehicle technician jobs": 11.0
+   }
+  },
+  {
+   "month": "2026-09",
+   "searches": {
+    "mechanic jobs": 89.0,
+    "vehicle technician jobs": 8.0
+   }
+  }
+ ]
+}
