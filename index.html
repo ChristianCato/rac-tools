@@ -9559,7 +9559,12 @@ function App() {
             <div className="role-switch" style={{ marginRight: 10 }}>
               {ROLES.map(r => (
                 <button key={r} className={r === roleView ? 'active' : ''}
-                  onClick={() => setExportRole(r)}>{r}</button>
+                  // setExportRole is a name from before the three per-tab role
+                  // selectors were merged into one. It was never declared here,
+                  // so this button threw on every click and the header toggle
+                  // silently did nothing. The state is roleView/setRoleView,
+                  // declared above and used correctly everywhere else.
+                  onClick={() => setRoleView(r)}>{r}</button>
               ))}
             </div>
             <button className="btn btn-sm" style={{ marginRight: 8 }}
