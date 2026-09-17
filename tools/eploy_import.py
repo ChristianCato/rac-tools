@@ -232,9 +232,7 @@ def build(path, accept_changes=False):
     counts, stats, first, last = read_workbook(path, maps, start, file_date)
     cells = [[*k, *v] for k, v in sorted(counts.items())]
     with open(MAPPINGS, 'rb') as f:   # line endings ignored, so a Windows checkout matches
-        mapping_hash = hashlib.sha256(f.read().replace(b'
-', b'
-')).hexdigest()[:12]
+        mapping_hash = hashlib.sha256(f.read().replace(b'\r\n', b'\n')).hexdigest()[:12]
     unknown = defaultdict(int)
     for role, region, platform, month, a, p, h in cells:
         if region == 'Unknown':
