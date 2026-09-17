@@ -48,9 +48,10 @@
 
   // Everything one role's calculations share for one build. Built fresh each
   // time from its inputs; nothing is kept between builds.
-  function context(ds, A, role, window) {
+  //   opts.before: only months before this one count (for testing)
+  function context(ds, A, role, window, opts = {}) {
     const status = RAC.data.monthStatus(ds, A);
-    const settled = ds.months.filter(mo => status[mo].settled);
+    const settled = ds.months.filter(mo => status[mo].settled && (!opts.before || mo < opts.before));
     const w = weights(settled, window);
     const windowMonths = settled.filter(mo => w[mo] > 0);
     return {

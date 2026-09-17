@@ -27,6 +27,7 @@
     const min = RAC.assumptions.get(A, 'typical_month_min_spend');
     const set = new Set(months);
     let sxy = 0, sxx = 0, n = 0, cells = 0;
+    const centred = [];
     ds.regions.forEach(r => {
       const m = RAC.data.monthly(ds, plat, r, role);
       const pts = Object.keys(m).filter(mo => set.has(mo) && m[mo].spend > min && m[mo].apps > 0)
@@ -34,10 +35,15 @@
       if (pts.length < 3) return;
       const mx = pts.reduce((a, p) => a + p[0], 0) / pts.length;
       const my = pts.reduce((a, p) => a + p[1], 0) / pts.length;
-      pts.forEach(([x, y]) => { sxy += (x - mx) * (y - my); sxx += (x - mx) ** 2; });
+      pts.forEach(([x, y]) => { sxy += (x - mx) * (y - my); sxx += (x - mx) ** 2; centred.push([x - mx, y - my]); });
       n += pts.length; cells += 1;
     });
-    return { fitted: sxx > 0 ? sxy / sxx : null, n: sxx > 0 ? n : 0, cells };
+    if (!(sxx > 0)) return { fitted: null, n: 0, cells, se: null };
+    const fitted = sxy / sxx;
+    // Standard error of the fitted rate (one slope, one mean per location).
+    const rss = centred.reduce((a, [x, y]) => a + (y - fitted * x) ** 2, 0);
+    const dof = Math.max(1, n - cells - 1);
+    return { fitted, n, cells, se: Math.sqrt(rss / dof / sxx) };
   }
 
   // Diminishing returns rates for every platform in a role.
@@ -50,7 +56,9 @@
     RAC.PLATFORMS.forEach(p => {
       const f = opts.fits ? opts.fits[p] : fitRate(ds, A, role, p, months);
       const blended = f.fitted === null ? bRole : (f.n * f.fitted + k * bRole) / (f.n + k);
-      out[p] = { ...f, roleRate: bRole, k, blended, b: Math.min(1, blended), heldAtOne: blended > 1 };
+      // Uncertainty in the rate used: only the fitted share of it is measured.
+      const se = f.se ? f.se * f.n / (f.n + k) : 0;
+      out[p] = { ...f, roleRate: bRole, k, blended, b: Math.min(1, blended), heldAtOne: blended > 1, seUsed: se };
     });
     return out;
   }
@@ -61,7 +69,9 @@
   function prepare(ctx, hireRates, d1, factors, plat, region) {
     const usual = RAC.cost.usualCpa(ctx, plat, region);
     const level = RAC.cost.usualSpend(ctx, plat, region);
-    const r = RAC.rates.cell(hireRates, plat, region);
+    // Without hire rates (testing applications only) the hire side is zero.
+    const r = hireRates ? RAC.rates.cell(hireRates, plat, region)
+      : { screen: 0, hireAfterScreening: 0, hirePerApplication: 0 };
     // With no spend level to anchor on (the platform never ran anywhere in the
     // window), cost per application is taken as flat.
     const b = level.spend > 0 ? d1[plat].b : 1;

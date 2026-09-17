@@ -7,6 +7,7 @@
     "planner/cost.js",
     "planner/rates.js",
     "planner/forecast.js",
-    "planner/testing.js"
+    "planner/testing.js",
+    "planner/backtest.js"
   ]
 }

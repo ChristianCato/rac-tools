@@ -17,7 +17,7 @@
 // Steps, in the order they depend on each other:
 //   blend   blend strengths for the hire calculation
 //   recon   reconciliation of predicted hires to every hire Eploy recorded
-//   (chunk 2.5 adds: d1, bias, ranges)
+//   backtest  diminishing returns, remaining-error adjustment, ranges, row widening
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadPlanner, loadAssumptions, readRoot, ROOT } from '../tests/lib/planner.mjs';
@@ -62,6 +62,45 @@ for (const role of RAC.ROLES) {
   }
 }
 
+// Back-test (D1, D2, D5): months the adjustment is learned from, then the
+// rates, adjustment, ranges and row widening for each role.
+const WINDOW = { mode: 'last3up', mult: 2 };
+let backtests = null;
+if (run('backtest')) {
+  const pct = (x) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)}%`;
+  const trials = RAC.backtest.RECENT_CHOICES.map(recent => {
+    const res = {};
+    for (const role of RAC.ROLES) res[role] = RAC.backtest.run(DATA[role].ds, A, role, WINDOW, eploy, { recent });
+    return { recent, res, rms: RAC.ROLES.reduce((a, r) => a + res[r].fit.rmsLog, 0) };
+  });
+  const best = trials.reduce((b, t) => (t.rms < b.rms - 1e-12 ? t : b), trials[0]);
+  const trialText = trials.map(t => `${t.recent || 'all'}: ${RAC.ROLES.map(r => `${r} ${t.res[r].fit.rmsLog.toFixed(3)}`).join(', ')}`).join('; ');
+  const setAll = (key, value, notes) => {
+    changes.push({ key, role: 'all', value, notes });
+    A = RAC.assumptions.withValues(A, { [key]: value });
+  };
+  setAll('remaining_error_months', best.recent,
+    `Tested ${today}: typical miss (root mean square of log misses) by months the adjustment was learned from: ${trialText}. Lowest total kept.`);
+  backtests = best.res;
+  const r4 = (x) => Math.round(x * 10000) / 10000;
+  for (const role of RAC.ROLES) {
+    const bt = backtests[role];
+    const months = bt.outer.map(o => `${o.month} ${pct(o.miss)}`).join(', ');
+    const learned = `learned from ${bt.testable[0]} to ${bt.testable[bt.testable.length - 1]} (${DATA[role].label}), window year to date with the last 3 months x2`;
+    set('d1_role_rate', role, bt.final.bRole, `Tested ${today}: best of ${RAC.backtest.B_GRID.join(', ')} by Poisson deviance predicting each month from earlier months, ${learned}`);
+    set('d1_prior_strength', role, bt.final.k, `Tested ${today}: best of ${RAC.backtest.K_GRID.join(', ')}; 100000 means every platform takes the shared rate (${learned})`);
+    set('remaining_error_factor', role, r4(bt.final.bias), `Tested ${today}: predicted over actual applications in the latest ${best.recent || 'all'} test months at the chosen rate (${learned})`);
+    set('range_apps_low', role, r4(bt.appsRange.low), `Tested ${today}: 10th percentile (PERCENTILE.INC) of application misses, each month predicted from earlier months only: ${months}`);
+    set('range_apps_high', role, r4(bt.appsRange.high), `Tested ${today}: 90th percentile of the same misses (${bt.appsRange.months} test months)`);
+    set('range_apps_sigma', role, r4(bt.appsRange.sigma), `Tested ${today}: standard deviation of log(1 + miss) over the same months`);
+    const hm = bt.hires.map(o => `${o.month} ${pct(o.miss)}`).join(', ');
+    set('range_hires_low', role, r4(bt.hireRange.low), `Tested ${today}: 10th percentile of hire misses against every hire Eploy recorded, each month predicted from earlier months: ${hm}`);
+    set('range_hires_high', role, r4(bt.hireRange.high), `Tested ${today}: 90th percentile of the same misses (${bt.hireRange.months} test months)`);
+    set('range_hires_sigma', role, r4(bt.hireRange.sigma), `Tested ${today}: standard deviation of log(1 + miss) over the same months`);
+    set('row_widen_apps', role, bt.rowWiden.c, `Tested ${today}: strength whose widened row ranges held the middle 80% of ${bt.rowWiden.cells} location and platform misses most closely (held ${(bt.rowWiden.coverage * 100).toFixed(0)}%); by strength ${bt.rowWiden.table.map(x => `${x.c}: ${(x.coverage * 100).toFixed(0)}%`).join(', ')}`);
+  }
+}
+
 for (const c of changes) {
   const old = A.entries.find(e => e.key === c.key && e.role === c.role);
   console.log(`${c.key} ${c.role}: ${old ? old.value : '?'} -> ${c.value}\n    ${c.notes}`);
@@ -83,4 +122,22 @@ if (WRITE) {
   if (!check.ok) throw new Error('refusing to write an invalid file: ' + check.errors.join('; '));
   fs.writeFileSync(path.join(ROOT, 'assumptions.csv'), out);
   console.log(`Wrote ${changes.length} values to assumptions.csv`);
+  if (backtests) {
+    // The test months behind the values, for the workings export's Back-test sheet.
+    const round = (x) => (typeof x === 'number' ? Math.round(x * 10000) / 10000 : x);
+    const results = { note: 'Written by tools/calibrate.mjs. Each month was predicted from earlier months only.', tested: today, window: WINDOW, roles: {} };
+    for (const role of RAC.ROLES) {
+      const bt = backtests[role];
+      results.roles[role] = {
+        data: DATA[role].label,
+        eploy: `${eploy.dataset.file} (${eploy.dataset.file_date})`,
+        adjustmentLearnedFrom: bt.recent,
+        applications: bt.outer.map(o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, round(v)]))),
+        hires: bt.hires.map(o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, round(v)]))),
+        final: { roleRate: bt.final.bRole, strength: bt.final.k, adjustment: round(bt.final.bias) },
+      };
+    }
+    fs.writeFileSync(path.join(ROOT, 'data/backtest_results.json'), JSON.stringify(results, null, 2) + '\n');
+    console.log('Wrote data/backtest_results.json');
+  }
 }

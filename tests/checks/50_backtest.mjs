@@ -1,0 +1,100 @@
+// Checks for testing on past months (D1, D2, D5) and the tested values.
+import { loadPlanner, loadAssumptions, readRoot } from '../lib/planner.mjs';
+import { calibrationData } from '../lib/calibration_data.mjs';
+
+const WINDOW = { mode: 'last3up', mult: 2 };
+
+export default function (check, { assert, near }) {
+  const RAC = loadPlanner();
+  const A = loadAssumptions(RAC);
+  const eploy = JSON.parse(readRoot('data/eploy_rates.json'));
+  const DATA = calibrationData(RAC);
+  const results = JSON.parse(readRoot('data/backtest_results.json'));
+  const fresh = {};
+  for (const role of RAC.ROLES) fresh[role] = RAC.backtest.run(DATA[role].ds, A, role, WINDOW, eploy);
+
+  check('Testing predicts each month from earlier months only', () => {
+    const ds = DATA.SMR.ds;
+    const M = '2026-05';
+    const params = { bRole: 0.7, k: 20 };
+    const before = RAC.backtest.predictMonth(ds, A, 'SMR', M, params, RAC.backtest.makeCache(ds, A, 'SMR', WINDOW));
+    // Scramble the month's own applications and everything after it.
+    const D = structuredClone(ds.DATA);
+    for (const p of RAC.PLATFORMS) for (const c of Object.values(D[p])) {
+      for (const [mo, x] of Object.entries(c.monthly || {})) {
+        if (mo === M) x.completes = x.completes * 7 + 3;
+        if (mo > M) { x.completes = x.completes * 5 + 1; x.spend = x.spend * 3 + 10; }
+      }
+    }
+    const ds2 = RAC.data.snapshot(D, ds.bench, ds.repo);
+    const after = RAC.backtest.predictMonth(ds2, A, 'SMR', M, params, RAC.backtest.makeCache(ds2, A, 'SMR', WINDOW));
+    assert(before.length === after.length && before.length > 10, 'cell count changed');
+    before.forEach((c, i) => assert(Math.abs(c.predicted - after[i].predicted) < 1e-9, `${c.region} ${c.plat} prediction moved when later data changed`));
+    assert(before.some((c, i) => c.actual !== after[i].actual), 'the scramble did not change the actuals');
+    return `${before.length} predictions for ${M} unchanged after its own and later figures were scrambled`;
+  });
+
+  check('Plan ranges are PERCENTILE.INC of the misses, and rows are at least as wide', () => {
+    const out = [];
+    const lo = RAC.assumptions.get(A, 'range_low_percentile'), hi = RAC.assumptions.get(A, 'range_high_percentile');
+    for (const role of RAC.ROLES) {
+      const r = results.roles[role];
+      // PERCENTILE.INC written out again here: sort, then interpolate.
+      const inc = (xs, q) => { const s = xs.slice().sort((a, b) => a - b); const k = (s.length - 1) * q, f = Math.floor(k); return s[f] + (s[Math.min(f + 1, s.length - 1)] - s[f]) * (k - f); };
+      const am = r.applications.map(o => o.miss), hm = r.hires.map(o => o.miss);
+      near(RAC.assumptions.get(A, 'range_apps_low', role), inc(am, lo), 2e-4, role + ' applications low');
+      near(RAC.assumptions.get(A, 'range_apps_high', role), inc(am, hi), 2e-4, role + ' applications high');
+      near(RAC.assumptions.get(A, 'range_hires_low', role), inc(hm, lo), 2e-4, role + ' hires low');
+      near(RAC.assumptions.get(A, 'range_hires_high', role), inc(hm, hi), 2e-4, role + ' hires high');
+      const total = { low: inc(am, lo), high: inc(am, hi), sigma: RAC.assumptions.get(A, 'range_apps_sigma', role) };
+      for (const [n, S, Su, se] of [[1, 5000, 1000, 0.1], [30, 2000, 2000, 0.05], [5000, 1000, 1000, 0]]) {
+        const w = RAC.backtest.widen(total, RAC.assumptions.get(A, 'row_widen_apps', role), n, S, Su, se);
+        const b = RAC.backtest.band(total, w);
+        assert(w >= 1 && b.low <= total.low + 1e-12 && b.high >= total.high - 1e-12, `${role} row range narrower than the total (evidence ${n})`);
+      }
+      out.push(`${role}: applications ${(total.low * 100).toFixed(1)}% to +${(total.high * 100).toFixed(1)}% over ${am.length} months; hires ${(inc(hm, lo) * 100).toFixed(1)}% to +${(inc(hm, hi) * 100).toFixed(1)}% over ${hm.length}`);
+    }
+    return out.join('; ');
+  });
+
+  check('Tested values in assumptions.csv match a fresh run of the tests', () => {
+    const stale = [];
+    const cmp = (key, role, value, tol = 1e-4) => {
+      const v = RAC.assumptions.get(A, key, role);
+      if (Math.abs(v - value) > tol) stale.push(`${key} ${role || ''}: file ${v}, fresh ${value}`);
+    };
+    for (const role of RAC.ROLES) {
+      const bt = fresh[role];
+      cmp('d1_role_rate', role, bt.final.bRole);
+      cmp('d1_prior_strength', role, bt.final.k);
+      cmp('remaining_error_factor', role, bt.final.bias);
+      cmp('range_apps_low', role, bt.appsRange.low);
+      cmp('range_apps_high', role, bt.appsRange.high);
+      cmp('range_hires_low', role, bt.hireRange.low);
+      cmp('range_hires_high', role, bt.hireRange.high);
+      cmp('row_widen_apps', role, bt.rowWiden.c);
+      const t = RAC.testing.blendStrengths(eploy, A, role);
+      ['screen_blend_n', 'location_screen_blend_n', 'region_hire_blend_n'].forEach(k => cmp(k, role, t[k].value));
+      cmp('hire_reconciliation_factor', role, RAC.testing.reconciliation(DATA[role].ds, eploy, A, role).factor, 6e-4);
+    }
+    assert(!stale.length, 'assumptions.csv is out of date; run node tools/calibrate.mjs --write and review:\n' + stale.join('\n'));
+    return 'blend strengths, reconciliation, diminishing returns, adjustment, ranges and row widening all match';
+  });
+
+  check('Back-test results file matches a fresh run', () => {
+    for (const role of RAC.ROLES) {
+      const f = results.roles[role], bt = fresh[role];
+      assert(f.applications.length === bt.outer.length && f.hires.length === bt.hires.length, role + ' test month counts differ');
+      f.applications.forEach((o, i) => near(o.miss, bt.outer[i].miss, 1e-4, `${role} ${o.month} miss`));
+      f.hires.forEach((o, i) => near(o.miss, bt.hires[i].miss, 1e-4, `${role} ${o.month} hire miss`));
+    }
+    return RAC.ROLES.map(r => `${r}: ${results.roles[r].applications.length} application months, ${results.roles[r].hires.length} hire months`).join('; ');
+  });
+
+  check('Poisson deviance is zero on a perfect prediction and grows with the miss', () => {
+    const d = RAC.backtest.deviance;
+    near(d(10, 10), 0, 1e-12, 'perfect');
+    assert(d(10, 12) > 0 && d(10, 15) > d(10, 12) && d(0, 2) === 4, 'deviance ordering');
+    return 'ok';
+  });
+}

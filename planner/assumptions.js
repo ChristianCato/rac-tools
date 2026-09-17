@@ -35,6 +35,14 @@
     d1_role_rate:             { unit: 'exponent', min: 0.05, max: 1, perRole: true },
     d1_prior_strength:        { unit: 'count', min: 0, max: 100000, perRole: true },
     remaining_error_factor:   { unit: 'multiple', min: 0.5, max: 2, perRole: true },
+    remaining_error_months:   { unit: 'months', min: 0, max: 24, integer: true },
+    range_apps_low:           { unit: 'miss', min: -1, max: 10, perRole: true },
+    range_apps_high:          { unit: 'miss', min: -1, max: 10, perRole: true },
+    range_apps_sigma:         { unit: 'log', min: 0, max: 5, perRole: true },
+    range_hires_low:          { unit: 'miss', min: -1, max: 10, perRole: true },
+    range_hires_high:         { unit: 'miss', min: -1, max: 10, perRole: true },
+    range_hires_sigma:        { unit: 'log', min: 0, max: 5, perRole: true },
+    row_widen_apps:           { unit: 'count', min: 0, max: 100000, perRole: true },
     backtest_first_month:     { unit: 'month' },
     range_low_percentile:     { unit: 'share', min: 0, max: 0.5 },
     range_high_percentile:    { unit: 'share', min: 0.5, max: 1 },
@@ -92,6 +100,12 @@
         if (!values[key] || values[key][role] === undefined) errors.push(`missing row: ${key}${role === 'all' ? '' : ' for ' + role}`);
       });
     });
+    RAC.ROLES.forEach(role => ['apps', 'hires'].forEach(kind => {
+      const lo = values['range_' + kind + '_low'], hi = values['range_' + kind + '_high'];
+      if (lo && hi && lo[role] !== undefined && hi[role] !== undefined && lo[role] > hi[role]) {
+        errors.push(`range_${kind}_low for ${role} must not be above range_${kind}_high`);
+      }
+    }));
     if (values.range_low_percentile && values.range_high_percentile &&
         values.range_low_percentile.all >= values.range_high_percentile.all) {
       errors.push('range_low_percentile must be below range_high_percentile');
