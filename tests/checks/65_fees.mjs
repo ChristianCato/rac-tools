@@ -1,4 +1,4 @@
-// Checks for platform fees (user decision, 17 September 2026): Indeed and Meta
+// Checks for platform fees (user decisions, 17 September 2026): Indeed, Meta and Google
 // spend includes a fee on top of media, from the first fee month onwards.
 import { loadPlanner, loadAssumptions, readRoot } from '../lib/planner.mjs';
 import { calibrationData } from '../lib/calibration_data.mjs';
@@ -15,7 +15,7 @@ export default function (check, { assert, near }) {
   const P = RAC.PLATFORMS;
   const cells = (plan) => plan.locations.flatMap(l => P.map(p => l.cells[p]));
   const penny = (x) => Math.round(x * 100) / 100;
-  const noFees = RAC.assumptions.withValues(A, { fee_rate_indeed: 0, fee_rate_meta: 0 });
+  const noFees = RAC.assumptions.withValues(A, { fee_rate_indeed: 0, fee_rate_meta: 0, fee_rate_google: 0 });
   const strip = (plan) => JSON.stringify({ t: plan.totals, l: plan.locations.map(l => [l.region, l.spend, l.apps, l.hires]), c: cells(plan).map(c => [c.spend, c.apps, c.hires, c.cap, c.plannedCpa]),
     u: plan.unplaced, h: plan.holdbacks.total, b: plan.budgetForTarget, m: plan.maxAchievable }, (k, v) => (k === 'cellsList' ? undefined : v));
 
@@ -23,11 +23,14 @@ export default function (check, { assert, near }) {
     const e = (k) => RAC.assumptions.entry(A, k, 'all');
     assert(e('fee_rate_indeed').parsed === 0.0175 && e('fee_rate_indeed').source === 'agreed', 'Indeed fee');
     assert(e('fee_rate_meta').parsed === 0.02 && e('fee_rate_meta').source === 'agreed', 'Meta fee');
+    assert(e('fee_rate_google').parsed === 0.02 && e('fee_rate_google').source === 'agreed', 'Google fee');
     assert(e('fees_first_month').parsed === '2026-10', 'first fee month');
     const oct = RAC.plan.build('SMR', OCT, env), sep = RAC.plan.build('SMR', { ...SEPT, planMonth: '2026-09' }, env);
     assert(oct.fees.on && !sep.fees.on && sep.fees.total === 0, 'fees on in October only');
-    assert(oct.fees.rates.indeed === 0.0175 && oct.fees.rates.meta === 0.02 && oct.fees.rates.google === 0 && oct.fees.rates.appcast === 0, 'rates by platform');
-    return `Indeed ${e('fee_rate_indeed').parsed}, Meta ${e('fee_rate_meta').parsed}, from ${e('fees_first_month').parsed}; September plan fees £${sep.fees.total}, October £${oct.fees.total.toFixed(2)}`;
+    assert(oct.fees.rates.indeed === 0.0175 && oct.fees.rates.meta === 0.02 && oct.fees.rates.google === 0.02 && oct.fees.rates.appcast === 0, 'rates by platform');
+    P.filter(p => p !== 'appcast').forEach(p => assert(oct.fees.byPlatform[p].fee > 0, p + ' has no fee in October'));
+    assert(oct.fees.byPlatform.appcast.fee === 0, 'Appcast has a fee');
+    return `Indeed ${e('fee_rate_indeed').parsed}, Meta ${e('fee_rate_meta').parsed}, Google ${e('fee_rate_google').parsed}, Appcast none, from ${e('fees_first_month').parsed}; September plan fees £${sep.fees.total}, October £${oct.fees.total.toFixed(2)}`;
   });
 
   check('Fees add up to the penny, and the plan total never exceeds the budget', () => {
@@ -60,7 +63,7 @@ export default function (check, { assert, near }) {
   check('Predictions use media after the fee; costs use the total including it', () => {
     const plan = RAC.plan.build('SMR', OCT, env);
     const base = RAC.plan.prepare('SMR', OCT, env);
-    const bare = RAC.plan.prepare('SMR', { ...OCT, overrides: { fee_rate_indeed: 0, fee_rate_meta: 0 } }, env);
+    const bare = RAC.plan.prepare('SMR', { ...OCT, overrides: { fee_rate_indeed: 0, fee_rate_meta: 0, fee_rate_google: 0 } }, env);
     let n = 0;
     for (const c of cells(plan).filter(x => x.spend > 0)) {
       const noFee = RAC.forecast.at(bare.cells[c.region][c.platform].pc, c.media);

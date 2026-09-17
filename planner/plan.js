@@ -21,7 +21,7 @@
 //      platform above its spending cap (user decision, 17 September 2026);
 //      what a minimum could not get is listed in minimumShortfalls.
 //   5. The forecast for every location and platform, totals and ranges.
-//      Platform fees (plans from fees_first_month): Indeed and Meta spend,
+//      Platform fees (plans from fees_first_month): Indeed, Meta and Google spend,
 //      including the Indeed Premium hold-back, is media plus fee; forecasts
 //      and spending caps work on media, costs are reported on the total.
 //   6. Budget needed for the hire target, by running the plan at trial budgets.
@@ -115,7 +115,7 @@
     const paidFactor = get('paid_hire_reconciliation_factor'), creditFactor = get('other_hires_credit_factor');
     // Platform fees: plans for fees_first_month onwards (user decision,
     // 17 September 2026).
-    const feeRates = { indeed: get('fee_rate_indeed'), meta: get('fee_rate_meta') };
+    const feeRates = { indeed: get('fee_rate_indeed'), meta: get('fee_rate_meta'), google: get('fee_rate_google') };
     const feesOn = !!inputs.planMonth && inputs.planMonth >= get('fees_first_month');
     const fees = Object.fromEntries(P().map(pl => [pl, feesOn ? (feeRates[pl] || 0) : 0]));
     const factors = { bias, recon: paidFactor + share * creditFactor, paid: paidFactor, credit: creditFactor, share, fees };
@@ -176,7 +176,7 @@
       percentiles: [get('range_low_percentile'), get('range_high_percentile')],
     };
     const feeInfo = { on: feesOn, planMonth: inputs.planMonth || null, firstMonth: get('fees_first_month'), rates: fees, fileRates: feeRates,
-      source: { indeed: entry('fee_rate_indeed').source, meta: entry('fee_rate_meta').source } };
+      source: { indeed: entry('fee_rate_indeed').source, meta: entry('fee_rate_meta').source, google: entry('fee_rate_google').source } };
     const base = { role, A, ds, ctx, hireRates, d1, factors, baseline, capMultiple, settings, cells, ranges, softCaps: !!cmp.previousCeilings,
       premiumRate: RAC.assumptions.get(A, 'indeed_premium_rate'), feeInfo };
     base.draws = hireDraws(base, env, !!cmp.previousHireRates);

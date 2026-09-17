@@ -159,7 +159,7 @@
     );
   }
 
-  // Platform fees in this plan (plans from October 2026): Indeed and Meta
+  // Platform fees in this plan (plans from October 2026): Indeed, Meta and Google
   // spend is media plus fee, and the budget includes the fees.
   function FeesNote({ plan, fmt }) {
     const f = plan && plan.v2 && plan.v2.fees;
@@ -172,8 +172,8 @@
         <div className="banner-icon">i</div>
         <div>
           <strong>Platform fees included: {fmtGBP(f.total)}.</strong>{' '}
-          Indeed {pct(f.rates.indeed)} and Meta {pct(f.rates.meta)} of media spend, inside the budget.
-          {' '}{['indeed', 'meta'].map(p => `${L[p]}: media ${fmtGBP(f.byPlatform[p].media)}, fee ${fmtGBP(f.byPlatform[p].fee)}`).join('; ')};
+          Indeed {pct(f.rates.indeed)}, Meta {pct(f.rates.meta)} and Google {pct(f.rates.google)} of media spend, inside the budget (Appcast has none).
+          {' '}{['indeed', 'meta', 'google'].map(p => `${L[p]}: media ${fmtGBP(f.byPlatform[p].media)}, fee ${fmtGBP(f.byPlatform[p].fee)}`).join('; ')};
           {' '}Indeed Premium fee {fmtGBP(f.premium)}. Forecasts use media spend; costs per application and per hire include the fee.
         </div>
       </div>

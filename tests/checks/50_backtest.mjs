@@ -105,10 +105,16 @@ export default function (check, { assert, near }) {
     }
     const w = RAC.ROLES.map(r => RAC.assumptions.entry(A, 'row_widen_apps', r));
     assert(w.every(e => e.source === RAC.assumptions.AGREED_TESTED) && w[0].parsed === w[1].parsed, 'row widening should be one agreed value for both roles');
-    // Kept only while each role's rows hold at least 70% of their misses (user, 17 Sep 2026).
-    const held = RAC.ROLES.map(r => fresh[r].rowWiden.table.find(x => x.c === w[0].parsed).coverage);
-    held.forEach((h, i) => assert(h >= 0.7, `row widening ${w[0].parsed}: ${RAC.ROLES[i]} rows held only ${(h * 100).toFixed(0)}% of their misses (below 70%: review)`));
-    out.push(`row widening ${w[0].parsed} held SMR ${(held[0] * 100).toFixed(0)}%, Patrol ${(held[1] * 100).toFixed(0)}% of misses`);
+    // The agreed rule (user, 17 Sep 2026): the value closest to 80% of misses
+    // held, both roles together, if each role holds at least 70% there; else 800.
+    const cells = RAC.ROLES.map(r => fresh[r].rowWiden.cells);
+    const pooled = RAC.backtest.C_GRID.map((c, i) => ({ c, held: RAC.ROLES.reduce((a, r, j) => a + fresh[r].rowWiden.table[i].coverage * cells[j], 0) / (cells[0] + cells[1]) }));
+    const best = pooled.reduce((b, x) => (Math.abs(x.held - 0.8) < Math.abs(b.held - 0.8) - 1e-12 ? x : b), pooled[0]);
+    const heldAt = (c) => RAC.ROLES.map(r => fresh[r].rowWiden.table.find(x => x.c === c).coverage);
+    const rule = heldAt(best.c).every(h => h >= 0.7) ? best.c : 800;
+    assert(w[0].parsed === rule, `row widening ${w[0].parsed}, the rule gives ${rule}`);
+    const held = heldAt(rule);
+    out.push(`row widening ${rule} (combined best ${best.c}, ${(best.held * 100).toFixed(1)}%) held SMR ${(held[0] * 100).toFixed(0)}%, Patrol ${(held[1] * 100).toFixed(0)}%; at 400 SMR ${(heldAt(400)[0] * 100).toFixed(0)}%, Patrol ${(heldAt(400)[1] * 100).toFixed(0)}%`);
     const ref = RAC.ROLES.map(r => RAC.assumptions.entry(A, 'remaining_error_factor', r));
     assert(ref.every(e => e.source === RAC.assumptions.AGREED_TESTED), 'remaining-error adjustment should follow the agreed rule');
     const months = Math.min(...RAC.ROLES.map(r => results.roles[r].sensitivity.backtest.testMonths));

@@ -59,7 +59,7 @@ const AGREED_NOTE = {
   d1_role_rate: 'Agreed 17 Sep 2026 for this release: 0.65 for both roles.',
   d1_prior_strength: 'Agreed 17 Sep 2026 for this release: shared across platforms (100000) for both roles.',
   remaining_error_factor: 'Agreed 17 Sep 2026: the tested figure applies only if it stays on the same side of 1 with any one test month left out; otherwise 1.00. Default for the Setup field.',
-  row_widen_apps: 'Agreed 17 Sep 2026 for this release: one strength for both roles, kept while each role\'s widened row ranges hold at least 70% of its location and platform misses (proposed as the strength that held the middle 80% of both roles\' misses together most closely).',
+  row_widen_apps: 'Agreed 17 Sep 2026: one strength for both roles, the one whose widened row ranges held closest to 80% of both roles\' location and platform misses together, used when SMR and Patrol each hold at least 70% at it; otherwise 800.',
 };
 const switchText = (months, unstable) => (months >= switchMin && !unstable
   ? `Switch rule met (${months} test months, stable): the tested figure may replace the agreed value.`
@@ -68,7 +68,8 @@ const switchText = (months, unstable) => (months >= switchMin && !unstable
 // and the remaining-error rule; other agreed rows keep their value.
 const set = (key, role, tested, notes, value = tested) => {
   const agreed = isAgreed(key, role);
-  const keepValue = agreed && key !== 'remaining_error_factor';
+  // These two agreed values follow an agreed rule applied to the test results.
+  const keepValue = agreed && key !== 'remaining_error_factor' && key !== 'row_widen_apps';
   changes.push({ key, role, value: keepValue ? null : value, tested, notes: agreed ? `${AGREED_NOTE[key]} ${notes}` : notes });
   if (!keepValue) A = RAC.assumptions.withValues(A, { [key]: { [role]: value } });
 };
@@ -144,6 +145,17 @@ if (run('backtest')) {
   const pooledBest = pooled.reduce((b, r) => (Math.abs(r.coverage - target) < Math.abs(b.coverage - target) - 1e-12 ? r : b), pooled[0]);
   const pooledText = `closest at ${pooledBest.c} (held ${(pooledBest.coverage * 100).toFixed(1)}% of ${pooledBest.cells}); by strength ${pooled.map(x => `${x.c}: ${(x.coverage * 100).toFixed(1)}%`).join(', ')}`;
   console.log(`Row widening, both roles together: ${pooledText}`);
+  // The agreed rule: the combined best, if each role holds at least 70% of its
+  // misses at it; otherwise 800.
+  const WIDEN_FALLBACK = 800, WIDEN_MIN_HELD = 0.7;
+  const heldAt = (c) => Object.fromEntries(RAC.ROLES.map(r => [r, backtests[r].rowWiden.table.find(x => x.c === c).coverage]));
+  const bestHeld = heldAt(pooledBest.c);
+  const widenValue = RAC.ROLES.every(r => bestHeld[r] >= WIDEN_MIN_HELD) ? pooledBest.c : WIDEN_FALLBACK;
+  const heldText = (c) => RAC.ROLES.map(r => `${r} ${(heldAt(c)[r] * 100).toFixed(0)}%`).join(', ');
+  const widenRule = `Rule: combined best ${pooledBest.c} (${heldText(pooledBest.c)}); ` +
+    (widenValue === pooledBest.c ? `each role holds at least 70% there, so ${widenValue} is used.` : `a role holds under 70% there, so ${WIDEN_FALLBACK} is used (${heldText(WIDEN_FALLBACK)}).`) +
+    ` At 400: ${heldText(400)}; at 800: ${heldText(800)}.`;
+  console.log(widenRule);
   for (const role of RAC.ROLES) {
     const bt = backtests[role];
     const months = bt.outer.map(o => `${o.month} ${pct(o.miss)}`).join(', ');
@@ -175,11 +187,8 @@ if (run('backtest')) {
     set('range_apps_low', role, r4(bt.appsRange.low), `Tested ${today}: 10th percentile (PERCENTILE.INC) of application misses, each month predicted from earlier months only: ${months}`);
     set('range_apps_high', role, r4(bt.appsRange.high), `Tested ${today}: 90th percentile of the same misses (${bt.appsRange.months} test months)`);
     set('range_apps_sigma', role, r4(bt.appsRange.sigma), `Tested ${today}: standard deviation of log(1 + miss) over the same months`);
-    const inUse = bt.rowWiden.table.find(x => x.c === RAC.assumptions.get(A, 'row_widen_apps', role));
-    const held = inUse ? `${(inUse.coverage * 100).toFixed(0)}%` : 'not on the test grid';
-    set('row_widen_apps', role, bt.rowWiden.c, `Tested ${today}: at the value in use, ${role} rows held ${held} of their misses` +
-      `${inUse && inUse.coverage < 0.7 ? ' (BELOW 70%: review)' : ' (at least 70%, so it stays)'}. For ${role} alone, the strength whose widened row ranges held the middle 80% of ${bt.rowWiden.cells} location and platform misses most closely (held ${(bt.rowWiden.coverage * 100).toFixed(0)}%); by strength ${bt.rowWiden.table.map(x => `${x.c}: ${(x.coverage * 100).toFixed(0)}%`).join(', ')}. ` +
-      `Both roles together: ${pooledText}.`);
+    set('row_widen_apps', role, bt.rowWiden.c, `Tested ${today}: ${widenRule} For ${role} alone, the strength whose widened row ranges held the middle 80% of ${bt.rowWiden.cells} location and platform misses most closely was ${bt.rowWiden.c} (held ${(bt.rowWiden.coverage * 100).toFixed(0)}%); by strength ${bt.rowWiden.table.map(x => `${x.c}: ${(x.coverage * 100).toFixed(0)}%`).join(', ')}. ` +
+      `Both roles together: ${pooledText}.`, widenValue);
   }
 }
 

@@ -160,7 +160,7 @@
       money.push(['Deployable budget', F.gbp(p.deployable)]);
       money.push(['Placed in the plan', F.gbp(p.placed)]);
       money.push(['Budget the plan could not place efficiently', F.gbp(p.unplaced.total)]);
-      if (fees && fees.on) money.push([`Platform fees in the plan (Indeed ${F.pct(fees.rates.indeed, 2)}, Meta ${F.pct(fees.rates.meta, 2)})`, F.gbp(fees.total, 2)]);
+      if (fees && fees.on) money.push([`Platform fees in the plan (Indeed ${F.pct(fees.rates.indeed, 2)}, Meta ${F.pct(fees.rates.meta, 2)}, Google ${F.pct(fees.rates.google, 2)})`, F.gbp(fees.total, 2)]);
       money.forEach(([a, b], i) => {
         font(8.5, i === 3 + (hb.oneRac > 0 ? 1 : 0) ? 'bold' : 'normal', INK);
         T(a, M, y); T(b, M + colW, y, { align: 'right' });
@@ -217,7 +217,7 @@
         `Remaining-error adjustment: ${s.remainingError.value.toFixed(3)} (${src(s.remainingError)}; testing gave ${s.remainingError.tested !== null && s.remainingError.tested !== undefined ? s.remainingError.tested.toFixed(3) : 'n/a'}).`,
         `Expected hires from other sources: ${F.num(s.otherHiresMonthly.value)} a month (${src(s.otherHiresMonthly)}), ${F.pct(s.otherHiresShare.value)} of them credited to paid media (${src(s.otherHiresShare)}).`,
         `Months used: ${p.windowMonths.length ? `${F.month(p.windowMonths[0])} to ${F.month(p.windowMonths[p.windowMonths.length - 1])}` : 'none'}.${p.settlingUsed.length ? ` Not yet settled, figures may change: ${p.settlingUsed.map(m => F.month(m.month)).join(', ')}.` : ''}`,
-        fees && fees.on ? `Platform fees: Indeed ${F.pct(fees.rates.indeed, 2)} and Meta ${F.pct(fees.rates.meta, 2)} of media spend, inside the budget (${F.gbp(fees.total, 2)} in this plan). Forecasts use media spend.`
+        fees && fees.on ? `Platform fees: Indeed ${F.pct(fees.rates.indeed, 2)}, Meta ${F.pct(fees.rates.meta, 2)} and Google ${F.pct(fees.rates.google, 2)} of media spend (Appcast none), inside the budget (${F.gbp(fees.total, 2)} in this plan). Forecasts use media spend.`
           : 'Platform fees: none in this plan (fees apply to plans from ' + F.month(fees ? fees.firstMonth : '') + ').',
         'Attribution: quality and hire rates came from RAC’s applicant tracking data, which credited each application to the last source used; Meta and Google rates were moved towards the role average (see Method).',
         ...p.minimumShortfalls.map(x => x.text + '.'),

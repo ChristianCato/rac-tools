@@ -38,8 +38,8 @@ export default function (check, { assert }) {
     }
     const changed = RAC.assumptions.withValues(A, { data_settle_days: 45, d1_role_rate: 0.5, fee_rate_meta: 0.03, screen_blend_n: { SMR: 350 } });
     const t1 = allText(changed, 'SMR', build('SMR', OCT, changed));
-    for (const need of ['45 days', 'rate of 0.5', '3.00%', 'as if 350 further']) assert(t1.includes(need), 'changed text lacks ' + need);
-    for (const gone of ['31 days', 'rate of 0.65', '2.00%']) assert(!t1.includes(gone), 'changed text still says ' + gone);
+    for (const need of ['45 days', 'rate of 0.5', 'Meta 3.00%', 'as if 350 further']) assert(t1.includes(need), 'changed text lacks ' + need);
+    for (const gone of ['31 days', 'rate of 0.65', 'Meta 2.00%']) assert(!t1.includes(gone), 'changed text still says ' + gone);
     const plan = build('SMR', { ...OCT, otherHiresMonthly: 12, remainingError: 1.2, capMultiple: 3 });
     const t2 = allText(plan.A, 'SMR', plan);
     for (const need of ['12.0 a month (set for this plan', 'set it to 1.200 (default 1.096)', '300% in this plan']) assert(t2.includes(need), 'plan text lacks ' + need);

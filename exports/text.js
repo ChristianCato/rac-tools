@@ -73,7 +73,7 @@
       capFirst: g('ceiling_first_month'), capMinSpend: g('ceiling_min_spend'), capMinApps: g('ceiling_min_apps'),
       qualityDrop: g('quality_test_drop'), qualityMin: g('quality_test_min_expected'),
       capMultiple: plan ? plan.capMultiple : g('cap_multiple_default'), capDefault: g('cap_multiple_default'),
-      feeIndeed: g('fee_rate_indeed'), feeMeta: g('fee_rate_meta'), feesFrom: g('fees_first_month'),
+      feeIndeed: g('fee_rate_indeed'), feeMeta: g('fee_rate_meta'), feeGoogle: g('fee_rate_google'), feesFrom: g('fees_first_month'),
       feesOn: fees ? fees.on : null,
       includesDisplay: g('combined_activity_includes_display') === 1,
     };
@@ -121,7 +121,7 @@
       'Setup can set a maximum cost per hire for a location and a maximum cost per application for a location and platform. The plan stops adding spend where a limit would be passed, moves the money to locations within their limits, and shows what could not be placed. Cost per hire limits apply to locations only, because the data did not support cost per hire by platform.');
 
     add('Platform fees',
-      `Plans from ${f.month(v.feesFrom)} include platform fees: Indeed ${f.pct(v.feeIndeed, 2)} and Meta ${f.pct(v.feeMeta, 2)} of media spend, including the Indeed Premium hold-back. RAC’s budget includes the fees, so planned Indeed and Meta spend is media plus fee, and media = planned spend / (1 + fee rate). Forecasts use the media spend; cost per application and cost per hire are shown on the total including the fee.${v.feesOn === false ? ' This plan is for an earlier month, so it includes no fees.' : ''}`);
+      `Plans from ${f.month(v.feesFrom)} include platform fees: Indeed ${f.pct(v.feeIndeed, 2)}, Meta ${f.pct(v.feeMeta, 2)} and Google ${f.pct(v.feeGoogle, 2)} of media spend, including the Indeed Premium hold-back; Appcast has none, and the Combined Activity reserve is a flat amount with no fee added. RAC’s budget includes the fees, so planned Indeed, Meta and Google spend is media plus fee, and media = planned spend / (1 + fee rate). Forecasts use the media spend; cost per application and cost per hire are shown on the total including the fee.${v.feesOn === false ? ' This plan is for an earlier month, so it includes no fees.' : ''}`);
 
     add('Ranges',
       `${RANGE_LINE} The plan total’s application range is the middle ${f.pct(v.pHigh - v.pLow)} of how far our predictions missed in testing (${f.signedPct(v.rangeLow)} to ${f.signedPct(v.rangeHigh)}${testMonths.length ? `, over ${testMonths.length} test months from ${f.month(testMonths[0])} to ${f.month(testMonths[testMonths.length - 1])}` : ''}). We make no claim about how often the actual result falls inside the range until there are at least ${v.hitRateMonths} test months.`,
@@ -144,7 +144,7 @@
     const f = fmt;
     return [
       { term: 'Deployable budget', text: 'The monthly budget after Indeed Premium and the Combined Activity reserve (and any OneRAC hold-back).' },
-      { term: 'Media spend and platform fee', text: `Media spend is what the platform charged for advertising. Indeed (${f.pct(v.feeIndeed, 2)}) and Meta (${f.pct(v.feeMeta, 2)}) add a fee on top, from ${f.month(v.feesFrom)} plans; planned spend includes it.` },
+      { term: 'Media spend and platform fee', text: `Media spend is what the platform charged for advertising. Indeed (${f.pct(v.feeIndeed, 2)}), Meta (${f.pct(v.feeMeta, 2)}) and Google (${f.pct(v.feeGoogle, 2)}) add a fee on top, from ${f.month(v.feesFrom)} plans; planned spend includes it.` },
       { term: 'Historic cost per application', text: 'Spend over applications for the location and platform in the months used, before any adjustment.' },
       { term: 'Thin-data adjustment', text: `How far a figure with few applications was pulled towards the platform’s figure for the role (half weight at ${v.cpaPrior} applications).` },
       { term: 'Spend-level adjustment', text: 'How much cost per application rose or fell because planned spend differed from past spend.' },
