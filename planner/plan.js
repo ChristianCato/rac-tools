@@ -118,7 +118,13 @@
     const feeRates = { indeed: get('fee_rate_indeed'), meta: get('fee_rate_meta'), google: get('fee_rate_google') };
     const feesOn = !!inputs.planMonth && inputs.planMonth >= get('fees_first_month');
     const fees = Object.fromEntries(P().map(pl => [pl, feesOn ? (feeRates[pl] || 0) : 0]));
-    const factors = { bias, recon: paidFactor + share * creditFactor, paid: paidFactor, credit: creditFactor, share, fees };
+    // OneRAC only (planner/onerac.js): cost per application is blended to the
+    // mix of open roles, and reduced by the self-competition assumption. Both
+    // are 1 and 0 for a role plan, so nothing changes there.
+    const roleMix = pick(inputs.roleMixAdjustment, 0.2, 5, 1);
+    const selfCompetition = pick(inputs.selfCompetition, 0, 0.9, 0);
+    const factors = { bias: bias * roleMix * (1 - selfCompetition), biasSet: bias, roleMix, selfCompetition,
+      recon: paidFactor + share * creditFactor, paid: paidFactor, credit: creditFactor, share, fees };
     const keep = cmp.noOtherSources ? 0 : 1 - share;
     const other = RAC.testing.otherSources(env.eploy, A, role, hireRates.hireMonths);
     const baseline = {
@@ -746,6 +752,7 @@
     if (hit) return hit;
     const baseKey = 'base|' + role + '|' + U.stableKey({ bench: inputs.bench, capMultiple: inputs.capMultiple, otherHiresShare: inputs.otherHiresShare,
       otherHiresMonthly: inputs.otherHiresMonthly, remainingError: inputs.remainingError, includeSettling: !!inputs.includeSettling, planMonth: inputs.planMonth || null,
+      roleMixAdjustment: inputs.roleMixAdjustment, selfCompetition: inputs.selfCompetition,
       cpa: inputs.limits && inputs.limits.cpa, overrides: inputs.overrides, compare: inputs.compare }) + '|' + envStamp(env);
     let base = RAC.cache.get(baseKey);
     if (!base) base = RAC.cache.set(baseKey, prepare(role, inputs, env));
@@ -788,7 +795,8 @@
       factors: base.factors,
       otherHiresShare: base.factors.share,
       otherHiresMonthly: base.baseline.monthly,
-      remainingError: base.factors.bias,
+      remainingError: base.factors.biasSet,
+      costAdjustment: { used: base.factors.bias, remainingError: base.factors.biasSet, roleMix: base.factors.roleMix, selfCompetition: base.factors.selfCompetition },
       combinedActivityIncludesDisplay: RAC.assumptions.get(A, 'combined_activity_includes_display') === 1,
       hireRangeBasis: { draws: base.draws.n, paidHires: base.draws.paidHires, otherHires: base.draws.otherHires, months: base.draws.months },
       diminishingReturns: base.d1,

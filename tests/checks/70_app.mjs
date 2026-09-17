@@ -54,7 +54,7 @@ export default function (check, { assert, near }) {
     assert(JSON.stringify(tags) === JSON.stringify(manifest().files), 'index.html: ' + tags.join(', '));
     assert(html.indexOf('src="rac_data.js"') < html.indexOf('src="planner/core.js"'), 'planner must load after rac_data.js');
     assert(html.indexOf('src="exports/checks.js"') < html.indexOf('<script type="text/babel"'), 'planner and export files must load before the app script');
-    const ui = ['benchmarks_tab', 'plan_panels', 'method_tab'];
+    const ui = ['benchmarks_tab', 'plan_panels', 'method_tab', 'onerac_tab'];
     const uiRe = new RegExp(ui.map(u => `<script type="text/babel" src="ui/${u}\\.jsx"></script>\\s*`).join('') + '<script type="text/babel" data-type="module">');
     assert(uiRe.test(html), 'UI files not loaded before the app');
     return `${tags.length} planner and export files, then ${ui.map(u => 'ui/' + u + '.jsx').join(', ')}, then the app`;

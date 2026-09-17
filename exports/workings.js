@@ -258,7 +258,7 @@
       { h: 'Platform figure for the role', w: 16, f: GBP2 },
       { h: 'Usual cost per application', w: 16, f: GBP2 }, { h: 'Thin-data adjustment', w: 13, f: N3 },
       { h: 'Usual monthly spend', w: 15, f: GBP2 }, { h: 'Cost rises with spend (rate)', w: 13, f: N3 },
-      { h: 'Spend-level adjustment', w: 13, f: N3 }, { h: 'Remaining-error adjustment', w: 13, f: N3 },
+      { h: 'Spend-level adjustment', w: 13, f: N3 }, { h: RAC.text.costAdjustment(plan).label, w: 13, f: N3 },
       { h: 'Planned cost per application (media)', w: 16, f: GBP2 },
       { h: 'Planned cost per application (total)', w: 16, f: GBP2 },
       { h: 'Applications', w: 13, f: N1 }, { h: 'Quality rate', w: 11, f: PCT1 }, { h: 'Quality applications', w: 14, f: N1 },
@@ -340,7 +340,8 @@
     const totalRow = groupTotal(s, C, 'Plan total', null, null, plan.totals, f, totalRows);
     checkRows.push({ label: 'Plan total', spend: plan.totals.spend, cph: plan.totals.cph });
     s.blank();
-    s.note('Planned cost per application (media) = usual cost per application x spend-level adjustment x remaining-error adjustment. Applications = media spend / planned cost per application. Hires = applications x quality rate x hire rate after quality x matching factor.');
+    const ca = RAC.text.costAdjustment(plan);
+    s.note(`Planned cost per application (media) = usual cost per application x spend-level adjustment x ${ca.label.toLowerCase()}${ca.extra ? ` (${ca.basis})` : ''}. Applications = media spend / planned cost per application. Hires = applications x quality rate x hire rate after quality x matching factor.`);
     const idle = plan.allRegions.filter(r => !plan.locations.some(l => l.region === r));
     if (idle.length) s.note('Locations not in this plan (no open roles, or set to no spend): ' + idle.join(', ') + '.');
     s.note('Ranges are the 10th and 90th percentiles of simulated draws, so they cannot be written as formulas. The Back-test sheet shows the misses they start from.');

@@ -12,6 +12,7 @@
     "planner/ceilings.js",
     "planner/allocate.js",
     "planner/plan.js",
+    "planner/onerac.js",
     "planner/legacy_shape.js",
     "planner/app.js",
     "exports/text.js",

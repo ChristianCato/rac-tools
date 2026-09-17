@@ -29,7 +29,7 @@ from guard import ROOT, TEST, new_page, libs_arg
 
 OUT = os.path.join(os.path.dirname(__file__), 'out'); os.makedirs(OUT, exist_ok=True)
 LIBS = libs_arg(sys.argv)
-from app_fixture import PMAP, SMR_VAC, PATROL_VAC, working, workspace, DB, EXPECTED_JS
+from app_fixture import PMAP, SMR_VAC, PATROL_VAC, working, workspace, DB, EXPECTED_JS, ONERAC_JS
 
 
 def kpis(page):
@@ -290,6 +290,46 @@ with sync_playwright() as pw:
     page.screenshot(path=os.path.join(OUT, 'minimum_shortfall.png'))
     if errors or guard.blocked or guard.writes:
         fails.append(f'shortfall run: errors {errors[:2]}, blocked {guard.blocked[:3]}, writes {guard.writes[:3]}')
+    ctx.close()
+
+    # OneRAC: London on OneRAC from this month. The OneRAC tab shows its own
+    # plan, and the SMR plan loses London and carries the hold-back.
+    db4 = copy.deepcopy(DB)
+    db4['workspace']['months']['2026-10']['working']['oneRac'] = {
+        'locations': [{'region': 'London', 'from': '2026-10'}],
+        'budget': 20000, 'hireTarget': 6, 'fundFromRoles': True, 'selfCompetition': None,
+        'premiumCampaigns': 0, 'acReserve': 0,
+        'platMin': {}, 'platMax': {}, 'coverage': {}, 'regionMin': {}, 'regionMax': {},
+    }
+    # London is off in the fixture's SMR plan; give it spend so the exclusion shows.
+    db4['workspace']['months']['2026-10']['working']['regionMax']['SMR'] = {
+        k: v for k, v in DB['workspace']['months']['2026-10']['working']['regionMax']['SMR'].items() if k != 'London'}
+    ctx, page, guard, errors = new_page(browser, TEST, db=db4, libs=LIBS)
+    page.goto(TEST + '#planner/onerac')
+    page.wait_for_selector('[data-panel="onerac-setup"]', timeout=60000)
+    page.wait_for_timeout(600)
+    want4 = page.evaluate(ONERAC_JS, {'role': 'SMR', 'setup': db4['workspace']['months']['2026-10']['working']['oneRac']})
+    panel = page.locator('[data-panel="onerac-plan"]')
+    if panel.count() != 1:
+        fails.append('the OneRAC tab shows no plan')
+    else:
+        text = panel.inner_text()
+        for want in [f"{round(want4['apps']):,}", f"{want4['hires']:.1f}", 'London']:
+            if want not in text:
+                fails.append(f'OneRAC plan does not show {want!r}: {text[:200]}')
+    if want4['roleHasThem']:
+        fails.append('London is still in the SMR plan while it is on OneRAC')
+    if abs(want4['holdback'] - 20000 * 18 / 30) > 1 or abs(want4['roleHoldback'] - round(want4['holdback'])) > 1:
+        fails.append(f"SMR OneRAC hold-back {want4['roleHoldback']} against the open-roles split {want4['holdback']}")
+    if want4['locations'] != ['London']:
+        fails.append(f"the OneRAC plan covers {want4['locations']}")
+    notes.append(f"OneRAC tab: {want4['regions']}, {want4['openRoles']} open roles, "
+                 f"{want4['apps']:.0f} applications and {want4['hires']:.1f} hires = the planner; "
+                 f"role-mix adjustment x{want4['adjustment']:.3f}, self-competition {want4['selfCompetition']:.0%}; "
+                 f"London out of the SMR plan, hold-back \u00a3{want4['roleHoldback']:,.0f}")
+    page.screenshot(path=os.path.join(OUT, 'onerac.png'), full_page=True)
+    if errors or guard.blocked or guard.writes:
+        fails.append(f'OneRAC run: errors {errors[:2]}, blocked {guard.blocked[:3]}, writes {guard.writes[:3]}')
     ctx.close()
     browser.close()
 

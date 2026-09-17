@@ -210,11 +210,13 @@
 
       heading('Assumptions and risks');
       const s = Object.fromEntries(p.settings.map(z => [z.key, z]));
+      const ca = RAC.text.costAdjustment(p);
       const src = (z) => (z.changed ? `set for this plan; default ${z.unit === 'share' ? F.pct(z.default) : z.unit === 'multiple' && z.key === 'capMultiple' ? F.pct(z.default) : z.default}` : z.source);
       const lines = [
         `Spend above past levels: ${F.gbp(p.aboveLargestSuccessful.total)} (${F.pct(p.aboveLargestSuccessful.share)} of placed spend) sits above each location and platform's largest successful month, and ${F.gbp(p.aboveLargestMonth.total)} (${F.pct(p.aboveLargestMonth.share)}) above its largest month of any kind. Predictions for that spend rest on the rate at which cost per application rises with spend.`,
         `Spending cap multiple: ${F.pct(s.capMultiple.value)} (${src(s.capMultiple)}). The plan never spends above a cap.`,
         `Remaining-error adjustment: ${s.remainingError.value.toFixed(3)} (${src(s.remainingError)}; testing gave ${s.remainingError.tested !== null && s.remainingError.tested !== undefined ? s.remainingError.tested.toFixed(3) : 'n/a'}).`,
+        ...(ca.extra ? [`Cost adjustment: planned cost per application is multiplied by ${ca.used.toFixed(3)} (${ca.basis}).`] : []),
         `Expected hires from other sources: ${F.num(s.otherHiresMonthly.value)} a month (${src(s.otherHiresMonthly)}), ${F.pct(s.otherHiresShare.value)} of them credited to paid media (${src(s.otherHiresShare)}).`,
         `Months used: ${p.windowMonths.length ? `${F.month(p.windowMonths[0])} to ${F.month(p.windowMonths[p.windowMonths.length - 1])}` : 'none'}.${p.settlingUsed.length ? ` Not yet settled, figures may change: ${p.settlingUsed.map(m => F.month(m.month)).join(', ')}.` : ''}`,
         fees && fees.on ? `Platform fees: Indeed ${F.pct(fees.rates.indeed, 2)}, Meta ${F.pct(fees.rates.meta, 2)} and Google ${F.pct(fees.rates.google, 2)} of media spend (Appcast none), inside the budget (${F.gbp(fees.total, 2)} in this plan). Forecasts use media spend.`
@@ -303,7 +305,7 @@
           { label: 'Spending cap (basis)', w: 24, align: 'right' },
           { label: 'Historic cost per application', w: 21, align: 'right' },
           { label: 'Thin-data adjustment', w: 16, align: 'right' }, { label: 'Spend-level adjustment', w: 16, align: 'right' },
-          { label: 'Remaining error adjustment', w: 17, align: 'right' }, { label: 'Planned cost per application', w: 19, align: 'right' },
+          { label: RAC.text.costAdjustment(p).label, w: 17, align: 'right' }, { label: 'Planned cost per application', w: 19, align: 'right' },
           { label: 'Applications (range)', w: 25, align: 'right' },
           { label: 'Quality rate', w: 16, align: 'right' }, { label: 'Hire rate after quality', w: 16, align: 'right' },
           { label: 'Hires (range)', w: 21, align: 'right' }, { label: 'Cost per hire', w: 17, align: 'right' },

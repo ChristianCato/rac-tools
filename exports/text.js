@@ -138,6 +138,15 @@
     add('Budget for the hire target',
       'The budget needed for the hire target is found by running the plan at trial budgets, in steps of £50, and taking the lowest that reaches the target, counting expected hires from other sources. Where the spending caps put the target out of reach, the plan shows the most hires it can deliver, the budget at which extra spend stops adding hires, and the same figures at cap multiples of 100%, 200% and 300%.');
 
+    if (plan && plan.oneRac) {
+      const o = plan.oneRac;
+      const ca = costAdjustment(plan);
+      add('The OneRAC plan',
+        `OneRAC runs one set of campaigns for both roles in ${f.list(o.regions)}, so it is planned on its own and those locations are left out of the SMR and Patrol plans. Open roles are the two roles' open roles there added together: ${RAC.ROLES.map(r => `${r} ${o.mix.vacancies[r]}`).join(', ')}, ${o.mix.total} in total.`,
+        `Past performance is the two roles' spend and applications in those locations added together, which is what a combined campaign would have spent and received. Cost per application is then blended to the mix of open roles${o.adjustment.openBlend ? ` (${f.gbp(o.adjustment.openBlend, 2)} against ${f.gbp(o.adjustment.combined, 2)} blended by past spend, a multiplier of ${o.adjustment.factor.toFixed(3)})` : ''}, because the plan recruits for the roles that are open, not for the roles past spend happened to be split between.`,
+        `Quality and hire rates are the two roles' applicant tracking counts in those locations added together. ${ca.selfCompetition > 0 ? `A self-competition assumption of ${f.pct(ca.selfCompetition)} lowers cost per application, for the two roles no longer bidding against each other; it has not been measured yet.` : 'No self-competition improvement was assumed: the two roles no longer bid against each other, but we have no measurement of what that is worth, so nothing is claimed for it.'} Everything else is the method above: diminishing returns, the adjustments, spending caps, cost limits and ranges.`,
+        'After four to six weeks of OneRAC activity we will compare these locations with their own history and with similar locations that are not on OneRAC, and replace the assumption with the measured result.');
+    }
     add('Not included',
       'Seasonality, market demand and competition were not modelled; they sit within the remaining-error adjustment and the ranges. The wider influence of Meta and Google before a candidate applied, and the effect of Combined Activity campaigns, will be assessed separately.');
     return sections;
@@ -190,5 +199,21 @@
     return rows;
   }
 
-  RAC.text = { fmt, values, method, glossary, assumptionRows, ATTRIBUTION, QUALITY_DEFINITION, RANGE_LINE, ROW_RANGE_LINE };
+  // The multiplier on planned cost per application. For a role plan it is the
+  // remaining-error adjustment alone; a OneRAC plan also blends cost to the
+  // mix of open roles and applies the self-competition assumption.
+  function costAdjustment(plan) {
+    const a = (plan && plan.costAdjustment) || { used: 1, remainingError: 1, roleMix: 1, selfCompetition: 0 };
+    const extra = a.roleMix !== 1 || a.selfCompetition > 0;
+    const parts = [`remaining error ${a.remainingError.toFixed(3)}`];
+    if (a.roleMix !== 1) parts.push(`role mix ${a.roleMix.toFixed(3)}`);
+    if (a.selfCompetition > 0) parts.push(`self-competition ${fmt.pct(a.selfCompetition)}`);
+    return {
+      ...a, extra,
+      label: extra ? 'Cost adjustment' : 'Remaining-error adjustment',
+      basis: extra ? parts.join(' x ') : '',
+    };
+  }
+
+  RAC.text = { fmt, values, method, glossary, assumptionRows, costAdjustment, ATTRIBUTION, QUALITY_DEFINITION, RANGE_LINE, ROW_RANGE_LINE };
 })(window.RAC = window.RAC || {});

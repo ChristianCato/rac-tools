@@ -26,6 +26,7 @@
 <script src="planner/ceilings.js"></script>
 <script src="planner/allocate.js"></script>
 <script src="planner/plan.js"></script>
+<script src="planner/onerac.js"></script>
 <script src="planner/legacy_shape.js"></script>
 <script src="planner/app.js"></script>
 <script src="exports/text.js"></script>
@@ -611,6 +612,7 @@ input[type=range]::-moz-range-thumb {
 <script type="text/babel" src="ui/benchmarks_tab.jsx"></script>
 <script type="text/babel" src="ui/plan_panels.jsx"></script>
 <script type="text/babel" src="ui/method_tab.jsx"></script>
+<script type="text/babel" src="ui/onerac_tab.jsx"></script>
 <script type="text/babel" data-type="module">
 const { useState, useEffect, useMemo, useRef, createContext, useContext } = React;
 
@@ -633,6 +635,10 @@ if (!DATA.data_months) {
 const PLATFORMS = ['indeed', 'meta', 'google', 'appcast'];
 const PLATFORM_LABELS = { indeed: 'Indeed', meta: 'Meta', google: 'Google', appcast: 'Appcast' };
 const ROLES = ['SMR', 'Patrol'];
+// Roles that can appear in RAC's own files and campaign names. OneRAC is not
+// planned as a role (it has its own plan, planner/onerac.js), but its spend
+// and applications are read, paced and stored like any other.
+const PACING_ROLES = ['SMR', 'Patrol', 'OneRAC'];
 const ROLE_FULL = { SMR: 'Mobile Vehicle Tech', Patrol: 'Roadside Tech (incl. SuperFlex)' };
 
 // ---- Formatting helpers ----
@@ -2268,12 +2274,24 @@ function commentaryPoints(state, role, kind) {
     .filter(Boolean);
 }
 
+// OneRAC (planner/onerac.js). Its locations are planned on their own from the
+// month they launch, so they come out of the SMR and Patrol plans, and the
+// OneRAC budget comes off both role budgets unless that is switched off.
+function oneRacState(s) {
+  const setup = (s && s.oneRac) || {};
+  const regions = RAC.onerac.live(setup, s && s.planMonth);
+  const mix = RAC.onerac.mix(s && s.vacancies, regions);
+  return { setup, regions, mix, holdback: RAC.onerac.holdback(setup, mix, s && s.planMonth) };
+}
+
 function planParams(role, s) {
+  const one = oneRacState(s);
   return {
     budget: s.budget[role] || 0,
     appTarget: 0,
     hireTarget: (s.hireTarget && s.hireTarget[role]) || 0,
-    liveRegions: s.liveRegions[role] || [],
+    liveRegions: (s.liveRegions[role] || []).filter(r => !one.regions.includes(r)),
+    oneRacHoldback: one.holdback.byRole[role] || 0,
     vacancies: (s.vacancies && s.vacancies[role]) || {},
     coveragePct: s.coveragePct,
     premiumCampaigns: (s.premiumCampaigns && s.premiumCampaigns[role]) || 0,
@@ -2293,6 +2311,82 @@ function planParams(role, s) {
     bench: (s.bench && s.bench[role]) || null,
     planMonth: s.planMonth || null,
   };
+}
+
+// The OneRAC plan: one set of campaigns for both roles in its locations.
+function oneRacParams(s) {
+  const one = oneRacState(s);
+  return {
+    regions: one.regions,
+    vacancies: s.vacancies || {},
+    budget: Math.max(0, Math.round((one.setup.budget) || 0)),
+    hireTarget: Math.max(0, Math.round(one.setup.hireTarget || 0)),
+    appTarget: 0,
+    coveragePct: s.coveragePct,
+    premiumCampaigns: Math.max(0, Math.round(one.setup.premiumCampaigns || 0)),
+    acReserve: Math.max(0, Math.round(one.setup.acReserve || 0)),
+    platMin: one.setup.platMin || {}, platMax: one.setup.platMax || {},
+    coverage: one.setup.coverage || {}, comboMin: {},
+    regionMin: one.setup.regionMin || {}, regionMax: one.setup.regionMax || {},
+    daysInMonth: (DATA.days_in_month && DATA.days_in_month[s.planMonth]) || 30,
+    capMultiple: s.capMultiple || 1.0,
+    includeSettling: !!s.includeSettling,
+    bench: (s.bench && s.bench.SMR) || null,
+    planMonth: s.planMonth || null,
+    selfCompetition: one.setup.selfCompetition != null ? one.setup.selfCompetition
+      : assumptionOr('onerac_self_competition', 0),
+  };
+}
+
+// What the SMR and Patrol plans would have put into the OneRAC locations this
+// month, as a starting point for the OneRAC budget.
+function oneRacSuggestion(s) {
+  const one = oneRacState(s);
+  if (!one.regions.length) return 0;
+  let total = 0;
+  ROLES.forEach(role => {
+    try {
+      const p = planParams(role, s);
+      const plan = buildFundingPlan(role, { ...p, liveRegions: (s.liveRegions[role] || []), oneRacHoldback: 0 });
+      (plan.locations || []).forEach(l => { if (one.regions.includes(l.region)) total += l.spend || 0; });
+    } catch (e) { /* no plan yet: the suggestion stays at what we have */ }
+  });
+  return Math.round(total);
+}
+
+// The OneRAC plan's own PDF and workings, from the same plan the tab shows.
+function exportOneRacPDF(state, opts) {
+  try {
+    const plan = buildOneRacPlan(state);
+    if (!plan) { alert('No OneRAC locations have started this month, so there is no plan to export.'); return; }
+    const monthLabel = (DATA.month_labels && DATA.month_labels[state.planMonth]) || state.planMonth;
+    RAC.pdf.save(window.jspdf.jsPDF, [{ role: 'OneRAC', roleName: 'OneRAC (SMR and Patrol together)', plan,
+      commentary: { legacy: [], plan: commentaryPoints(state, 'OneRAC', 'plan') } }],
+      { notes: false, monthLabel, planName: (opts && opts.planName) || null, backtest: RAC.app.state.backtest });
+  } catch (e) {
+    alert('OneRAC PDF export failed: ' + e.message);
+  }
+}
+
+async function exportOneRacWorkings(state, opts) {
+  if (!window.ExcelJS) { alert('The spreadsheet writer did not load. Check the connection and reload.'); return; }
+  try {
+    const plan = buildOneRacPlan(state);
+    if (!plan) { alert('No OneRAC locations have started this month, so there is no plan to export.'); return; }
+    const monthLabel = (DATA.month_labels && DATA.month_labels[state.planMonth]) || state.planMonth;
+    await RAC.workings.save(window.ExcelJS, [{ role: 'OneRAC', roleName: 'OneRAC (SMR and Patrol together)', plan }],
+      { monthLabel, planName: (opts && opts.planName) || null, backtest: RAC.app.state.backtest });
+  } catch (e) {
+    alert('OneRAC workings export failed: ' + e.message);
+  }
+}
+
+function buildOneRacPlan(s) {
+  const one = oneRacState(s);
+  if (!one.regions.length) return null;
+  setCapMultiple(s.capMultiple || 1.0);
+  setBenchWindow((s.bench && s.bench.SMR) || null);
+  return RAC.onerac.build(oneRacParams(s), RAC.app.env(DATA, DATA_VERSION));
 }
 
 // The plan every screen reads, from the planner files (planner/plan.js), in the
@@ -2516,7 +2610,7 @@ async function sbSendLink(email) {
 // deliberately not in here: it lives in the shared workspace, so a link that
 // set it would move everyone else's month too.
 const ROUTE_TOOLS = ['planner', 'priorities', 'pacing', 'data', 'changelog'];
-const ROUTE_TABS = ['setup', 'plan', 'platforms', 'benchmarks', 'method'];
+const ROUTE_TABS = ['setup', 'plan', 'platforms', 'benchmarks', 'onerac', 'method'];
 
 function routeFromHash() {
   const h = (window.location.hash || '').replace(/^#\/?/, '');
@@ -5434,6 +5528,7 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '18 Sep', items: [
+    'OneRAC planning added, on its own tab. Pick the locations OneRAC runs in and the month each one starts; from that month they are planned there and left out of the SMR and Patrol plans, so nothing is planned twice. Open roles are the two roles’ open roles in those locations added together, and past performance is their spend and applications added together, which is what a combined campaign would have spent and received. Cost per application is then blended to the mix of open roles, and a self-competition setting (0% until it is measured) lowers it for the two roles no longer bidding against each other. Quality and hire rates, diminishing returns, spending caps, cost limits and ranges are the same as a role plan. The OneRAC budget comes off both role budgets, split by the open roles in those locations, unless that is switched off; each role plan shows it as a OneRAC hold-back. OneRAC has its own PDF and workings export. Campaign names with OneRAC in the role position are read by the Windsor pull and the pacing tool, and the Data tab takes OneRAC rows from the master file without changing SMR or Patrol.',
     'Workings export rebuilt from the new calculations. Ten sheets: the summary, every location and platform left to right from past performance to predicted hires, every value the plan used with its source, every monthly figure with where it came from and what it counts for, how the window figures are arrived at, the applicant tracking counts behind the quality and hire rates, how far the model missed on past months, which months counted towards each spending cap, every move the split made, and the method in full. Indeed, Meta and Google rows show media, fee and total. Nothing is a pasted answer: the spreadsheet works out every figure when it opens, and an automatic check recalculates the whole workbook and compares all 1,300 formulas with the plan.',
     'Quality applications now come from RAC’s own quality measure in the applicant tracking data, in place of applications that progressed past screening. A quality application is one that progressed past screening, or was closed at screening for a reason other than the candidate’s suitability, such as location, salary, the role being filled, withdrawal, or being banked for future roles. Repeat applications from the same candidate are not counted. This raised the quality rate (SMR 15.5% to 21.7% of applications, Patrol 9.7% to 19.5%) and lowered the hire rate after quality by about the same amount, so predicted hires barely moved. The screens, the PDF and the workings now say quality rate and hire rate after quality.',
     'New planning calculations, in their own files (planner folder), used by Setup, Plan, Platforms, Compare, Benchmarks and pacing for plans from October 2026. Cost per application is one method everywhere, on settled months only: a month counts once 31 days have passed after it ended. Cost per application rises with spend (diminishing returns), with a remaining-error adjustment from testing on past months, applied only where it stays on the same side of 1 with any one test month left out. Hires are worked out from RAC’s applicant tracking data: quality rate by platform (Indeed and Appcast blended with the role average; Meta and Google halfway to it), times the role’s hire rate after quality, scaled so past predictions match the hires RAC recorded against Indeed, Meta, Google and Appcast. Paid Google and Paid Google Display applications count as Google. The Google Display remarketing campaign is part of Combined Activity, so its spend sits in the Combined Activity hold-back, not in the planner’s Google spend. Each location and platform has a spending cap: its largest successful month times the spending cap multiple (100% by default, editable from 100% to 300%), and the plan never spends above it, even to meet a location minimum or a floor set on Setup; any minimum the caps do not allow is shown with its shortfall, and money that no location can take is shown as not placed. Where the caps put the hire target out of reach, the Plan tab shows the most hires the plan can deliver, the budget at which extra spend stops adding hires, the budget not placed, and the same figures at cap multiples of 100%, 200% and 300%. Application ranges come from how far predictions missed in testing on past months. Hire ranges combine the application range with the uncertainty in the quality rates, the hire rates after quality and the expected hires from other sources, based on the counts behind each, plus chance variation in the number of hires itself; rows with thin evidence are marked low confidence. For this release the model uses agreed settings informed by testing on past months, and the tested figure is kept beside each. A setting moves to its tested figure only once there are at least 12 test months and leaving out any one month does not change it. Every value the model uses is in assumptions.csv.',
@@ -5702,6 +5797,11 @@ const CHANGELOG = [
 // planning, not muddle it with a change in how many roles were open.
 // ====================================================================
 
+// An assumption value, or a fallback if the file has not loaded yet.
+function assumptionOr(key, fallback, role) {
+  try { return RAC.assumptions.get(RAC.app.state.A, key, role); } catch (e) { return fallback; }
+}
+
 function defaultPlannerState() {
   return {
     budget: { SMR: 35000, Patrol: 28000 },
@@ -5726,6 +5826,14 @@ function defaultPlannerState() {
     regionMin: { SMR: {}, Patrol: {} },
     regionMax: { SMR: {}, Patrol: {} },
     comboMin: { SMR: {}, Patrol: {} },
+    // OneRAC: locations with their launch month, its own budget, and whether
+    // it comes off the SMR and Patrol budgets (planner/onerac.js).
+    oneRac: {
+      locations: [], budget: 0, hireTarget: 0,
+      fundFromRoles: assumptionOr('onerac_fund_from_roles', 1) === 1,
+      selfCompetition: null, premiumCampaigns: 0, acReserve: 0,
+      platMin: {}, platMax: {}, coverage: {}, regionMin: {}, regionMax: {},
+    },
   };
 }
 
@@ -6747,6 +6855,9 @@ function campaignProject(camp) {
 
 function campaignRole(seg) {
   const s = String(seg || '').toLowerCase();
+  // The role is the third segment of the campaign name. OneRAC campaigns read
+  // "RAC | Conversion | OneRAC | <Region> | <Platform> | <Mon YY> | <ID>".
+  if (s.includes('onerac')) return 'OneRAC';
   if (s.includes('smr')) return 'SMR';
   if (s.includes('patrol')) return 'Patrol';
   return null;
@@ -6908,6 +7019,19 @@ function planBaseline(month, container, version) {
       });
     });
   });
+  // OneRAC is paced against its own plan, under its own role name.
+  if (!RAC.app.usesPreviousEngine(month)) {
+    try {
+      const one = buildOneRacPlan(state);
+      if (one) {
+        one.locations.forEach(l => PLATFORMS.forEach(plat => {
+          const c = l.cells[plat];
+          if (!(c.spend > 0) && !(c.apps > 0)) return;
+          rows.push({ role: 'OneRAC', region: l.region, platform: plat, planSpend: c.media, planApps: c.apps });
+        }));
+      }
+    } catch (e) { /* no OneRAC plan this month: nothing to pace against */ }
+  }
   return rows;
 }
 
@@ -6943,7 +7067,7 @@ function digestActuals(rows, month) {
     const role = String(row[iArea] || '').trim();
     const region = priorityRegion(row[iReg]);
 
-    if (!plat || (role !== 'SMR' && role !== 'Patrol')) {
+    if (!plat || !PACING_ROLES.includes(role)) {
       nonStdSpend += spend; nonStdApps += apps;
       const k = platRaw || 'Unknown';
       other[k] = other[k] || { spend: 0, apps: 0 };
@@ -8290,7 +8414,7 @@ function PacingTool({ month, container, patchMonth }) {
                     <div className="mb-group">
                       <label>Role</label>
                       <select value={fRole} onChange={e => setFRole(e.target.value)}>
-                        <option>All</option>{ROLES.map(r => <option key={r}>{r}</option>)}
+                        <option>All</option>{PACING_ROLES.filter(r => ROLES.includes(r) || (pacing && pacing.rows.some(x => x.role === r))).map(r => <option key={r}>{r}</option>)}
                       </select>
                     </div>
                     <div className="mb-group">
@@ -8531,7 +8655,10 @@ function digestExport(rows) {
       continue;
     }
     const role = String(row[iArea] || '').trim();
-    if (role !== 'SMR' && role !== 'Patrol') { skippedOther++; continue; }
+    // OneRAC rows carry "OneRAC" in the Area column and are tagged to a region
+    // like any other row; they are stored under their own role and do not
+    // change SMR or Patrol.
+    if (!PACING_ROLES.includes(role)) { skippedOther++; continue; }
 
     const region = priorityRegion(row[iReg]);
     if (!region) { untagged++; untaggedSpend += spend; untaggedApps += apps; continue; }
@@ -9661,6 +9788,7 @@ function App() {
     { id: 'plan', label: 'Plan' },
     { id: 'platforms', label: 'Platforms' },
     { id: 'benchmarks', label: 'Benchmarks' },
+    { id: 'onerac', label: 'OneRAC' },
     { id: 'method', label: 'Method' },
   ];
 
@@ -9842,6 +9970,14 @@ function App() {
                 {tab === 'platforms' && <PlatformsTab state={plannerState} role={roleView} setRole={setRoleView} />}
                 {tab === 'benchmarks' && <RACUI.BenchmarksTab state={plannerState} setState={setPlannerState} role={roleView} setRole={setRoleView}
                   dataVersion={DATA_VERSION} fmt={{ fmtGBP, fmtInt, monthShort }} />}
+                {tab === 'onerac' && <RACUI.OneRacTab state={plannerState} update={patch => setPlannerState(st => ({ ...st, ...patch }))}
+                  fmt={{ fmtGBP, fmtInt, monthLabel: mo => (DATA.month_labels && DATA.month_labels[mo]) || mo }}
+                  months={Object.keys((DATA.month_labels) || {}).sort()}
+                  regions={DATA.regions_ordered}
+                  suggestion={oneRacSuggestion(plannerState)}
+                  plan={buildOneRacPlan(plannerState)}
+                  onExportPdf={() => exportOneRacPDF(plannerState, { planName: loadedVersion ? loadedVersion.name : 'Working plan' })}
+                  onExportWorkings={() => exportOneRacWorkings(plannerState, { planName: loadedVersion ? loadedVersion.name : 'Working plan' })} />}
                 {tab === 'method' && <RACUI.MethodTab plan={buildFundingPlan(roleView, { ...planParams(roleView, plannerState), appTarget: (plannerState.appTarget || {})[roleView] || 0 })}
                   role={roleView} roles={ROLES} setRoleView={setRoleView} roleFull={ROLE_FULL} />}
               </>

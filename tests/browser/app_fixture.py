@@ -69,3 +69,34 @@ EXPECTED_JS = """(role) => {
     deployable: plan.deployable, settledTo: plan.stamps.data.settledTo, reach: plan.reach,
     settling: plan.settlingUsed.map(x => x.month), shortfalls: plan.minimumShortfalls.map(x => x.text), fees: plan.fees.total, feesOn: plan.fees.on };
 }""" % (json.dumps(working), json.dumps({'SMR': SMR_VAC, 'Patrol': PATROL_VAC}))
+
+
+# The OneRAC plan, and the role plan beside it, built with the planner in the
+# page. Shares the parameters EXPECTED_JS builds, up to the point where it
+# plans a role. Takes { role, setup } so a check can try any OneRAC set-up.
+ONERAC_JS = (EXPECTED_JS.split("  const plan = RAC.plan.build")[0]
+             .replace("""(role) => {""", """(o) => {
+  const role = o.role, setup = o.setup;""")
+             + """  const env = RAC.app.env(window.__AVP_DATA__, 'browser-check');
+  const regions = RAC.onerac.live(setup, month);
+  const both = { SMR: vac.SMR, Patrol: vac.Patrol };
+  const m = RAC.onerac.mix(both, regions);
+  const hb = RAC.onerac.holdback(setup, m, month);
+  const one = RAC.onerac.build({
+    regions, vacancies: both, budget: setup.budget || 0, hireTarget: setup.hireTarget || 0, appTarget: 0,
+    coveragePct: p.coveragePct, premiumCampaigns: setup.premiumCampaigns || 0, acReserve: setup.acReserve || 0,
+    platMin: setup.platMin || {}, platMax: setup.platMax || {}, coverage: setup.coverage || {}, comboMin: {},
+    regionMin: setup.regionMin || {}, regionMax: setup.regionMax || {},
+    daysInMonth: p.daysInMonth, capMultiple: p.capMultiple, includeSettling: p.includeSettling,
+    bench: p.bench, planMonth: month,
+    selfCompetition: setup.selfCompetition != null ? setup.selfCompetition
+      : RAC.assumptions.get(RAC.app.state.A, 'onerac_self_competition'),
+  }, env);
+  const beside = RAC.plan.build(role, { ...p, liveRegions: p.liveRegions.filter(r => !regions.includes(r)),
+    oneRacHoldback: hb.byRole[role] }, env);
+  return { regions, openRoles: m.total, holdback: hb.byRole[role],
+    apps: one ? one.totals.apps : null, hires: one ? one.totals.allHires : null, spend: one ? one.totals.spend : null,
+    adjustment: one ? one.oneRac.adjustment.factor : null, selfCompetition: one ? one.costAdjustment.selfCompetition : null,
+    locations: one ? one.locations.map(l => l.region) : [], roleHasThem: beside.locations.some(l => regions.includes(l.region)),
+    roleHoldback: beside.holdbacks.oneRac, roleDeployable: beside.deployable };
+}""")
