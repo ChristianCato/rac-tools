@@ -10,6 +10,9 @@
 //   2. at least data_settle_days (assumptions.csv) have passed between its
 //      last day and the date the data was taken, so late-recorded
 //      applications are in.
+// A complete month that has not yet passed the settle period is "still
+// settling". A plan can choose to count such months (Setup option "Include
+// months still settling", off by default); each one used is flagged.
 // The date the data was taken is the upload date for Data tab months, and the
 // repo file's generated date for the rest. The Data tab keeps one upload date
 // for all uploaded months (the latest upload), so that date is used for each.
@@ -78,14 +81,15 @@
     ds.months.forEach(mo => {
       const i = ds.info[mo];
       const end = U.monthEnd(mo);
-      let settled = true, reason = '';
+      let settled = true, settling = false, reason = '';
       if (!i.takenOn) { settled = false; reason = 'date the data was taken is unknown'; }
       else if (end > i.takenOn || (i.currentThrough && end > i.currentThrough)) {
         settled = false; reason = `part month: data ran to ${i.currentThrough && i.currentThrough < i.takenOn ? i.currentThrough : i.takenOn}`;
       } else if (U.daysBetween(end, i.takenOn) < settleDays) {
-        settled = false; reason = `taken ${U.daysBetween(end, i.takenOn)} days after month end; needs ${settleDays}`;
+        settled = false; settling = true;
+        reason = `still settling: taken ${U.daysBetween(end, i.takenOn)} days after month end; needs ${settleDays}`;
       }
-      out[mo] = { ...i, monthEnd: end, settled, reason };
+      out[mo] = { ...i, monthEnd: end, settled, settling, reason };
     });
     return out;
   }

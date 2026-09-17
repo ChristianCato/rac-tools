@@ -81,10 +81,10 @@ add('C. Diminishing returns in the split and the forecast', next(env2a, { overri
 add('D. Hires from screening and hire rates (Eploy)', next(env2a, { overrides: off, compare: { previousCeilings: true, noOtherSources: true } }));
 add('E. Hires reconciled to platform hires in Eploy, plus expected hires from other sources (0% credited)', next(env2a, { overrides: noBias, compare: { previousCeilings: true } }));
 add('E100. For comparison only: 100% credited (equals the earlier scaling to every hire)', next(env2a, { overrides: noBias, otherHiresShare: 1, compare: { previousCeilings: true } }), 'not carried into F');
-add('F. Spending limits on successful months (hard cap)', next(env2a, { overrides: noBias }));
+add('F. Spending caps on successful months', next(env2a, { overrides: noBias }));
 add('G. Cost per hire and cost per application limits', next(env2a, { overrides: noBias }), 'none were set in plan 2a');
-add('H. Remaining-error adjustment (full new model)', next(env2a, {}), 'spending limit multiple 2, as plan 2a');
-add('H1. For comparison only: spending limit multiple 1 (new default)', next(env2a, { capMultiple: 1 }), 'not carried into I');
+add('H. Remaining-error adjustment (full new model)', next(env2a, {}), 'cap multiple 2, as plan 2a');
+add('H1. For comparison only: cap multiple 1 (default)', next(env2a, { capMultiple: 1 }), 'not carried into I');
 
 // Data as the live app held it on 16 September.
 add('I. Previous engine, saved plan as held on 16 Sep', previous(structuredClone(BASE), true), 'August in the data but given no weight');
@@ -92,13 +92,14 @@ add('I. Previous engine, saved plan as held on 16 Sep', previous(structuredClone
 const liveMonths = [...new Set(FLIVE.raw.map(r => r[0]))].sort();
 const sep16 = withRoleMonthly(BASE, FLIVE.raw, 'SMR');
 add('J. Full new model on 16 Sep data (export)', next({ ds: RAC.data.snapshot(sep16, { at: '2026-09-16', months: liveMonths }, REPO), A, eploy }, {}), 'August not yet counted (taken 16 days after month end)');
-add('K. Full new model, August counted (export)', next({ ds: RAC.data.snapshot(sep16, { at: '2026-09-24', months: liveMonths }, REPO), A, eploy }, {}), 'if August is uploaded on or after 24 Sep');
+add('K. Full new model, August counted (export)', next({ ds: RAC.data.snapshot(sep16, { at: '2026-10-01', months: liveMonths }, REPO), A, eploy }, {}), 'if August is uploaded on or after 1 Oct');
 const D = calibrationData(RAC);
 const R17 = D.SMR.ds.repo;
-const later = RAC.data.snapshot(D.SMR.ds.DATA, null, { ...R17, generated_at: '2026-09-24' });
+const later = RAC.data.snapshot(D.SMR.ds.DATA, null, { ...R17, generated_at: '2026-10-01' });
 add('J2. Full new model on rac_data.js (17 Sep)', next({ ds: D.SMR.ds, A, eploy }, {}), 'August not yet counted (taken 17 days after month end)');
-add('K2. Full new model on rac_data.js, August counted', next({ ds: later, A, eploy }, {}), 'as if taken on 24 Sep');
-add('K2 at multiple 1. For comparison only: spending limit multiple 1 (new default)', next({ ds: later, A, eploy }, { capMultiple: 1 }), 'an October plan on the defaults');
+add('K2. Full new model on rac_data.js, August counted', next({ ds: later, A, eploy }, {}), 'as if taken on 1 Oct');
+add('K2 at multiple 1. For comparison only: cap multiple 1 (default)', next({ ds: later, A, eploy }, { capMultiple: 1 }), 'an October plan on the defaults');
+add('J3. rac_data.js, months still settling included (August)', next({ ds: D.SMR.ds, A, eploy }, { includeSettling: true }), 'Setup option on; August flagged');
 
 const gbp = (x) => (x === null || x === undefined ? '-' : '£' + Math.round(x).toLocaleString('en-GB'));
 console.log('| Step | Applications | Paid-media hires | Expected hires from other sources | All hires | Cost per application | Budget for 30 hires | Not placed | Above largest (successful) month | Note |');
@@ -117,10 +118,28 @@ const pct = (x) => (x >= 0 ? '+' : '') + (x * 100).toFixed(0) + '%';
 console.log('');
 for (const [n, x] of [['H', H], ['J2', J], ['K2', K]]) {
   console.log(`Ranges (${n}): applications ${x.totals.range.apps.low.toFixed(0)} to ${x.totals.range.apps.high.toFixed(0)} (${pct(x.totals.range.apps.lowPct)} to ${pct(x.totals.range.apps.highPct)}); ` +
-    `paid-media hires ${x.totals.range.hires.low.toFixed(1)} to ${x.totals.range.hires.high.toFixed(1)}; other sources ${x.totals.range.otherHires.low.toFixed(1)} to ${x.totals.range.otherHires.high.toFixed(1)}; ` +
-    `all hires ${x.totals.range.allHires.low.toFixed(1)} to ${x.totals.range.allHires.high.toFixed(1)}`);
+    `paid-media hires ${x.totals.hires.toFixed(1)} (${x.totals.range.hires.low.toFixed(1)} to ${x.totals.range.hires.high.toFixed(1)}, hire rate uncertainty ${(x.totals.range.hires.rateSd * 100).toFixed(0)}%); ` +
+    `other sources ${x.totals.otherHires.toFixed(1)} (${x.totals.range.otherHires.low.toFixed(1)} to ${x.totals.range.otherHires.high.toFixed(1)}); ` +
+    `all hires ${x.totals.allHires.toFixed(1)} (${x.totals.range.allHires.low.toFixed(1)} to ${x.totals.range.allHires.high.toFixed(1)})`);
+  const rowsOut = (list) => list.filter(r => r.range && r.range.hires).map(r => `${r.name} ${r.hires.toFixed(1)} (${r.range.hires.low.toFixed(1)} to ${r.range.hires.high.toFixed(1)})${r.range.hires.lowConfidence ? ' LOW CONFIDENCE: ' + r.range.hires.reasons.join(', ') : ''}`).join('; ');
+  console.log(`  locations: ${rowsOut(x.locations.map(l => ({ ...l, name: l.region })))}`);
+  console.log(`  platforms: ${rowsOut(RAC.PLATFORMS.map(p => ({ ...x.platforms[p], name: p })))}`);
+  const lowCells = x.locations.flatMap(l => RAC.PLATFORMS.map(p => l.cells[p])).filter(c => c.range && c.range.hires && c.range.hires.lowConfidence);
+  console.log(`  location and platform rows flagged low confidence: ${lowCells.length} of ${x.locations.flatMap(l => RAC.PLATFORMS.map(p => l.cells[p])).filter(c => c.spend > 0).length} funded`);
 }
-console.log(`Other-source months averaged: ${H.otherSources.months.map(m => m.month + ' ' + m.hires).join(', ')}`);
+console.log(`Other-source months averaged: ${H.otherSources.months.map(m => m.month + ' ' + m.hires).join(', ')}; since ${H.otherSources.recentFrom}: ${H.otherSources.recentMean.toFixed(2)}; dispersion ${H.otherSources.dispersion.toFixed(2)}`);
+
+// Out of reach: reach at cap multiples 1, 2 and 3.
+const reachOut = (name, plan) => {
+  if (!plan.reach) { console.log(`\n${name}: target reachable at £${plan.budgetForTarget}`); return; }
+  console.log(`\n${name} (budget £${plan.budget.toLocaleString('en-GB')}, target ${plan.hireTarget}): most ${plan.reach.mostHires.toFixed(1)} hires, stop rising at ${gbp(plan.reach.saturationBudget)}, not placed ${gbp(plan.reach.unplaced)}`);
+  console.log('| Cap multiple | Hires at the plan budget | Not placed | Budget for the target | Most hires | Budget where hires stop rising |');
+  console.log('|---|---|---|---|---|---|');
+  plan.reach.byMultiple.forEach(r => console.log(`| ${r.multiple}${r.current ? ' (this plan)' : ''} | ${r.hiresAtBudget.toFixed(1)} | ${gbp(r.unplacedAtBudget)} | ${r.budgetForTarget ? gbp(r.budgetForTarget) : 'out of reach'} | ${r.mostHires === null ? '-' : r.mostHires.toFixed(1)} | ${r.saturationBudget === null ? '-' : gbp(r.saturationBudget)} |`));
+};
+reachOut('Out of reach, rac_data.js (17 Sep), cap multiple 1 (default)', RAC.plan.build('SMR', { ...SEPT, capMultiple: 1 }, { ds: D.SMR.ds, A, eploy }));
+reachOut('Out of reach, rac_data.js with August counted (1 Oct), cap multiple 1 (default)', RAC.plan.build('SMR', { ...SEPT, capMultiple: 1 }, { ds: later, A, eploy }));
+reachOut('Out of reach, plan 2a data, cap multiple 1 (default)', RAC.plan.build('SMR', { ...SEPT, capMultiple: 1 }, env2a));
 for (const [name, plan] of [['H', H], ['J', J]]) {
   console.log(`\n${name}: window ${plan.windowMonths.join(', ')}; unplaced reasons: ${plan.unplaced.reasons.join('; ') || 'none'}`);
   console.log('Location | open roles | spend | cap | cap reason | applications | hires | cost per hire');
@@ -130,7 +149,8 @@ for (const [name, plan] of [['H', H], ['J', J]]) {
 }
 const flagged = H.locations.flatMap(l => RAC.PLATFORMS.map(p => l.cells[p])).filter(c => c.spend > 0 && c.ceilingFlagged);
 console.log(`\nH cells funded with no successful month (typical-month limit): ${flagged.map(c => `${c.region} ${c.platform} ${gbp(c.spend)}`).join('; ') || 'none'}`);
-console.log(`October plan: settled months on rac_data.js (17 Sep) ${K ? '' : ''}${J.months ? Object.keys(J.months).filter(m => J.months[m].settled).slice(-8).join(', ') : ''}; window ${J.windowMonths.join(', ')}; with August uploaded on or after 24 Sep: ${K.windowMonths.join(', ')}`);
+console.log(`October plan: settled months on rac_data.js (17 Sep) ${Object.keys(J.months).filter(m => J.months[m].settled).slice(-8).join(', ')}; window ${J.windowMonths.join(', ')}; with August data taken on or after 1 Oct: ${K.windowMonths.join(', ')}`);
+console.log(`Plan 2a data (taken 24 Jul): window ${H.windowMonths.join(', ')} (June still settling at 24 days, July a part month)`);
 
 const out = process.argv.includes('--json') ? process.argv[process.argv.indexOf('--json') + 1] : null;
 if (out) fs.writeFileSync(out, JSON.stringify(rows.map(({ plan, ...r }) => r), null, 2));

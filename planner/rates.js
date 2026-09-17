@@ -55,15 +55,27 @@
     const screenMonths = opts.screenMonths || maturedMonths(eploy, get('screening_maturity_months'));
     const hireMonths = (opts.hireMonths || maturedMonths(eploy, get('hire_maturity_months')))
       .filter(mo => screenMonths.includes(mo));   // hires after screening need both settled
-    const N = get('screen_blend_n'), pull = get('meta_google_pull');
-    const M = get('location_screen_blend_n'), R = get('region_hire_blend_n');
+    const blend = { N: get('screen_blend_n'), pull: get('meta_google_pull'), M: get('location_screen_blend_n'), R: get('region_hire_blend_n') };
+    const regions = opts.regions || [...new Set(eploy.cells.map(c => c[1]))].filter(r => r !== 'Unknown').sort();
+    const counts = {
+      all: tally(eploy, role, screenMonths, () => 'all').all || { apps: 0, passed: 0, hires: 0 },
+      byPlat: tally(eploy, role, screenMonths, (region, plat) => plat),
+      byLoc: tally(eploy, role, screenMonths, (region) => region === 'Unknown' ? null : region),
+      hireAll: tally(eploy, role, hireMonths, () => 'all').all || { apps: 0, passed: 0, hires: 0 },
+      byLocHire: tally(eploy, role, hireMonths, (region) => region === 'Unknown' ? null : region),
+    };
+    return { role, screenMonths, hireMonths, counts, ...combine(counts, blend, regions), dataset: eploy.dataset };
+  }
 
-    const all = tally(eploy, role, screenMonths, () => 'all').all || { apps: 0, passed: 0, hires: 0 };
+  // The rates from the counts. Kept apart from build() so the hire ranges can
+  // rebuild the rates from counts redrawn within their uncertainty.
+  function combine(counts, blend, regions) {
+    const { N, pull, M, R } = blend;
+    const all = counts.all;
     const roleScreen = all.apps > 0 ? all.passed / all.apps : 0;
-    const byPlat = tally(eploy, role, screenMonths, (region, plat) => plat);
     const platform = {};
     RAC.PLATFORMS.forEach(p => {
-      const t = byPlat[p] || { apps: 0, passed: 0 };
+      const t = counts.byPlat[p] || { apps: 0, passed: 0 };
       const own = t.apps > 0 ? t.passed / t.apps : null;
       let used, basis;
       if (PULLED.includes(p)) {
@@ -71,22 +83,18 @@
         basis = `own rate moved ${Math.round(pull * 100)}% of the way to the role average`;
       } else {
         used = (t.passed + N * roleScreen) / (t.apps + N || 1);
-        basis = `blended with the role average by ${N} applications`;
+        basis = N >= 100000 ? 'role average' : N > 0 ? `blended with the role average by ${N} applications` : 'own rate';
       }
       platform[p] = { apps: t.apps, passed: t.passed, own, used, basis };
     });
-
-    const byLoc = tally(eploy, role, screenMonths, (region) => region === 'Unknown' ? null : region);
-    const hireAll = tally(eploy, role, hireMonths, () => 'all').all || { passed: 0, hires: 0 };
+    const hireAll = counts.hireAll;
     const roleHire = hireAll.passed > 0 ? hireAll.hires / hireAll.passed : 0;
-    const byLocHire = tally(eploy, role, hireMonths, (region) => region === 'Unknown' ? null : region);
     const location = {};
-    const regions = opts.regions || [...new Set(eploy.cells.map(c => c[1]))].filter(r => r !== 'Unknown').sort();
     regions.forEach(l => {
-      const t = byLoc[l] || { apps: 0, passed: 0 };
+      const t = counts.byLoc[l] || { apps: 0, passed: 0 };
       const ratio = t.apps > 0 && roleScreen > 0 ? (t.passed / t.apps) / roleScreen : 1;
       const adj = (t.apps * ratio + M * 1) / (t.apps + M || 1);
-      const th = byLocHire[l] || { passed: 0, hires: 0 };
+      const th = counts.byLocHire[l] || { passed: 0, hires: 0 };
       const hire = (th.hires + R * roleHire) / (th.passed + R || 1);
       location[l] = {
         apps: t.apps, passed: t.passed, ownScreen: t.apps > 0 ? t.passed / t.apps : null, screenAdjustment: adj,
@@ -94,11 +102,30 @@
       };
     });
     return {
-      role, screenMonths, hireMonths, roleScreen, roleHire,
+      roleScreen, roleHire,
       totals: { screen: all, hire: hireAll },
-      blend: { N, pull, M, R },
+      blend,
       platform, location,
-      dataset: eploy.dataset,
+    };
+  }
+
+  // Counts redrawn within their statistical uncertainty (normal approximation
+  // to the binomial, with half a count added so a zero still carries some
+  // uncertainty), for the hire ranges.
+  function redraw(counts, normal) {
+    const pass = (t, k, n) => {
+      if (!t || !(t[n] > 0)) return t;
+      const x = t[k] + 0.5, p = Math.min(1, x / (t[n] + 1));
+      const v = Math.min(t[n], Math.max(0, t[k] + normal() * Math.sqrt(x * (1 - p))));
+      return { ...t, [k]: v };
+    };
+    const map = (o, k, n) => Object.fromEntries(Object.entries(o).map(([key, t]) => [key, pass(t, k, n)]));
+    return {
+      all: pass(counts.all, 'passed', 'apps'),
+      byPlat: map(counts.byPlat, 'passed', 'apps'),
+      byLoc: map(counts.byLoc, 'passed', 'apps'),
+      hireAll: pass(counts.hireAll, 'hires', 'passed'),
+      byLocHire: map(counts.byLocHire, 'hires', 'passed'),
     };
   }
 
@@ -115,5 +142,5 @@
     };
   }
 
-  RAC.rates = { maturedMonths, tally, build, cell };
+  RAC.rates = { maturedMonths, tally, build, combine, redraw, cell };
 })(window.RAC = window.RAC || {});

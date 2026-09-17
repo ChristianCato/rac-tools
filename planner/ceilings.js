@@ -1,4 +1,4 @@
-// RAC planner: spending limits based on successful months (C1 to C5).
+// RAC planner: spending caps based on successful months (C1 to C5).
 //
 // For each location and platform:
 //   C3 Months considered: settled months from ceiling_first_month with at
@@ -11,10 +11,10 @@
 //      below its usual rate. The test applies only to months whose screening
 //      has settled, and only where at least quality_test_min_expected
 //      applications would normally have passed screening.
-//   C4 Limit = largest successful month x the spending limit multiple. With
+//   C4 Cap = largest successful month x the spending cap multiple. With
 //      no successful month, the cell's usual monthly spend (or the platform's
 //      typical month) x the multiple, flagged.
-//   C5 The limit is a hard cap (applied in allocate.js).
+//   C5 The plan never spends above the cap (applied in allocate.js).
 (function (RAC) {
   'use strict';
 

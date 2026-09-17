@@ -1,4 +1,4 @@
-// Checks for spending limits (C1 to C5), limits (D6), the allocation and the
+// Checks for spending caps (C1 to C5), cost limits (D6), the allocation and the
 // plan entry point.
 import { loadPlanner, loadAssumptions, readRoot } from '../lib/planner.mjs';
 import { calibrationData } from '../lib/calibration_data.mjs';
@@ -36,7 +36,7 @@ export default function (check, { assert, near }) {
     return out.join('; ');
   });
 
-  check('No location or platform goes above its limit unless instructed', () => {
+  check('No location or platform goes above its spending cap unless instructed', () => {
     let n = 0;
     for (const inputs of [SEPT, { ...SEPT, budget: 250000 }, { ...SEPT, regionMin: { Scotland: 9000 } }]) {
       const plan = RAC.plan.build('SMR', inputs, env);
@@ -61,7 +61,7 @@ export default function (check, { assert, near }) {
     return `${n} location and platform rows checked; a £9,000 Scotland minimum (above its £2,500 maximum and its limits) was met, with £${above.toFixed(0)} recorded as above limits by instruction`;
   });
 
-  check('Spending limits match a direct calculation from the data and Eploy', () => {
+  check('Spending caps match a direct calculation from the data and Eploy', () => {
     const plan = RAC.plan.build('SMR', SEPT, env);
     const settledSM = ['2025-10', '2025-11', '2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05'];
     let checked = 0, successful = 0, qualityOut = 0;
@@ -128,7 +128,7 @@ export default function (check, { assert, near }) {
   });
 
   check('Budget for the hire target: enough at the answer, not £50 less', () => {
-    // 25 hires: at the agreed defaults 30 SMR hires were out of reach within the spending limits.
+    // 25 hires: at the agreed defaults 30 SMR hires were out of reach within the spending caps.
     const T = { ...SEPT, hireTarget: 25 };
     const plan = RAC.plan.build('SMR', T, env);
     assert(plan.budgetForTarget > 0 && !plan.unreachable, 'no answer');
@@ -188,7 +188,7 @@ export default function (check, { assert, near }) {
     // worked out fresh, applied to paid media with no separate line.
     const rec = RAC.testing.reconciliation(env.ds, eploy, A, 'SMR');
     const earlier = { paid_hire_reconciliation_factor: { SMR: rec.factor }, other_hires_credit_factor: { SMR: 0 },
-      other_hires_monthly: { SMR: 0 }, other_hires_low: { SMR: 0 }, other_hires_high: { SMR: 0 } };
+      other_hires_monthly: { SMR: 0 } };
     const out = [];
     for (const [name, e] of [['live data', env], ['plan 2a data', env2a]]) {
       const full = RAC.plan.build('SMR', { ...SEPT, otherHiresShare: 1 }, e);
@@ -202,6 +202,87 @@ export default function (check, { assert, near }) {
       out.push(`${name}: ${full.totals.hires.toFixed(2)} hires at 100% against ${old.totals.hires.toFixed(2)} under the earlier scaling (x${rec.factor.toFixed(4)}), £${full.budgetForTarget} against £${old.budgetForTarget}`);
     }
     return `split unchanged by the share; 25 hires £${n25} at 0%, £${h25} at 50%; ` + out.join('; ');
+  });
+
+  check('Core Setup fields reach the plan and are recorded with their defaults', () => {
+    const plain = RAC.plan.build('SMR', SEPT, env);
+    const set = RAC.plan.build('SMR', { ...SEPT, capMultiple: 1.5, otherHiresShare: 0.25, otherHiresMonthly: 12, remainingError: 1.2, includeSettling: true }, env);
+    const byKey = (p) => Object.fromEntries(p.settings.map(x => [x.key, x]));
+    const a = byKey(plain), b = byKey(set);
+    assert(Object.keys(a).join() === 'capMultiple,otherHiresShare,otherHiresMonthly,remainingError,includeSettling', 'fields ' + Object.keys(a));
+    near(a.remainingError.default, RAC.assumptions.get(A, 'remaining_error_factor', 'SMR'), 0, 'adjustment default is the tested value');
+    near(a.otherHiresMonthly.default, RAC.assumptions.get(A, 'other_hires_monthly', 'SMR'), 0, 'other-source default is the tested value');
+    assert(a.includeSettling.value === false && a.includeSettling.default === false, 'include settling should be off by default');
+    assert(b.capMultiple.value === 1.5 && b.otherHiresShare.value === 0.25 && b.otherHiresMonthly.value === 12 && b.remainingError.value === 1.2 && b.includeSettling.value === true, 'values not recorded');
+    assert(Object.values(b).every(x => x.changed), 'changed flags');
+    near(set.totals.otherHires, 0.75 * 12, 1e-12, 'edited other-source hires');
+    near(set.factors.bias, 1.2, 0, 'edited adjustment');
+    const c = set.locations[0].cells.indeed;
+    near(c.remainingError, 1.2, 0, 'adjustment reaches the rows');
+    assert(set.settlingUsed.length === 1 && set.settlingUsed[0].month === '2026-08' && /not yet settled, figures may change/.test(set.settlingUsed[0].note), 'August not flagged: ' + JSON.stringify(set.settlingUsed));
+    assert(plain.settlingUsed.length === 0 && !plain.windowMonths.includes('2026-08'), 'August used with the option off');
+    const bad = RAC.plan.build('SMR', { ...SEPT, capMultiple: 7, remainingError: 9, otherHiresMonthly: -1 }, env);
+    const bk = byKey(bad);
+    assert(bk.capMultiple.value === 1 && bk.remainingError.value === bk.remainingError.default && bk.otherHiresMonthly.value === bk.otherHiresMonthly.default, 'out-of-range values should fall back to the defaults');
+    return `defaults: multiple ${a.capMultiple.default}, share ${a.otherHiresShare.default}, other sources ${a.otherHiresMonthly.default} a month (since ${plain.otherSources.recentFrom}: ${plain.otherSources.recentMean.toFixed(2)}), adjustment ${a.remainingError.default}; with the option on, August counted and flagged`;
+  });
+
+  check('Matching factor to platform hires applies at every share, including 0%', () => {
+    const paid = RAC.assumptions.get(A, 'paid_hire_reconciliation_factor', 'SMR');
+    const credit = RAC.assumptions.get(A, 'other_hires_credit_factor', 'SMR');
+    for (const share of [0, 0.3, 1]) {
+      const p = RAC.plan.build('SMR', { ...SEPT, otherHiresShare: share }, env);
+      near(p.factors.recon, paid + share * credit, 1e-12, `share ${share}`);
+      const c = p.locations[0].cells.indeed;
+      near(c.hiresPlatform, c.hires * paid / (paid + share * credit), 1e-9, `share ${share}: platform-matched part`);
+    }
+    return `x${paid} at 0%, plus the credited share x${credit}`;
+  });
+
+  check('Hire ranges come from the counts behind the rates, and thin rows are flagged', () => {
+    const plan = RAC.plan.build('SMR', SEPT, env);
+    const t = plan.totals.range;
+    assert(!('range_hires_low' in A.values), 'the tested hire misses should no longer set ranges');
+    assert(t.hires.low < plan.totals.hires && t.hires.high > plan.totals.hires, 'paid range does not contain the figure');
+    assert(t.allHires.low < plan.totals.allHires && t.allHires.high > plan.totals.allHires, 'all-hires range does not contain the figure');
+    // The plan-level rate rests mostly on the hires matched to the platforms.
+    const P0 = plan.hireRangeBasis.paidHires;
+    assert(t.hires.rateSd > 0.5 / Math.sqrt(P0) && t.hires.rateSd < 2.5 / Math.sqrt(P0), `rate uncertainty ${t.hires.rateSd} against 1/sqrt(${P0})`);
+    // The same plan gives the same range.
+    const fresh = loadPlanner();
+    const x = fresh.plan.build('SMR', SEPT, { ds: calibrationData(fresh).SMR.ds, A: fresh.assumptions.parse(readRoot('assumptions.csv')), eploy }).totals.range.hires;
+    assert(x.low === t.hires.low && x.high === t.hires.high, 'the same plan gave a different range on a fresh load');
+    // Fewer hires behind the rates: a wider rate uncertainty.
+    const thinEploy = { ...eploy, cells: eploy.cells.map(c => [c[0], c[1], c[2], c[3], Math.round(c[4] / 5), Math.round(c[5] / 5), Math.round(c[6] / 5)]), dataset: { ...eploy.dataset, file: 'thin' } };
+    const thin = RAC.plan.build('SMR', SEPT, { ...env, eploy: thinEploy });
+    assert(thin.totals.range.hires.rateSd > t.hires.rateSd * 1.5, `thin evidence ${thin.totals.range.hires.rateSd} against ${t.hires.rateSd}`);
+    const flagged = plan.locations.filter(l => l.range && l.range.hires.lowConfidence);
+    flagged.forEach(l => assert(l.range.hires.reasons.length > 0, l.region + ' flagged without a reason'));
+    const cellFlags = plan.locations.flatMap(l => P.map(p => l.cells[p])).filter(c => c.range && c.range.hires && c.range.hires.lowConfidence).length;
+    assert(cellFlags > 0, 'no location and platform row was flagged low confidence');
+    return `paid ${t.hires.low.toFixed(1)} to ${t.hires.high.toFixed(1)} (rate uncertainty ${(t.hires.rateSd * 100).toFixed(0)}% on ${P0} matched hires; ${(thin.totals.range.hires.rateSd * 100).toFixed(0)}% on a fifth of the counts); all hires ${t.allHires.low.toFixed(1)} to ${t.allHires.high.toFixed(1)}; low confidence: ${flagged.map(l => l.region).join(', ') || 'no locations'}, ${cellFlags} location and platform rows`;
+  });
+
+  check('Target out of reach: most hires, the budget where hires stop rising, and multiples 1 to 3', () => {
+    const plan = RAC.plan.build('SMR', { ...SEPT, capMultiple: 1 }, env);
+    assert(plan.unreachable && plan.reach, 'expected 30 hires out of reach at multiple 1');
+    const at = RAC.plan.build('SMR', { ...SEPT, capMultiple: 1, budget: plan.saturationBudget, noReach: true }, env);
+    near(at.totals.allHires, plan.maxAchievable, 0.02, 'hires at the budget where they stop rising');
+    const more = RAC.plan.build('SMR', { ...SEPT, capMultiple: 1, budget: plan.saturationBudget + 20000, noReach: true }, env);
+    near(more.totals.allHires, plan.maxAchievable, 0.02, 'hires above that budget');
+    assert(more.unplaced.total > 19000, 'extra budget should be unplaced');
+    const below = RAC.plan.build('SMR', { ...SEPT, capMultiple: 1, budget: plan.saturationBudget - 2000, noReach: true }, env);
+    assert(below.totals.allHires < plan.maxAchievable - 0.01, 'hires should still rise below that budget');
+    assert(plan.reach.byMultiple.map(x => x.multiple).join() === '1,2,3', 'multiples');
+    for (const r of plan.reach.byMultiple) {
+      const q = RAC.plan.build('SMR', { ...SEPT, capMultiple: r.multiple, noReach: true }, env);
+      near(r.hiresAtBudget, q.totals.allHires, 1e-9, `multiple ${r.multiple} hires`);
+      near(r.unplacedAtBudget, q.unplaced.total, 1e-6, `multiple ${r.multiple} unplaced`);
+      if (r.budgetForTarget !== null) assert(r.budgetForTarget === q.budgetForTarget && !q.unreachable, `multiple ${r.multiple} budget`);
+      else assert(q.unreachable && r.mostHires === q.maxAchievable && r.saturationBudget === q.saturationBudget, `multiple ${r.multiple} most hires`);
+    }
+    return plan.reach.byMultiple.map(r => `x${r.multiple}: ${r.hiresAtBudget.toFixed(1)} hires at £${SEPT.budget}, £${r.unplacedAtBudget.toFixed(0)} not placed, ` +
+      (r.budgetForTarget ? `30 hires at £${r.budgetForTarget}` : `most ${r.mostHires.toFixed(1)} hires, reached at £${r.saturationBudget}`)).join('; ');
   });
 
   check('A plan does not depend on what was built before it', () => {

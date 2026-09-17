@@ -9,10 +9,16 @@
 4. The SMR and Patrol buttons in the header switch the role on every screen.
 5. The Setup share of other-source hires credited to paid media reaches the
    plan (Plan tab hires equal the planner at 50%).
-6. A broken assumptions.csv stops the app, naming the row.
-7. "Use those counts instead" on Setup is clicked and the result recorded
-   (a known bug reported to the app author; recorded, not failed).
-8. Nothing is written to the database; every request is handled or blocked.
+6. The other core Setup fields (expected hires from other sources, the
+   remaining-error adjustment, include months still settling) reach the plan,
+   and a month still settling is flagged on Setup.
+7. Where the spending caps put the target out of reach, the Plan tab shows the
+   most hires, the budget where hires stop rising and multiples 1 to 3, equal
+   to the planner.
+8. A broken assumptions.csv stops the app, naming the row.
+9. "Use those counts instead" on Setup sets that role's open roles to RAC's
+   plan column, leaves the other role's alone, and raises no page error.
+10. Nothing is written to the database; every request is handled or blocked.
 
 Run from the repo folder:  python tests/browser/app_checks.py  [--libs DIR]
 Screenshots are written to tests/browser/out/."""
@@ -80,9 +86,13 @@ EXPECTED_JS = """(role) => {
     daysInMonth: window.__AVP_DATA__.days_in_month[month], capMultiple: w.capMultiple, bench: w.bench[role],
   };
   p.otherHiresShare = (w.otherHiresShare || {})[role] ?? null;
+  p.otherHiresMonthly = (w.otherHiresMonthly || {})[role] ?? null;
+  p.remainingError = (w.remainingError || {})[role] ?? null;
+  p.includeSettling = !!w.includeSettling;
   const plan = RAC.plan.build(role, p, RAC.app.env(window.__AVP_DATA__, 'browser-check'));
   return { apps: plan.totals.apps, hires: plan.totals.allHires, paid: plan.totals.hires, other: plan.totals.otherHires,
-    deployable: plan.deployable, settledTo: plan.stamps.data.settledTo };
+    deployable: plan.deployable, settledTo: plan.stamps.data.settledTo, reach: plan.reach,
+    settling: plan.settlingUsed.map(x => x.month) };
 }""" % (json.dumps(working), json.dumps({'SMR': SMR_VAC, 'Patrol': PATROL_VAC}))
 
 
@@ -127,6 +137,28 @@ with sync_playwright() as pw:
         fails.append(f'Plan tab {shown} differs from the planner {want}')
     page.screenshot(path=os.path.join(OUT, 'plan_smr.png'))
 
+    # Out of reach at a 200% multiple on this data: the panel shows the planner's figures.
+    reach = want['reach']
+    panel = page.locator('[data-panel="reach"]')
+    if not reach:
+        fails.append('expected 30 SMR hires to be out of reach on this data')
+    elif panel.count() != 1:
+        fails.append('out-of-reach panel not shown')
+    else:
+        text = panel.inner_text()
+        rows = panel.locator('tbody tr').all_inner_texts()
+        most = f"{reach['mostHires']:.1f}"
+        sat = f"£{reach['saturationBudget']:,.0f}"
+        if most not in text or sat not in text or len(rows) != 3:
+            fails.append(f'out-of-reach panel does not match the planner ({most}, {sat}): {text[:300]}')
+        for r, row in zip(reach['byMultiple'], rows):
+            if f"{r['hiresAtBudget']:.1f}" not in row:
+                fails.append(f"multiple {r['multiple']} row {row!r} lacks {r['hiresAtBudget']:.1f} hires")
+        kpi = page.locator('.kpi:has(.kpi-label:has-text("Budget to hit target"))').inner_text()
+        if 'Most ' + most not in kpi:
+            fails.append('budget KPI does not show the most hires: ' + kpi)
+        notes.append(f"out of reach: most {most} hires at {sat}; rows " + ' | '.join(x.replace(chr(9), ' ') for x in rows))
+
     page.locator('.tab-btn', has_text='Benchmarks').click()
     page.wait_for_selector('text=The plan uses', timeout=30000)
     bench_text = page.locator('.banner-info').first.inner_text()
@@ -168,6 +200,7 @@ with sync_playwright() as pw:
     box.wait_for(timeout=30000)
     before_share = box.input_value()
     box.fill('50%')
+    box.press('Enter')
     page.wait_for_timeout(600)
     page.locator('.tab-btn', has_text='Plan').first.click()
     role_button(page, 'SMR')
@@ -178,6 +211,34 @@ with sync_playwright() as pw:
         fails.append('Setup share did not start at 0%: ' + before_share)
     if half_shown != (round(half_want['apps']), round(half_want['hires'], 1)) or half_shown == again:
         fails.append(f'Plan tab after a 50% share {half_shown} differs from the planner {half_want}')
+    # The other core Setup fields.
+    page.locator('.tab-btn', has_text='Setup').first.click()
+    page.locator('input[data-field="other-hires-share-SMR"]').wait_for(timeout=30000)
+    for field, value in (('other-hires-monthly-SMR', '12'), ('remaining-error-SMR', '1.2')):
+        f = page.locator(f'input[data-field="{field}"]')
+        f.fill(value)
+        f.press('Enter')
+        page.wait_for_timeout(400)
+    page.locator('input[data-field="include-settling"]').first.check()
+    page.wait_for_timeout(800)
+    setup_text = page.locator('[data-panel="core-settings-SMR"]').inner_text()
+    if 'not yet settled, figures may change' not in setup_text or 'Aug' not in setup_text:
+        fails.append('Setup does not flag August as not yet settled: ' + setup_text[-300:])
+    if 'Average since Mar' not in setup_text:
+        fails.append('Setup does not show the average since March 2026')
+    page.screenshot(path=os.path.join(OUT, 'setup_core_settings.png'), full_page=True)
+    page.locator('.tab-btn', has_text='Plan').first.click()
+    role_button(page, 'SMR')
+    core_shown = kpis(page)
+    core_want = page.evaluate(EXPECTED_JS.replace(
+        'p.otherHiresShare = (w.otherHiresShare || {})[role] ?? null;',
+        'p.otherHiresShare = role === "SMR" ? 0.5 : null;'
+    ).replace('p.otherHiresMonthly = (w.otherHiresMonthly || {})[role] ?? null;', 'p.otherHiresMonthly = role === "SMR" ? 12 : null;'
+    ).replace('p.remainingError = (w.remainingError || {})[role] ?? null;', 'p.remainingError = role === "SMR" ? 1.2 : null;'
+    ).replace('p.includeSettling = !!w.includeSettling;', 'p.includeSettling = true;'), 'SMR')
+    notes.append(f"Setup 12 other-source hires a month, adjustment 1.2, months still settling on: SMR {core_shown} (planner {core_want['apps']:.1f}, {core_want['hires']:.2f}; months still settling used {core_want['settling']})")
+    if core_shown != (round(core_want['apps']), round(core_want['hires'], 1)) or core_want['settling'] != ['2026-08']:
+        fails.append(f'Plan tab after the core fields {core_shown} differs from the planner {core_want}')
     for tab in ('Setup', 'Platforms', 'Method'):
         page.locator('.tab-btn', has_text=tab).first.click()
         page.wait_for_timeout(600)
@@ -213,14 +274,14 @@ with sync_playwright() as pw:
     ctx.close()
 
     # "Use those counts instead" (Setup): shown when RAC's file for the month
-    # carried a plan column. Reported as a probable bug (role used outside its
-    # scope); the author could not reproduce it. Recorded, not failed.
+    # carried a plan column. Clicking it for SMR must pin SMR's counts to the
+    # plan column (twice the live counts here) and leave Patrol's as they are.
     import copy
     db2 = copy.deepcopy(DB)
     rows = lambda vac, k: [{'location': r + ' depot', 'region': r, 'plan': n * k, 'v': {'2026-09-15': n}} for r, n in vac.items()]
     db2['workspace']['months']['2026-10']['priorities'] = {
         'dates': ['2026-09-15'], 'budgets': {}, 'thresholds': {},
-        'roles': {'SMR': {'rows': rows(SMR_VAC, 2)}, 'Patrol': {'rows': rows(PATROL_VAC, 2)}}}
+        'roles': {'SMR': {'rows': rows(SMR_VAC, 2)}, 'Patrol': {'rows': rows(PATROL_VAC, 3)}}}
     ctx, page, guard, errors = new_page(browser, TEST, db=db2, libs=LIBS)
     page.goto(TEST + '#planner/setup')
     page.wait_for_selector('.app-header', timeout=60000)
@@ -232,13 +293,18 @@ with sync_playwright() as pw:
         link.first.click()
         page.wait_for_timeout(800)
         pinned = page.locator('text=This plan is using its own open-role counts').count() > 0
-        counts_text = ' / '.join(page.locator('.loc-toggle .vac-input').evaluate_all('els => els.slice(0, 3).map(e => e.value)'))
-        use_counts = (f'"Use those counts instead" ({n_links} links): page errors {errors[:2] or "none"}; '
-                      f'plan pinned afterwards: {pinned}; first counts shown: {counts_text or "none"}')
+        regions = page.evaluate('window.__AVP_DATA__.regions_ordered')
+        values = page.locator('.loc-toggle .vac-input').evaluate_all('els => els.map(e => Number(e.value))')
+        smr_want = [2 * SMR_VAC.get(r, 0) for r in regions]
+        patrol_want = [PATROL_VAC.get(r, 0) for r in regions]
+        notes.append(f'"Use those counts instead" ({n_links} links, SMR clicked): pinned {pinned}; SMR {values[:len(regions)]}; Patrol {values[len(regions):]}; page errors {errors[:2] or "none"}')
+        if errors:
+            fails.append(f'"Use those counts instead" raised page errors: {errors[:2]}')
+        if not pinned or values != smr_want + patrol_want:
+            fails.append(f'"Use those counts instead" gave {values}, expected SMR {smr_want} and Patrol unchanged {patrol_want}')
     except Exception as e:
-        use_counts = '"Use those counts instead" could not be tested: ' + str(e)[:160]
+        fails.append('"Use those counts instead" could not be tested: ' + str(e)[:160])
     page.screenshot(path=os.path.join(OUT, 'use_those_counts.png'))
-    notes.append(use_counts)
     if guard.blocked or guard.writes:
         fails.append(f'use-counts run: blocked {guard.blocked[:3]}, writes {guard.writes[:3]}')
     ctx.close()

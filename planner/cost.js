@@ -49,13 +49,18 @@
   // Everything one role's calculations share for one build. Built fresh each
   // time from its inputs; nothing is kept between builds.
   //   opts.before: only months before this one count (for testing)
+  //   opts.includeSettling: complete months still inside the settle period
+  //     count too (Setup option); they are listed in settlingUsed
+  // `settled` is the list of months the calculations use.
   function context(ds, A, role, window, opts = {}) {
     const status = RAC.data.monthStatus(ds, A);
-    const settled = ds.months.filter(mo => status[mo].settled && (!opts.before || mo < opts.before));
+    const counts = (mo) => status[mo].settled || (!!opts.includeSettling && status[mo].settling);
+    const settled = ds.months.filter(mo => counts(mo) && (!opts.before || mo < opts.before));
+    const settlingUsed = settled.filter(mo => !status[mo].settled);
     const w = weights(settled, window);
     const windowMonths = settled.filter(mo => w[mo] > 0);
     return {
-      ds, A, role, window: normWindow(window), status, settled,
+      ds, A, role, window: normWindow(window), status, settled, settlingUsed,
       weights: w, windowMonths, monthCount: windowMonths.length,
       K: RAC.assumptions.get(A, 'cpa_prior_apps'),
       benchmark: RAC.assumptions.get(A, 'role_cpa_benchmark', role),

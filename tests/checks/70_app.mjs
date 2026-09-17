@@ -53,8 +53,8 @@ export default function (check, { assert, near }) {
     assert(JSON.stringify(tags) === JSON.stringify(manifest().files), 'index.html: ' + tags.join(', '));
     assert(html.indexOf('src="rac_data.js"') < html.indexOf('src="planner/core.js"'), 'planner must load after rac_data.js');
     assert(html.indexOf('src="planner/app.js"') < html.indexOf('<script type="text/babel"'), 'planner must load before the app script');
-    assert(/<script type="text\/babel" src="ui\/benchmarks_tab\.jsx"><\/script>\s*<script type="text\/babel" data-type="module">/.test(html), 'Benchmarks tab file not loaded before the app');
-    return `${tags.length} planner files, then ui/benchmarks_tab.jsx, then the app`;
+    assert(/<script type="text\/babel" src="ui\/benchmarks_tab\.jsx"><\/script>\s*<script type="text\/babel" src="ui\/plan_panels\.jsx"><\/script>\s*<script type="text\/babel" data-type="module">/.test(html), 'UI files not loaded before the app');
+    return `${tags.length} planner files, then ui/benchmarks_tab.jsx and ui/plan_panels.jsx, then the app`;
   });
 
   check('The pacing copy of the previous engine is the frozen engine, unchanged', () => {
@@ -85,9 +85,16 @@ export default function (check, { assert, near }) {
     return 'setRoleView(r); the browser check clicks both buttons';
   });
 
-  check('Setup passes the credited share and the multiple to the planner; the file defaults are 0% and 1', () => {
-    assert(/otherHiresShare: \(s\.otherHiresShare && s\.otherHiresShare\[role\] != null\) \? s\.otherHiresShare\[role\] : null,/.test(html), 'planParams does not pass otherHiresShare');
-    assert(/data-field=\{'other-hires-share-' \+ role\}/.test(html), 'Setup share field missing');
+  check('Setup passes the core fields and the multiple to the planner; the file defaults are 0% and 1', () => {
+    for (const f of ['otherHiresShare', 'otherHiresMonthly', 'remainingError']) {
+      assert(html.includes(`${f}: (s.${f} && s.${f}[role] != null) ? s.${f}[role] : null,`), 'planParams does not pass ' + f);
+    }
+    assert(/includeSettling: !!s\.includeSettling,/.test(html), 'planParams does not pass includeSettling');
+    assert(/<RACUI\.CoreSettings role=\{role\}/.test(html), 'Setup core settings panel missing');
+    const ui = readRoot('ui/plan_panels.jsx');
+    for (const f of ["'other-hires-share-' + role", "'other-hires-monthly-' + role", "'remaining-error-' + role", '"include-settling"', '"cap-multiple"']) {
+      assert(ui.includes('field=' + (f.startsWith('"') ? f : '{' + f + '}')) || ui.includes('data-field=' + f), 'Setup field missing: ' + f);
+    }
     const { RAC } = appWith();
     assert(RAC.app.defaultCapMultiple() === 1, 'default multiple ' + RAC.app.defaultCapMultiple());
     const a = RAC.app.buildFundingPlan('SMR', { ...septSmrSettings(-1), otherHiresShare: null }, BASE, 1);
@@ -169,7 +176,7 @@ export default function (check, { assert, near }) {
 
   check('Pacing for saved September plans matches the live app today', () => {
     const f = path.join(T, 'fixtures/live_pacing_2026-09.json');
-    if (!fs.existsSync(f)) return 'SKIPPED: needs the live app\'s current pacing figures for the saved September SMR and Patrol plans (tests/fixtures/live_pacing_2026-09.json)';
+    if (!fs.existsSync(f)) return 'SKIPPED: needs a Performance Pacing export of the same saved September plan from the live app and from the c3-build test link; compare them with python tools/compare_pacing.py LIVE.xlsx TEST.xlsx (exports stay in the data folder)';
     throw new Error('live pacing fixture present but no comparison written yet');
   });
 
@@ -217,9 +224,9 @@ export default function (check, { assert, near }) {
     const b = RAC.app.buildFundingPlan('SMR', septSmrSettings(-1), D, 2).predictedApps;
     assert(a === same, 'without a version change the stored plan should be reused');
     assert(Math.abs(b - a) > 1, 'the plan did not move after the data version changed');
-    window.__RAC_BENCH__ = { ...window.__RAC_BENCH__, at: '2026-09-30' };
+    window.__RAC_BENCH__ = { ...window.__RAC_BENCH__, at: '2026-10-01' };
     const c = RAC.app.buildFundingPlan('SMR', septSmrSettings(-1), D, 2);
-    assert(c.v2.months['2026-08'].settled, 'August should count once uploaded on 30 September');
+    assert(c.v2.months['2026-08'].settled, 'August should count once uploaded on 1 October');
     return `applications ${a.toFixed(1)} to ${b.toFixed(1)} after the data changed; August counted once the upload date moved past the settle period`;
   });
 }

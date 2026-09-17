@@ -41,18 +41,16 @@ export default function (check, { assert, near }) {
       const r = results.roles[role];
       // PERCENTILE.INC written out again here: sort, then interpolate.
       const inc = (xs, q) => { const s = xs.slice().sort((a, b) => a - b); const k = (s.length - 1) * q, f = Math.floor(k); return s[f] + (s[Math.min(f + 1, s.length - 1)] - s[f]) * (k - f); };
-      const am = r.applications.map(o => o.miss), hm = r.hires.map(o => o.miss);
+      const am = r.applications.map(o => o.miss);
       near(RAC.assumptions.get(A, 'range_apps_low', role), inc(am, lo), 2e-4, role + ' applications low');
       near(RAC.assumptions.get(A, 'range_apps_high', role), inc(am, hi), 2e-4, role + ' applications high');
-      near(RAC.assumptions.get(A, 'range_hires_low', role), inc(hm, lo), 2e-4, role + ' hires low');
-      near(RAC.assumptions.get(A, 'range_hires_high', role), inc(hm, hi), 2e-4, role + ' hires high');
       const total = { low: inc(am, lo), high: inc(am, hi), sigma: RAC.assumptions.get(A, 'range_apps_sigma', role) };
       for (const [n, S, Su, se] of [[1, 5000, 1000, 0.1], [30, 2000, 2000, 0.05], [5000, 1000, 1000, 0]]) {
         const w = RAC.backtest.widen(total, RAC.assumptions.get(A, 'row_widen_apps', role), n, S, Su, se);
         const b = RAC.backtest.band(total, w);
         assert(w >= 1 && b.low <= total.low + 1e-12 && b.high >= total.high - 1e-12, `${role} row range narrower than the total (evidence ${n})`);
       }
-      out.push(`${role}: applications ${(total.low * 100).toFixed(1)}% to +${(total.high * 100).toFixed(1)}% over ${am.length} months; hires ${(inc(hm, lo) * 100).toFixed(1)}% to +${(inc(hm, hi) * 100).toFixed(1)}% over ${hm.length}`);
+      out.push(`${role}: applications ${(total.low * 100).toFixed(1)}% to +${(total.high * 100).toFixed(1)}% over ${am.length} months`);
     }
     return out.join('; ');
   });
@@ -70,8 +68,6 @@ export default function (check, { assert, near }) {
       cmp('remaining_error_factor', role, bt.final.bias);
       cmp('range_apps_low', role, bt.appsRange.low);
       cmp('range_apps_high', role, bt.appsRange.high);
-      cmp('range_hires_low', role, bt.hireRange.low);
-      cmp('range_hires_high', role, bt.hireRange.high);
       cmp('row_widen_apps', role, bt.rowWiden.c);
       const t = RAC.testing.blendStrengths(eploy, A, role);
       ['screen_blend_n', 'location_screen_blend_n', 'region_hire_blend_n'].forEach(k => cmp(k, role, t[k].value));
@@ -79,8 +75,6 @@ export default function (check, { assert, near }) {
       cmp('paid_hire_reconciliation_factor', role, rec.paidFactor, 6e-5);
       cmp('other_hires_credit_factor', role, rec.otherFactor, 6e-5);
       cmp('other_hires_monthly', role, rec.otherMean, 6e-5);
-      cmp('other_hires_low', role, rec.otherLow, 6e-5);
-      cmp('other_hires_high', role, rec.otherHigh, 6e-5);
     }
     assert(!stale.length, 'assumptions.csv is out of date; run node tools/calibrate.mjs --write and review:\n' + stale.join('\n'));
     return 'blend strengths, reconciliation, other-source hires, diminishing returns, adjustment, ranges and row widening all match';
@@ -89,11 +83,32 @@ export default function (check, { assert, near }) {
   check('Back-test results file matches a fresh run', () => {
     for (const role of RAC.ROLES) {
       const f = results.roles[role], bt = fresh[role];
-      assert(f.applications.length === bt.outer.length && f.hires.length === bt.hires.length, role + ' test month counts differ');
+      const hm = f.hiresCheck.months;
+      assert(f.applications.length === bt.outer.length && hm.length === bt.hires.length, role + ' test month counts differ');
       f.applications.forEach((o, i) => near(o.miss, bt.outer[i].miss, 1e-4, `${role} ${o.month} miss`));
-      f.hires.forEach((o, i) => near(o.miss, bt.hires[i].miss, 1e-4, `${role} ${o.month} hire miss`));
+      hm.forEach((o, i) => near(o.miss, bt.hires[i].miss, 1e-4, `${role} ${o.month} hire miss`));
+      const s = f.sensitivity;
+      assert(s && s.backtest && s.blend, role + ' sensitivity missing');
+      assert(s.backtest.leaveOneOut.length === bt.testable.length, role + ' leave-one-out months');
+      s.backtest.leaveOneOut.forEach((x, i) => {
+        const y = bt.stability.loo[i];
+        assert(x.month === y.month && x.bRole === y.bRole && x.k === y.k && Math.abs(x.bias - y.bias) < 1e-4, `${role} leave-one-out ${x.month} differs`);
+      });
     }
-    return RAC.ROLES.map(r => `${r}: ${results.roles[r].applications.length} application months, ${results.roles[r].hires.length} hire months`).join('; ');
+    return RAC.ROLES.map(r => `${r}: ${results.roles[r].applications.length} application months, ${results.roles[r].hiresCheck.months.length} hire check months; leave-one-out recorded`).join('; ');
+  });
+
+  check('Every test month has at least 5 settled months before it', () => {
+    const out = [];
+    for (const role of RAC.ROLES) {
+      const bt = fresh[role];
+      const all = RAC.cost.context(DATA[role].ds, A, role, WINDOW).settled;
+      bt.testable.forEach(M => assert(all.indexOf(M) >= 5, `${role} ${M} has ${all.indexOf(M)} earlier months`));
+      assert(all.indexOf(bt.testable[0]) === 5, `${role} first test month ${bt.testable[0]}`);
+      bt.hires.forEach(h => assert(h.learnedFrom.split(' to ').length === 2, 'hire check month'));
+      out.push(`${role}: ${bt.testable[0]} to ${bt.testable[bt.testable.length - 1]}`);
+    }
+    return out.join('; ');
   });
 
   check('Poisson deviance is zero on a perfect prediction and grows with the miss', () => {

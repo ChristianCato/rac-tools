@@ -30,27 +30,33 @@ export default function (check, { assert, near }) {
   const A = loadAssumptions(RAC);
   const W = { mode: 'last3up', mult: 2 };
 
-  check('Part months: plan 2a data leaves out July (cut at 24 July)', () => {
+  check('Part months: plan 2a data leaves out July (cut at 24 July); June is still settling', () => {
     const ds = plan2aData(RAC);
     const st = RAC.data.monthStatus(ds, A);
     const settled = RAC.data.settledMonths(ds, A);
-    assert(!st['2026-07'].settled && /part month/.test(st['2026-07'].reason), 'July: ' + JSON.stringify(st['2026-07']));
-    assert(st['2026-06'].settled, 'June should be settled 24 days after month end: ' + JSON.stringify(st['2026-06']));
-    assert(settled[settled.length - 1] === '2026-06', 'last settled month ' + settled[settled.length - 1]);
-    return `settled ${settled[0]} to ${settled[settled.length - 1]}; July: ${st['2026-07'].reason}`;
+    assert(RAC.assumptions.get(A, 'data_settle_days') === 31, 'settle period should be the agreed 31 days');
+    assert(!st['2026-07'].settled && !st['2026-07'].settling && /part month/.test(st['2026-07'].reason), 'July: ' + JSON.stringify(st['2026-07']));
+    assert(!st['2026-06'].settled && st['2026-06'].settling, 'June should be still settling 24 days after month end: ' + JSON.stringify(st['2026-06']));
+    assert(settled[settled.length - 1] === '2026-05', 'last settled month ' + settled[settled.length - 1]);
+    const off = RAC.cost.context(ds, A, 'SMR', W);
+    const on = RAC.cost.context(ds, A, 'SMR', W, { includeSettling: true });
+    assert(!off.settled.includes('2026-06') && off.settlingUsed.length === 0, 'June counted with the option off');
+    assert(on.settled.includes('2026-06') && !on.settled.includes('2026-07') && JSON.stringify(on.settlingUsed) === '["2026-06"]', 'option on: ' + on.settlingUsed);
+    return `settled ${settled[0]} to ${settled[settled.length - 1]}; June: ${st['2026-06'].reason}; July: ${st['2026-07'].reason}; with the option on, June counts and is listed, July never does`;
   });
 
   check('Part months: repo data file alone leaves out July; 16 September data leaves out August', () => {
     const repo = RAC.data.snapshot(structuredClone(BASE), null, REPO);
     const s1 = RAC.data.settledMonths(repo, A);
-    assert(s1[s1.length - 1] === '2026-06', 'repo file last settled ' + s1[s1.length - 1]);
+    assert(s1[s1.length - 1] === '2026-05', 'repo file last settled ' + s1[s1.length - 1]);
     const live = liveData(RAC);
     const st = RAC.data.monthStatus(live, A);
-    assert(!st['2026-08'].settled && st['2026-07'].settled, 'August ' + JSON.stringify(st['2026-08']) + ' July ' + JSON.stringify(st['2026-07']));
-    const later = RAC.data.monthStatus(liveData(RAC, '2026-09-24'), A);
-    assert(later['2026-08'].settled, 'August should count once uploaded on or after 24 September');
-    return `repo file: to ${s1[s1.length - 1]} (July: ${RAC.data.monthStatus(repo, A)['2026-07'].reason}); ` +
-      `16 Sep data: August ${st['2026-08'].reason}; counts if uploaded on or after 24 Sep`;
+    assert(!st['2026-08'].settled && st['2026-08'].settling && st['2026-07'].settled, 'August ' + JSON.stringify(st['2026-08']) + ' July ' + JSON.stringify(st['2026-07']));
+    const sept30 = RAC.data.monthStatus(liveData(RAC, '2026-09-30'), A);
+    const oct1 = RAC.data.monthStatus(liveData(RAC, '2026-10-01'), A);
+    assert(!sept30['2026-08'].settled && oct1['2026-08'].settled, 'August should count from 1 October (31 days)');
+    return `repo file (taken ${repo.repo.generated_at}): to ${s1[s1.length - 1]} (June: ${RAC.data.monthStatus(repo, A)['2026-06'].reason}); ` +
+      `16 Sep data: August ${st['2026-08'].reason}; counts if the data is taken on or after 1 October`;
   });
 
   check('Part months are left out of cost per application, typical month and spend level', () => {

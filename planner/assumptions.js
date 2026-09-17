@@ -33,10 +33,10 @@
     region_hire_blend_n:      { unit: 'count', min: 0, max: 100000, perRole: true },
     paid_hire_reconciliation_factor:{ unit: 'multiple', min: 0.1, max: 10, perRole: true },
     other_hires_monthly:      { unit: 'hires', min: 0, max: 10000, perRole: true },
-    other_hires_low:          { unit: 'hires', min: 0, max: 10000, perRole: true },
-    other_hires_high:         { unit: 'hires', min: 0, max: 10000, perRole: true },
     other_hires_credit_factor:{ unit: 'multiple', min: 0, max: 20, perRole: true },
     other_hires_credited_share:{ unit: 'share', min: 0, max: 1, perRole: true },
+    other_hires_recent_from:  { unit: 'month' },
+    combined_activity_includes_display:{ unit: 'flag', min: 0, max: 1, integer: true },
     d1_role_rate:             { unit: 'exponent', min: 0.05, max: 1, perRole: true },
     d1_prior_strength:        { unit: 'count', min: 0, max: 100000, perRole: true },
     remaining_error_factor:   { unit: 'multiple', min: 0.5, max: 2, perRole: true },
@@ -44,11 +44,13 @@
     range_apps_low:           { unit: 'miss', min: -1, max: 10, perRole: true },
     range_apps_high:          { unit: 'miss', min: -1, max: 10, perRole: true },
     range_apps_sigma:         { unit: 'log', min: 0, max: 5, perRole: true },
-    range_hires_low:          { unit: 'miss', min: -1, max: 10, perRole: true },
-    range_hires_high:         { unit: 'miss', min: -1, max: 10, perRole: true },
-    range_hires_sigma:        { unit: 'log', min: 0, max: 5, perRole: true },
+    hire_range_draws:         { unit: 'count', min: 200, max: 20000, integer: true },
+    low_confidence_rate_sd:   { unit: 'log', min: 0, max: 5 },
+    low_confidence_min_apps:  { unit: 'count', min: 0, max: 100000 },
     row_widen_apps:           { unit: 'count', min: 0, max: 100000, perRole: true },
     backtest_first_month:     { unit: 'month' },
+    test_min_history_months:  { unit: 'months', min: 1, max: 24, integer: true },
+    own_figure_min_gain:      { unit: 'loglik', min: 0, max: 100 },
     range_low_percentile:     { unit: 'share', min: 0, max: 0.5 },
     range_high_percentile:    { unit: 'share', min: 0.5, max: 1 },
     range_hit_rate_min_months:{ unit: 'count', min: 1, max: 120, integer: true },
@@ -105,18 +107,12 @@
         if (!values[key] || values[key][role] === undefined) errors.push(`missing row: ${key}${role === 'all' ? '' : ' for ' + role}`);
       });
     });
-    RAC.ROLES.forEach(role => ['apps', 'hires'].forEach(kind => {
+    RAC.ROLES.forEach(role => ['apps'].forEach(kind => {
       const lo = values['range_' + kind + '_low'], hi = values['range_' + kind + '_high'];
       if (lo && hi && lo[role] !== undefined && hi[role] !== undefined && lo[role] > hi[role]) {
         errors.push(`range_${kind}_low for ${role} must not be above range_${kind}_high`);
       }
     }));
-    RAC.ROLES.forEach(role => {
-      const lo = values.other_hires_low, hi = values.other_hires_high;
-      if (lo && hi && lo[role] !== undefined && hi[role] !== undefined && lo[role] > hi[role]) {
-        errors.push(`other_hires_low for ${role} must not be above other_hires_high`);
-      }
-    });
     if (values.range_low_percentile && values.range_high_percentile &&
         values.range_low_percentile.all >= values.range_high_percentile.all) {
       errors.push('range_low_percentile must be below range_high_percentile');

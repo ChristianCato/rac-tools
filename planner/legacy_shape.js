@@ -8,6 +8,8 @@
 // Field notes:
 //   beyondProven     spend above each cell's largest successful month (x1)
 //   unplacedBudget   budget the plan could not place efficiently
+//   mostHires, saturationBudget  where the target is out of reach within the
+//                    spending caps: the most hires and the budget where they stop rising
 //   aggBandPct       half the width of the plan range, for screens that show
 //                    one figure; predLow and predHigh carry the real range
 //   appSubTarget     the application target shared by predicted applications,
@@ -139,6 +141,7 @@
       budgetForTarget: plan.budgetForTarget, budgetPinned: plan.pinned,
       capsBinding: plan.unplaced.total > 1, solveOnHires: plan.solveOnHires,
       targetUnreachable: plan.unreachable,
+      mostHires: plan.maxAchievable, saturationBudget: plan.saturationBudget,
       budget: plan.budget,
       v2: plan,
     };

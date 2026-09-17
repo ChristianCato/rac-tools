@@ -604,6 +604,7 @@ input[type=range]::-moz-range-thumb {
 <body>
 <div id="root"></div>
 <script type="text/babel" src="ui/benchmarks_tab.jsx"></script>
+<script type="text/babel" src="ui/plan_panels.jsx"></script>
 <script type="text/babel" data-type="module">
 const { useState, useEffect, useMemo, useRef, createContext, useContext } = React;
 
@@ -2280,12 +2281,15 @@ function planParams(role, s) {
     daysInMonth: (DATA.days_in_month && DATA.days_in_month[s.planMonth]) || 30,
     capMultiple: s.capMultiple || 1.0,
     otherHiresShare: (s.otherHiresShare && s.otherHiresShare[role] != null) ? s.otherHiresShare[role] : null,
+    otherHiresMonthly: (s.otherHiresMonthly && s.otherHiresMonthly[role] != null) ? s.otherHiresMonthly[role] : null,
+    remainingError: (s.remainingError && s.remainingError[role] != null) ? s.remainingError[role] : null,
+    includeSettling: !!s.includeSettling,
     bench: (s.bench && s.bench[role]) || null,
   };
 }
 
 // The plan every screen reads, from the planner files (planner/plan.js), in the
-// shape the screens were written for. The data window and spending limit
+// shape the screens were written for. The data window and spending cap
 // multiple are also passed to the previous engine's shared settings, which the
 // older export and history code still reads until Stage 3 replaces it.
 function buildFundingPlan(role, p) {
@@ -2863,8 +2867,12 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
       return (out.SMR || out.Patrol) ? out : null;
     } catch (e) { return null; }
   })();
-  const useRacPlan = () => update({
-    demandOverride: JSON.parse(JSON.stringify(racPlan[role] || state.vacancies || {})),
+  // Pins this role's counts to RAC's plan column; the other role keeps its counts.
+  const useRacPlan = (role) => update({
+    demandOverride: {
+      ...JSON.parse(JSON.stringify(state.demandOverride || state.vacancies || {})),
+      [role]: { ...((state.vacancies || {})[role] || {}), ...racPlan[role] },
+    },
   });
   const usePriorities = () => update({ demandOverride: null });
   const setPinned = (role, region, n) => setState(s => ({
@@ -2939,7 +2947,7 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
                 </div>
               </div>
               <div>
-                <label className="field-label">Combined Activity reserve</label>
+                <label className="field-label" title="Includes the Google Display remarketing campaign (RAC | Conversion | Dynamic Remarketing | UK | GD DR); its spend is not in the planner's Google figures.">Combined Activity reserve (includes Google Display remarketing)</label>
                 <input className="text-input"
                   value={'\u00A3' + (((state.acReserve && state.acReserve[role]) || 0)).toLocaleString('en-GB')}
                   onChange={e => setRoleField(role, 'acReserve', parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0)} />
@@ -3006,7 +3014,7 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
                   <div className="banner-icon">!</div>
                   <div>
                     <strong>{fmtGBP(pl.beyondProven)} ({pct.toFixed(0)}%) is above the largest successful month
-                    already run.</strong> It is within the spending limits. That part is an estimate rather than something measured.
+                    already run.</strong> It is within the spending caps. That part is an estimate rather than something measured.
                   </div>
                 </div>
               );
@@ -3031,41 +3039,13 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
             <div className="help-text" style={{ marginBottom: 10 }}>
               Each location's budget goes to the platforms where hires cost the least.
             </div>
-            <div className="dial-row" style={{ marginBottom: 8 }}>
-              <label className="field-label" style={{ flex: 'none' }}>Spending limit multiple</label>
-              <input className="text-input" style={{ width: 90, flex: 'none' }}
-                value={((state.capMultiple || 1) * 100).toFixed(0) + '%'}
-                onChange={e => {
-                  const n = parseInt(e.target.value.replace(/[^0-9]/g, ''), 10);
-                  update({ capMultiple: isFinite(n) ? Math.min(3, Math.max(1, n / 100)) : 1 });
-                }} />
-              <span className="help-text" style={{ flex: 1 }}>
-                Of the largest successful month each location and platform has already run (100% to 300%). Applies to both roles.
-              </span>
+            <div className="section-label" style={{ marginTop: 14 }}>Planning settings for this plan</div>
+            <div className="help-text" style={{ marginBottom: 10 }}>
+              Saved with the plan and printed in the PDF assumptions and the workings, each beside its default.
             </div>
-            {(() => {
-              const pl = buildFundingPlan(role, { ...planParams(role, state), appTarget: state.appTarget[role] || 0 });
-              const share = pl.otherHiresShare || 0;
-              const monthly = pl.v2.otherSources.monthly;
-              return (
-                <div className="dial-row" style={{ marginBottom: 8 }}>
-                  <label className="field-label" style={{ flex: 'none' }}>Other-source hires credited to paid media</label>
-                  <input className="text-input" style={{ width: 90, flex: 'none' }} data-field={'other-hires-share-' + role}
-                    value={Math.round(share * 100) + '%'}
-                    onChange={e => {
-                      const n = parseInt(e.target.value.replace(/[^0-9]/g, ''), 10);
-                      const v = isFinite(n) ? Math.min(100, Math.max(0, n)) / 100 : 0;
-                      update({ otherHiresShare: { ...(state.otherHiresShare || {}), [role]: v } });
-                    }} />
-                  <span className="help-text" style={{ flex: 1 }}>
-                    RAC&rsquo;s applicant tracking data recorded {monthly.toFixed(1)} {role} hires a month on average from
-                    other sources (organic, job alerts, agencies and others). The share set here (0% to 100%) grows with
-                    paid spend; the rest, {pl.otherSourcesHires.toFixed(1)} a month, is expected regardless of budget and
-                    counts towards the hire target.
-                  </span>
-                </div>
-              );
-            })()}
+            <RACUI.CoreSettings role={role} state={state} update={update}
+              plan={buildFundingPlan(role, { ...planParams(role, state), appTarget: state.appTarget[role] || 0 })}
+              fmt={{ fmtGBP, fmtInt, monthShort }} />
 
             {(container && container.demand && container.demand._carriedFrom && !pinned) && (
               <div className="banner banner-warn" style={{ marginBottom: 12 }}>
@@ -3128,7 +3108,7 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
                   {racPlan && racPlan[role] && (
                     <>
                       {' '}RAC's file carries a plan column for this month.{' '}
-                      <a href="#" className="link-inline" onClick={e => { e.preventDefault(); useRacPlan(); }}>
+                      <a href="#" className="link-inline" onClick={e => { e.preventDefault(); useRacPlan(role); }}>
                         Use those counts instead
                       </a>
                       {' '}({Object.values(racPlan[role]).reduce((a, b) => a + b, 0)} roles).
@@ -3264,7 +3244,7 @@ function PlanTab({ state, setState, role: roleView, setRole: setRoleView }) {
             {plan.unplacedBudget > 1 && (
               <>
                 <strong>{fmtGBP(plan.unplacedBudget)} could not be placed efficiently.</strong> Every location that
-                could take it has reached its maximum budget, its spending limit or its cost limit, so this money has
+                could take it has reached its maximum budget, its spending cap or its cost limit, so this money has
                 nowhere to go. Raise a limit, or lower the budget to
                 {' '}{fmtGBP(plan.deployable - plan.unplacedBudget + plan.premiumHoldback + plan.acHoldback)}.
               </>
@@ -3311,10 +3291,10 @@ function PlanTab({ state, setState, role: roleView, setRole: setRoleView }) {
           <div className="kpi kpi-accent-good">
             <div className="kpi-label">{plan.budgetPinned ? 'Budget your caps require' : 'Budget to hit target'}</div>
             <div className="kpi-value mono">{plan.budgetForTarget > 0 ? fmtGBP(plan.budgetForTarget)
-              : plan.targetUnreachable ? 'Capped' : '-'}</div>
+              : plan.targetUnreachable ? 'Most ' + (plan.mostHires || 0).toFixed(1) + ' hires' : '-'}</div>
             <div className="kpi-sub">
               {plan.budgetPinned ? 'every location is set to a minimum, so this is the sum of them plus hold-backs'
-                : plan.targetUnreachable ? 'the caps stop this being reachable at any budget'
+                : plan.targetUnreachable ? 'out of reach within the spending caps; hires stop rising at ' + fmtGBP(plan.saturationBudget || 0) + ' (details below)'
                 : plan.budgetForTarget <= 0 ? 'no target set'
                 : plan.capsBinding && Math.abs(budgetGap) <= 50 ? 'every location is at its cap, so more budget would not be spent'
                 : budgetGap > 50 ? fmtGBP(budgetGap) + ' more than now'
@@ -3324,6 +3304,8 @@ function PlanTab({ state, setState, role: roleView, setRole: setRoleView }) {
           </div>
         </div>
       )}
+
+      {liveCount > 0 && plan.targetUnreachable && <RACUI.ReachPanel plan={plan} fmt={{ fmtGBP, fmtInt, monthShort }} />}
 
       {/* Apply-budget nudge */}
       {liveCount > 0 && !plan.budgetPinned && plan.budgetForTarget > 0 && budgetGap > 50 && (
@@ -4800,9 +4782,9 @@ function exportPlanPDF(state, roleFilter, opts) {
       tile(rightX + tileW + colGap, blockTop + tileH + colGap,
         plan.budgetPinned ? 'Budget your caps require' : 'Budget to hit target',
         plan.budgetForTarget > 0 ? fmtGBP(plan.budgetForTarget)
-          : plan.targetUnreachable ? 'Capped' : '-',
+          : plan.targetUnreachable ? 'Most ' + (plan.mostHires || 0).toFixed(1) + ' hires' : '-',
         plan.budgetPinned ? 'set by the location minimums' :
-        plan.targetUnreachable ? 'the caps stop this being reachable' :
+        plan.targetUnreachable ? 'out of reach within the spending caps; hires stop rising at ' + fmtGBP(plan.saturationBudget || 0) :
         plan.budgetForTarget <= 0 ? '' :
           gap > 50 ? fmtGBP(gap) + ' more than now' :
           gap < -50 ? fmtGBP(-gap) + ' less than now' : 'matches your budget',
@@ -5407,11 +5389,12 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '18 Sep', items: [
-    'New planning calculations, in their own files (planner folder), used by Setup, Plan, Platforms, Compare, Benchmarks and pacing for plans from October 2026. Cost per application is one method everywhere, on settled months only: a month counts once 24 days have passed after it ended. Cost per application rises with spend (diminishing returns), with a remaining-error adjustment set by testing on past months. Hires are worked out from RAC’s applicant tracking data: screening pass rate by platform, adjusted by location, times the hire rate after screening, scaled so past predictions match the hires RAC recorded against Indeed, Meta, Google and Appcast. Paid Google and Paid Google Display applications count as Google. Each location and platform is capped at its largest successful month times the spending limit multiple (100% by default, editable from 100% to 300%); money that no location can take is shown as not placed. Ranges come from how far predictions missed in testing. Every value the model uses is in assumptions.csv.',
-    'Hires RAC recorded from other sources (organic, job alerts, agencies and others) are now a separate line, Expected hires from other sources: the monthly average from RAC’s applicant tracking data. It counts towards the hire target but does not depend on the budget, so the budget solves for the rest. Setup has a new setting for each role, Other-source hires credited to paid media (0% by default). The share set there grows with paid spend and is spread across platforms in line with their predicted hires; at 100% the plan matches the earlier scaling to every hire. Location and platform rows show paid-media hires only.',
-    'For a month to count in a plan, its data must be uploaded on the Data tab after the settle period (24 days after the month ends). August 2026 counts only if its data is uploaded on or after 24 September.',
+    'New planning calculations, in their own files (planner folder), used by Setup, Plan, Platforms, Compare, Benchmarks and pacing for plans from October 2026. Cost per application is one method everywhere, on settled months only: a month counts once 31 days have passed after it ended. Cost per application rises with spend (diminishing returns), with a remaining-error adjustment set by testing on past months. Hires are worked out from RAC’s applicant tracking data: screening pass rate by platform, adjusted by location, times the hire rate after screening, scaled so past predictions match the hires RAC recorded against Indeed, Meta, Google and Appcast. Paid Google and Paid Google Display applications count as Google. The Google Display remarketing campaign is part of Combined Activity, so its spend sits in the Combined Activity hold-back, not in the planner’s Google spend. Each location and platform has a spending cap: its largest successful month times the spending cap multiple (100% by default, editable from 100% to 300%), and the plan never spends above it; money that no location can take is shown as not placed. Where the caps put the hire target out of reach, the Plan tab shows the most hires the plan can deliver, the budget at which extra spend stops adding hires, the budget not placed, and the same figures at cap multiples of 100%, 200% and 300%. Application ranges come from how far predictions missed in testing on past months. Hire ranges combine the application range with the uncertainty in the screening rates, the hire rates after screening and the expected hires from other sources, based on the counts behind each; rows with thin evidence are marked low confidence. Tested values use only test months with at least five months of history, and a location’s or platform’s own figure is used only where it predicted clearly better than the average. Every value the model uses is in assumptions.csv.',
+    'Hires RAC recorded from other sources (organic, job alerts, agencies and others) are now a separate line, Expected hires from other sources: the monthly average from RAC’s applicant tracking data. It counts towards the hire target but does not depend on the budget, so the budget solves for the rest. Setup has new settings for each plan: Other-source hires credited to paid media (0% by default), Expected hires from other sources per month (the average of the settled months, shown beside the monthly values and the average since March 2026), the Remaining-error adjustment (the tested value by default) and Include months still settling (off by default). Each shows its default beside it. The share set there grows with paid spend and is spread across platforms in line with their predicted hires; at 100% the plan matches the earlier scaling to every hire. Location and platform rows show paid-media hires only.',
+    'A month counts in a plan once its data was uploaded on the Data tab at least 31 days after the month ended. August 2026 counts from data uploaded on or after 1 October by default. With Include months still settling turned on, it counts earlier, and the plan marks it as not yet settled, so its figures may change.',
     'The data file behind the app (rac_data.js) now holds the live app’s data to the end of August 2026. Pacing for September plans and earlier still starts from the previous file, so it is unchanged.',
     'The SMR and Patrol buttons beside the export buttons now switch role. They called a function that did not exist, so clicking them did nothing.',
+    'On Setup, Use those counts instead (shown when RAC’s file carries a plan column for the month) now sets that role’s open roles to RAC’s plan column. It named a role it could not see, so clicking it did nothing.',
     'Plans for September 2026 and earlier pace exactly as before, on the previous engine, so pacing for the rest of September is unchanged. Pacing history and Location priorities still use the previous cost method and say so on screen.',
     'Test links no longer save. Vercel builds a test version of the app for every branch, and those versions used the same database as the live app, so trying a change on one could overwrite the plans and data everyone works from. Only rac-tools.vercel.app now saves. Test versions still read the live plans and data, show a banner saying nothing is saved, and show Not saved where the live app shows Saved.',
     'Months added after the app has opened now count in the plan. The app worked out its list of months once, when it first needed it, and never again. The shared database is read a moment after the app loads, so a month held only there could miss that list: the September SMR plan held August in its data but gave it no weight, and planned on May to July rather than June to August. The month list, the weighting and every stored figure built from them are now cleared whenever months are added, whether from the database or the Data tab.',
@@ -9051,7 +9034,10 @@ function MethodTab({ state }) {
           <p>
             <strong>Hold-backs come off the top.</strong> Indeed Premium, which is campaigns multiplied by
             days in the month at &pound;{INDEED_PREMIUM_RATE} a day, and the Combined Activity reserve for
-            brand-level work not tied to a location. What is left is the deployable budget.
+            brand-level work not tied to a location. What is left is the deployable budget. The Google Display
+            remarketing campaign (RAC | Conversion | Dynamic Remarketing | UK | GD DR) is part of Combined
+            Activity: its spend sits in that reserve, not in the Google spend the plan splits. Applications that
+            RAC&rsquo;s applicant tracking data credited to Google Display still count as Google.
           </p>
           <p>
             <strong>Locations are funded by open roles.</strong> A location with 22 of 79 open roles takes

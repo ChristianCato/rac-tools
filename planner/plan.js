@@ -8,27 +8,48 @@
 // Order of work:
 //   1. Hold-backs off the top (Indeed Premium, Combined Activity, OneRAC).
 //   2. Every location and platform: usual cost per application, diminishing
-//      returns, screening and hire rates, spending limit (C1 to C5), and the
+//      returns, screening and hire rates, spending cap (C1 to C5), and the
 //      spend at which any cost per application limit binds (D6).
 //   3. Deployable budget split between live locations by open roles, within
-//      location minimums and maximums, spending limits and any cost per hire
+//      location minimums and maximums, spending caps and any cost per hire
 //      limit. Money a location cannot take moves to locations with room, by
 //      open roles; what none can take is reported as budget the plan could
 //      not place efficiently.
 //   4. Within each location, spend goes where the next hire costs least, up
-//      to each platform's limit. Floors set on Setup and platform minimums
-//      and maximums are then applied.
+//      to each platform's spending cap. Floors set on Setup and platform
+//      minimums and maximums are then applied.
 //   5. The forecast for every location and platform, totals and ranges.
 //   6. Budget needed for the hire target, by running the plan at trial budgets.
+//      Where the caps make the target unreachable, the plan reports the most
+//      hires achievable, the budget at which extra spend stops adding hires,
+//      and the same figures at cap multiples 1, 2 and 3 (reach).
+//
+// Hire ranges (user decision, 17 September 2026). Not from the hire test on
+// past months (kept as a check only). Each range combines, in hire_range_draws
+// simulated draws with a fixed seed:
+//   - the application range (tested misses, widened for thin rows);
+//   - the screening pass rates, location screening adjustments and hire
+//     rates after screening, rebuilt from their Eploy counts redrawn within
+//     their statistical uncertainty;
+//   - the matching factor to platform hires, from the hires behind it;
+//   - the expected hires from other sources, from the month-to-month spread
+//     of their counts.
+// The range is the 10th to 90th percentile of the draws. A row is flagged low
+// confidence where its hire rate uncertainty is above low_confidence_rate_sd
+// or fewer than low_confidence_min_apps applications sat behind its cost per
+// application.
 //
 // Hires from other sources (user decision, 17 September 2026). Eploy recorded
 // hires outside the four platforms (organic, job alerts, agencies and so on).
+//   - Paid-media hires are matched to the hires Eploy credited to the four
+//     platforms (paid_hire_reconciliation_factor) at every share, 0% included.
 //   - A share of them (otherHiresShare, Setup; default
 //     other_hires_credited_share) is credited to paid media. That part scales
 //     with paid spend: every location and platform's hires are multiplied by
 //     paid_hire_reconciliation_factor + share x other_hires_credit_factor.
 //   - The rest is a fixed line, "Expected hires from other sources":
-//     (1 - share) x other_hires_monthly. It counts towards the hire target but
+//     (1 - share) x expected other-source hires a month (Setup; default
+//     other_hires_monthly, the average of every settled month). It counts towards the hire target but
 //     does not depend on the budget, so the budget solves for the remainder.
 //     Location and platform rows show paid-media hires only.
 // At a share of 100% the plan equals the earlier scaling to every hire Eploy
@@ -37,8 +58,11 @@
 // INPUTS (as the app's planParams builds them, plus the new settings):
 //   budget, hireTarget, appTarget, liveRegions, vacancies, coveragePct,
 //   premiumCampaigns, acReserve, platMin, platMax, coverage, comboMin,
-//   regionMin, regionMax (-1 means no spend), daysInMonth, capMultiple,
+//   regionMin, regionMax (-1 means no spend), daysInMonth, capMultiple (spending cap multiple, 1 to 3),
 //   otherHiresShare (0 to 1; blank uses the file default),
+//   otherHiresMonthly (hires a month; blank uses the file default),
+//   remainingError (0.5 to 2; blank uses the tested value),
+//   includeSettling (count complete months still inside the settle period),
 //   bench (data window), limits: { cph: { region }, cpa: { region: { plat } } },
 //   oneRacHoldback, overrides (per-plan assumption values)
 (function (RAC) {
@@ -63,28 +87,42 @@
     const A = assumptionsFor(env, inputs);
     const get = (k) => RAC.assumptions.get(A, k, role);
     const ds = env.ds;
-    const ctx = RAC.cost.context(ds, A, role, inputs.bench);
+    const ctx = RAC.cost.context(ds, A, role, inputs.bench, { includeSettling: !!inputs.includeSettling });
     const hireRates = RAC.rates.build(env.eploy, A, role, { regions: ds.regions });
     const d1 = RAC.forecast.rates(ds, A, role, ctx.settled);
-    const s = inputs.otherHiresShare;
-    const share = (s !== null && s !== undefined && s !== '' && Number.isFinite(Number(s)) && Number(s) >= 0 && Number(s) <= 1)
-      ? Number(s) : get('other_hires_credited_share');
+    // Core Setup fields: the plan's value where one is set and valid,
+    // otherwise the assumptions file's.
+    const pick = (v, lo, hi, fallback) => {
+      const n = (v === null || v === undefined || v === '') ? NaN : Number(v);
+      return Number.isFinite(n) && n >= lo && n <= hi ? n : fallback;
+    };
+    const share = pick(inputs.otherHiresShare, 0, 1, get('other_hires_credited_share'));
+    const otherMonthly = pick(inputs.otherHiresMonthly, 0, 10000, get('other_hires_monthly'));
+    const bias = pick(inputs.remainingError, 0.5, 2, get('remaining_error_factor'));
     // Comparison switches, used only by tools/stage2_report.mjs to show the
     // effect of each change against the previous version. No screen sets them.
     const cmp = inputs.compare || {};
     const paidFactor = get('paid_hire_reconciliation_factor'), creditFactor = get('other_hires_credit_factor');
-    const factors = { bias: get('remaining_error_factor'), recon: paidFactor + share * creditFactor, paid: paidFactor, credit: creditFactor, share };
+    const factors = { bias, recon: paidFactor + share * creditFactor, paid: paidFactor, credit: creditFactor, share };
     const keep = cmp.noOtherSources ? 0 : 1 - share;
+    const other = RAC.testing.otherSources(env.eploy, A, role, hireRates.hireMonths);
     const baseline = {
       share, keep,
-      hires: keep * get('other_hires_monthly'),
-      low: keep * get('other_hires_low'),
-      high: keep * get('other_hires_high'),
-      monthly: get('other_hires_monthly'),
+      hires: keep * otherMonthly,
+      monthly: otherMonthly,
+      tested: get('other_hires_monthly'),
+      months: other.monthly, recentFrom: other.recentFrom, recentMean: other.recentMean, dispersion: other.dispersion,
       basis: 'monthly average of hires Eploy recorded outside Indeed, Meta, Google and Appcast',
     };
-    const m = Number(inputs.capMultiple);
-    const capMultiple = Number.isFinite(m) && m >= 1 && m <= 3 ? m : get('cap_multiple_default');
+    const capMultiple = pick(inputs.capMultiple, 1, 3, get('cap_multiple_default'));
+    const entry = (key) => A.entries.find(e => e.key === key && (e.role === role || e.role === 'all')) || {};
+    const settings = [
+      { key: 'capMultiple', name: 'Spending cap multiple', value: capMultiple, default: get('cap_multiple_default'), source: entry('cap_multiple_default').source, unit: 'multiple' },
+      { key: 'otherHiresShare', name: 'Share of other-source hires credited to paid media', value: share, default: get('other_hires_credited_share'), source: entry('other_hires_credited_share').source, unit: 'share' },
+      { key: 'otherHiresMonthly', name: 'Expected hires from other sources per month', value: otherMonthly, default: get('other_hires_monthly'), source: entry('other_hires_monthly').source, unit: 'hires' },
+      { key: 'remainingError', name: 'Remaining-error adjustment', value: bias, default: get('remaining_error_factor'), source: entry('remaining_error_factor').source, unit: 'multiple' },
+      { key: 'includeSettling', name: 'Include months still settling', value: !!inputs.includeSettling, default: false, source: 'agreed', unit: 'yes/no' },
+    ].map(x => ({ ...x, changed: x.value !== x.default }));
     const quality = RAC.ceilings.qualityByLocation(env.eploy, hireRates, role);
     const cpaLimits = (inputs.limits && inputs.limits.cpa) || {};
     const cells = {};
@@ -115,20 +153,95 @@
     });
     const ranges = {
       apps: { low: get('range_apps_low'), high: get('range_apps_high'), sigma: get('range_apps_sigma') },
-      hires: { low: get('range_hires_low'), high: get('range_hires_high'), sigma: get('range_hires_sigma') },
       widen: get('row_widen_apps'),
-      hireBlend: get('region_hire_blend_n'),
+      lowConfidenceRateSd: get('low_confidence_rate_sd'),
+      lowConfidenceMinApps: get('low_confidence_min_apps'),
+      percentiles: [get('range_low_percentile'), get('range_high_percentile')],
     };
-    // The months behind other_hires_monthly, for the workings and the PDF. The
-    // staleness check keeps the tested value in step with these counts.
-    const otherByMonth = RAC.rates.tally(env.eploy, role, hireRates.hireMonths, (reg, plat, mo) => (plat === 'other' ? mo : null));
-    const otherMonths = hireRates.hireMonths.map(mo => ({ month: mo, hires: (otherByMonth[mo] || {}).hires || 0 }));
-    return { role, A, ds, ctx, hireRates, d1, factors, baseline, otherMonths, capMultiple, cells, ranges, softCaps: !!cmp.previousCeilings,
+    const base = { role, A, ds, ctx, hireRates, d1, factors, baseline, capMultiple, settings, cells, ranges, softCaps: !!cmp.previousCeilings,
       premiumRate: RAC.assumptions.get(A, 'indeed_premium_rate') };
+    base.draws = hireDraws(base, env, !!cmp.previousHireRates);
+    return base;
   }
 
-  // Steps 1 and 3 to 5 for one budget.
-  function allocate(base, p) {
+  // Simulated draws for the hire ranges (see the note at the top). For each
+  // draw: a standard normal for the application range, a multiplier on each
+  // location and platform's hires per application, and the other-source
+  // baseline.
+  function hireDraws(base, env, fixedRates) {
+    const { A, role, ds, ctx, hireRates, factors, baseline } = base;
+    const n = RAC.assumptions.get(A, 'hire_range_draws');
+    const normal = U.normals(U.rng(parseInt(U.fingerprint(role + '|hire ranges'), 16)));
+    const regions = ds.regions, K = regions.length * P().length;
+    const index = {};
+    regions.forEach((r, i) => P().forEach((p, j) => { index[r + '|' + p] = i * P().length + j; }));
+    // Applications behind the matching factor: the months it was measured on.
+    const months = hireRates.hireMonths.filter(mo => ctx.status[mo] && ctx.status[mo].settled);
+    const past = new Float64Array(K);
+    regions.forEach(r => P().forEach(p => {
+      const m = RAC.data.monthly(ds, p, r, role);
+      past[index[r + '|' + p]] = U.sum(months.map(mo => (m[mo] ? m[mo].apps : 0)));
+    }));
+    const hpaOf = (rates) => {
+      const out = new Float64Array(K);
+      regions.forEach(r => P().forEach(p => { out[index[r + '|' + p]] = RAC.rates.cell(rates, p, r).hirePerApplication; }));
+      return out;
+    };
+    const hpa0 = hpaOf(hireRates);
+    const model0 = past.reduce((a, x, i) => a + x * hpa0[i], 0);
+    const credited = RAC.rates.tally(env.eploy, role, months, (reg, plat) => (plat === 'other' ? 'other' : 'paid'));
+    const P0 = (credited.paid || {}).hires || 0, O0 = (credited.other || {}).hires || 0;
+    const ratio = new Float64Array(n * K);
+    const z = new Float64Array(n), other = new Float64Array(n);
+    const vOther = baseline.keep * baseline.keep * baseline.dispersion * baseline.monthly * (1 + 1 / Math.max(1, baseline.months.length));
+    const draw = (x) => Math.max(0, x + normal() * Math.sqrt(Math.max(x, 0.5)));
+    for (let d = 0; d < n; d++) {
+      z[d] = normal();
+      other[d] = Math.max(0, baseline.hires + normal() * Math.sqrt(vOther));
+      if (fixedRates) { ratio.fill(1, d * K, (d + 1) * K); continue; }
+      const r = RAC.rates.combine(RAC.rates.redraw(hireRates.counts, normal), hireRates.blend, regions);
+      const hpa = hpaOf(r);
+      const model = past.reduce((a, x, i) => a + x * hpa[i], 0);
+      const scale = model > 0 ? model0 / model : 1;
+      const recon = factors.paid * (P0 > 0 ? draw(P0) / P0 : 1) * scale
+        + factors.share * factors.credit * (O0 > 0 ? draw(O0) / O0 : 1) * scale;
+      for (let i = 0; i < K; i++) ratio[d * K + i] = hpa0[i] > 0 ? (hpa[i] * recon) / (hpa0[i] * factors.recon) : 1;
+    }
+    return { n, K, index, ratio, z, other, paidHires: P0, otherHires: O0, months };
+  }
+
+  // A hire range for a set of cells: the application range (widened by w)
+  // combined with the rate draws. Returns the 10th and 90th percentiles, the
+  // rate uncertainty and whether the row is low confidence (evidence: the
+  // applications behind the row's cost per application; none for the total).
+  function hireRange(base, cells, w, evidence = Infinity) {
+    const D = base.draws, r = base.ranges;
+    const hires = U.sum(cells.map(c => c.hires));
+    if (!(hires > 0)) return null;
+    const band = RAC.backtest.band(r.apps, w);
+    const L = Math.log(1 + band.low), H = Math.log(1 + band.high);
+    const mid = (L + H) / 2, half = (H - L) / 2 / Z90;
+    const idx = cells.map(c => D.index[c.region + '|' + c.platform]);
+    const total = new Float64Array(D.n), logRate = new Float64Array(D.n);
+    for (let d = 0; d < D.n; d++) {
+      let h = 0;
+      for (let j = 0; j < cells.length; j++) h += cells[j].hires * D.ratio[d * D.K + idx[j]];
+      logRate[d] = Math.log(Math.max(h, 1e-12) / hires);
+      total[d] = h * Math.exp(mid + half * D.z[d]);
+    }
+    const [plo, phi] = r.percentiles;
+    const low = U.percentileInc(Array.from(total), plo), high = U.percentileInc(Array.from(total), phi);
+    const m = logRate.reduce((a, x) => a + x, 0) / D.n;
+    const rateSd = Math.sqrt(logRate.reduce((a, x) => a + (x - m) ** 2, 0) / Math.max(1, D.n - 1));
+    const reasons = [];
+    if (rateSd > r.lowConfidenceRateSd) reasons.push('few hires behind the hire rate');
+    if (evidence < r.lowConfidenceMinApps) reasons.push('few applications behind the cost per application');
+    return { low, high, lowPct: low / hires - 1, highPct: high / hires - 1, rateSd, lowConfidence: reasons.length > 0, reasons, draws: total };
+  }
+
+  // Steps 1 and 3 to 5 for one budget. Ranges are left out during the budget
+  // search (withRanges false), where only the totals are read.
+  function allocate(base, p, withRanges = true) {
     const role = base.role;
     const days = p.daysInMonth || 30;
     const premium = Math.round((p.premiumCampaigns || 0) * days * base.premiumRate);
@@ -160,7 +273,7 @@
       const maxCap = regionMax[l.region] === NO_SPEND ? 0 : (regionMax[l.region] > 0 ? regionMax[l.region] : Infinity);
       const options = [
         [maxCap, regionMax[l.region] === NO_SPEND ? 'location set to no spend' : 'location maximum'],
-        [base.softCaps ? Infinity : l.capacity, l.capacity < ceilingSum - 0.005 ? 'spending limits and cost per application limits' : 'spending limits (largest successful month x multiple)'],
+        [base.softCaps ? Infinity : l.capacity, l.capacity < ceilingSum - 0.005 ? 'spending caps and cost per application limits' : 'spending caps (largest successful month x multiple)'],
         [l.cphCap, 'cost per hire limit'],
       ];
       const [cap, reason] = options.reduce((a, b) => (b[0] < a[0] ? b : a));
@@ -204,7 +317,7 @@
       }
       if (s.leftover > 0.005) {
         // Only an instruction (a location minimum) can put more into a location
-        // than its platforms' limits allow. Spread it by limit and record it.
+        // than its platforms' caps allow. Spread it by cap and record it.
         const capSum = U.sum(l.cells.map(c => c.cap)) || l.cells.length;
         l.cells.forEach(c => {
           const add = s.leftover * ((U.sum(l.cells.map(x => x.cap)) ? c.cap : 1) / capSum);
@@ -213,7 +326,7 @@
         });
         steps.push({ step: 'within location', region: l.region, amount: s.leftover, reason: base.softCaps
           ? 'comparison with the previous version: spread above the biggest month'
-          : 'location minimum above its spending limits; spent above the limits as instructed' });
+          : 'location minimum above its spending caps; spent above the caps as instructed' });
       }
     });
 
@@ -239,7 +352,7 @@
         const s = RAC.allocate.splitLocation(l.cells, l.spend, l.fixed);
         l.split = s.spend;
         if (s.leftover > 0.005 && base.softCaps) {
-          // Comparison with the previous version: spread above the limits.
+          // Comparison with the previous version: spread above the caps.
           const free = l.cells.filter(c => l.fixed[c.plat] === undefined);
           const capSum = U.sum(free.map(c => c.cap)) || free.length;
           free.forEach(c => { l.split[c.plat] += s.leftover * ((U.sum(free.map(x => x.cap)) ? c.cap : 1) / capSum); });
@@ -264,7 +377,7 @@
         const c = base.cells[l.region][plat];
         const S = l.split[plat] || 0;
         const f = RAC.forecast.at(c.pc, S);
-        l.cellResults[plat] = cellResult(base, c, S, f, l.on.includes(plat), aboveByInstruction[l.region + '|' + plat] || 0);
+        l.cellResults[plat] = cellResult(base, c, S, f, l.on.includes(plat), aboveByInstruction[l.region + '|' + plat] || 0, withRanges);
         rows.push(l.cellResults[plat]);
       });
     });
@@ -273,33 +386,33 @@
       const cs = P().map(plat => l.cellResults[plat]);
       const out = rollUp(base, cs, { region: l.region, vacancies: l.vacancies });
       return { ...out, cells: l.cellResults, cap: l.cap, capReason: l.capReason, cphLimit: l.cphLimit,
-        capacity: l.capacity, base: l.base, floor: l.floor, floorShortfall: l.floorShortfall || 0, fixed: l.fixed,
-        hireEvidence: hireEvidence(base, l.region) };
+        capacity: l.capacity, base: l.base, floor: l.floor, floorShortfall: l.floorShortfall || 0, fixed: l.fixed };
     });
-    locations.forEach(loc => { loc.range = rowRanges(base, loc.cellsList, loc.hireEvidence); });
+    if (withRanges) locations.forEach(loc => { loc.range = rowRanges(base, loc.cellsList); });
     const platforms = {};
     P().forEach(plat => {
       const cs = locations.map(l => l.cells[plat]);
       platforms[plat] = rollUp(base, cs, { platform: plat });
-      platforms[plat].range = rowRanges(base, cs, U.sum(locations.map(l => l.hireEvidence)) / Math.max(1, locations.length));
+      if (withRanges) platforms[plat].range = rowRanges(base, cs);
     });
     const all = locations.flatMap(l => l.cellsList);
     const totals = rollUp(base, all, {});
-    totals.range = {
-      apps: { low: totals.apps * (1 + r.apps.low), high: totals.apps * (1 + r.apps.high), lowPct: r.apps.low, highPct: r.apps.high },
-      hires: { low: totals.hires * (1 + r.hires.low), high: totals.hires * (1 + r.hires.high), lowPct: r.hires.low, highPct: r.hires.high },
-    };
-    // Paid-media hires plus expected hires from other sources. The two ranges
-    // are treated as independent, so their distances from the central figure
-    // add in quadrature.
     const bl = base.baseline;
     totals.paidHires = totals.hires;
     totals.otherHires = bl.hires;
     totals.allHires = totals.hires + bl.hires;
-    const dLow = Math.hypot(totals.hires - totals.range.hires.low, bl.hires - bl.low);
-    const dHigh = Math.hypot(totals.range.hires.high - totals.hires, bl.high - bl.hires);
-    totals.range.allHires = { low: Math.max(0, totals.allHires - dLow), high: totals.allHires + dHigh };
-    totals.range.otherHires = { low: bl.low, high: bl.high };
+    if (withRanges) {
+      const paid = hireRange(base, all.filter(c => c.spend > 0), 1);
+      const D = base.draws, [plo, phi] = r.percentiles;
+      const other = Array.from(D.other);
+      const both = paid ? Array.from(paid.draws, (h, d) => h + D.other[d]) : other;
+      totals.range = {
+        apps: { low: totals.apps * (1 + r.apps.low), high: totals.apps * (1 + r.apps.high), lowPct: r.apps.low, highPct: r.apps.high },
+        hires: paid ? stripDraws(paid) : { low: 0, high: 0, lowPct: 0, highPct: 0, rateSd: 0, lowConfidence: false, reasons: [] },
+        otherHires: { low: U.percentileInc(other, plo), high: U.percentileInc(other, phi) },
+        allHires: { low: U.percentileInc(both, plo), high: U.percentileInc(both, phi) },
+      };
+    }
     // Locations not in the plan, at no spend, for tables that list every location.
     const liveSet = new Set(locations.map(l => l.region));
     const idleCells = {};
@@ -307,7 +420,7 @@
       idleCells[region] = {};
       P().forEach(plat => {
         const c = base.cells[region][plat];
-        idleCells[region][plat] = cellResult(base, c, 0, RAC.forecast.at(c.pc, 0), false, 0);
+        idleCells[region][plat] = cellResult(base, c, 0, RAC.forecast.at(c.pc, 0), false, 0, false);
       });
     });
     const aboveLargestSuccessful = U.sum(all.map(c => c.aboveLargestSuccessful));
@@ -317,7 +430,7 @@
     return {
       role, budget, daysInMonth: days,
       holdbacks: { premium, combined, oneRac, total: premium + combined + oneRac },
-      otherSources: { ...bl, months: base.otherMonths },
+      otherSources: { ...bl },
       deployable, coverageReserve, demandPool, totalVac, liveCount: locations.length,
       locations, platforms, totals, idleCells, allRegions: base.ds.regions.slice(),
       placed,
@@ -329,7 +442,7 @@
     };
   }
 
-  function cellResult(base, c, S, f, on, aboveByInstruction) {
+  function cellResult(base, c, S, f, on, aboveByInstruction, withRanges) {
     const pc = c.pc;
     const r = base.ranges;
     const u = pc.usual;
@@ -355,7 +468,7 @@
       // the share of other-source hires credited to paid media.
       hiresPlatform: pc.recon > 0 ? f.hires * base.factors.paid / pc.recon : 0,
       hiresCredited: pc.recon > 0 ? f.hires * (base.factors.share * base.factors.credit) / pc.recon : 0,
-      // Spending limit.
+      // Spending cap.
       ceiling: c.ceiling.ceiling, ceilingBase: c.ceiling.base, ceilingBasis: c.ceiling.basis, ceilingFlagged: c.ceiling.flagged,
       largestSuccessful: c.ceiling.largestSuccessful, largestMonth: c.ceiling.largestMonth, ceilingMonths: c.ceiling.months,
       cpaLimit: c.cpaLimit, cpaLimitSpend: Number.isFinite(c.cpaCap) ? c.cpaCap : null, cap: c.cap,
@@ -364,30 +477,18 @@
       aboveLargestMonth: Math.max(0, S - c.ceiling.largestMonth),
       // Range.
       widen: w,
-      range: S > 0 ? {
+      range: S > 0 && withRanges ? {
         apps: { low: f.apps * (1 + apps.low), high: f.apps * (1 + apps.high), lowPct: apps.low, highPct: apps.high },
-        hires: hireBand(base, f.hires, w, hireEvidence(base, pc.region)),
+        hires: stripDraws(hireRange(base, [{ region: pc.region, platform: pc.plat, hires: f.hires }], w, u.apps)),
       } : null,
     };
   }
 
-  // Hires behind a location's hire rate after screening, allowing for the
-  // blend with the role figure.
-  function hireEvidence(base, region) {
-    const loc = base.hireRates.location[region];
-    const role = base.hireRates.totals.hire.hires;
-    const R = base.ranges.hireBlend;
-    if (!loc) return role;
-    const P_ = loc.hirePassed;
-    return loc.hires * (P_ / (P_ + R || 1)) + role * (R / (P_ + R || 1));
-  }
-
-  function hireBand(base, hires, w, evidence) {
-    const r = base.ranges.hires;
-    const rateTerm = 1 / (Math.max(evidence, 1) * Math.max(r.sigma, 1e-6) ** 2);
-    const wh = Math.sqrt(w * w + rateTerm);
-    const b = RAC.backtest.band(r, wh);
-    return { low: hires * (1 + b.low), high: hires * (1 + b.high), lowPct: b.low, highPct: b.high };
+  const Z90 = 1.2815515655446004;   // standard normal 90th percentile
+  function stripDraws(x) {
+    if (!x) return null;
+    const { draws, ...rest } = x;
+    return rest;
   }
 
   function rollUp(base, cells, extra) {
@@ -406,13 +507,12 @@
   }
 
   // A row's range: widened for the evidence behind all its cells together.
-  function rowRanges(base, cells, hireEv) {
+  function rowRanges(base, cells) {
     const r = base.ranges;
     const funded = cells.filter(c => c.spend > 0);
     const spend = U.sum(funded.map(c => c.spend));
     if (!(spend > 0)) return null;
     const apps = U.sum(funded.map(c => c.apps));
-    const hires = U.sum(funded.map(c => c.hires));
     const evidence = U.sum(funded.map(c => c.historicApps || 0));
     const usual = U.sum(funded.map(c => c.spendUsual || 0));
     const se = U.sum(funded.map(c => c.spend * (base.d1[c.platform].seUsed || 0))) / spend;
@@ -421,7 +521,7 @@
     return {
       widen: w,
       apps: { low: apps * (1 + a.low), high: apps * (1 + a.high), lowPct: a.low, highPct: a.high },
-      hires: hireBand(base, hires, w, hireEv),
+      hires: stripDraws(hireRange(base, funded, w, evidence)),
     };
   }
 
@@ -434,7 +534,7 @@
     const other = base.baseline.hires;
     const goal = solveOnHires ? target - other : appTarget;
     const out = { goal: solveOnHires ? target : appTarget, paidGoal: solveOnHires ? Math.max(0, goal) : null, solveOnHires,
-      budgetForTarget: 0, pinned: false, unreachable: false, maxAchievable: null, otherSourcesMeetTarget: false };
+      budgetForTarget: 0, pinned: false, unreachable: false, maxAchievable: null, saturationBudget: null, otherSourcesMeetTarget: false };
     if (!((solveOnHires ? target : appTarget) > 0)) return out;
     const holdbacks = plan.holdbacks.total;
     if (solveOnHires && goal <= 0) {
@@ -449,13 +549,17 @@
       out.budgetForTarget = Math.ceil((minTotal + holdbacks) / 50) * 50;
       return out;
     }
-    const at = (b) => { const q = allocate(base, { ...p, budget: b }); return solveOnHires ? q.totals.hires : q.totals.apps; };
+    const trial = (b) => allocate(base, { ...p, budget: b }, false);
+    const at = (b) => { const q = trial(b); return solveOnHires ? q.totals.hires : q.totals.apps; };
     let lo = holdbacks, hi = lo + 500000;
     for (let i = 0; i < 8 && at(hi) < goal; i++) hi *= 1.6;
     const most = at(hi);
     if (most < goal) {
+      // Within the caps, spend above what every location can take adds
+      // nothing: that budget is where hires stop rising.
       out.unreachable = true;
       out.maxAchievable = solveOnHires ? most + other : most;
+      out.saturationBudget = Math.ceil((holdbacks + trial(hi).placed) / 50) * 50;
       return out;
     }
     for (let i = 0; i < 60 && hi - lo > 2; i++) {
@@ -473,6 +577,7 @@
     const hit = RAC.cache.get(key);
     if (hit) return hit;
     const baseKey = 'base|' + role + '|' + U.stableKey({ bench: inputs.bench, capMultiple: inputs.capMultiple, otherHiresShare: inputs.otherHiresShare,
+      otherHiresMonthly: inputs.otherHiresMonthly, remainingError: inputs.remainingError, includeSettling: !!inputs.includeSettling,
       cpa: inputs.limits && inputs.limits.cpa, overrides: inputs.overrides, compare: inputs.compare }) + '|' + envStamp(env);
     let base = RAC.cache.get(baseKey);
     if (!base) base = RAC.cache.set(baseKey, prepare(role, inputs, env));
@@ -480,9 +585,31 @@
     const target = budgetForTarget(base, inputs, plan);
     const A = base.A;
     const status = base.ctx.status;
+    // Out of reach: the same plan at each cap multiple, for the screen and the PDF.
+    let reach = null;
+    if (target.unreachable && !inputs.noReach) {
+      reach = {
+        mostHires: target.maxAchievable, saturationBudget: target.saturationBudget, unplaced: plan.unplaced.total,
+        byMultiple: [1, 2, 3].map(m => {
+          const q = m === base.capMultiple ? { ...plan, ...target } : build(role, { ...inputs, capMultiple: m, noReach: true }, env);
+          return {
+            multiple: m, current: m === base.capMultiple,
+            hiresAtBudget: q.totals.allHires, unplacedAtBudget: q.unplaced.total,
+            budgetForTarget: q.unreachable ? null : q.budgetForTarget,
+            mostHires: q.unreachable ? q.maxAchievable : null,
+            saturationBudget: q.unreachable ? q.saturationBudget : null,
+          };
+        }),
+      };
+    }
+    const settlingUsed = base.ctx.settlingUsed.map(mo => ({ month: mo, note: 'not yet settled, figures may change', reason: status[mo].reason }));
     const result = {
       ...plan,
       ...target,
+      reach,
+      settings: base.settings,
+      settlingUsed,
+      includeSettling: !!inputs.includeSettling,
       hireTarget: inputs.hireTarget || 0,
       appTarget: inputs.appTarget || 0,
       capMultiple: base.capMultiple,
@@ -491,13 +618,17 @@
       weights: base.ctx.weights,
       factors: base.factors,
       otherHiresShare: base.factors.share,
+      otherHiresMonthly: base.baseline.monthly,
+      remainingError: base.factors.bias,
+      combinedActivityIncludesDisplay: RAC.assumptions.get(A, 'combined_activity_includes_display') === 1,
+      hireRangeBasis: { draws: base.draws.n, paidHires: base.draws.paidHires, otherHires: base.draws.otherHires, months: base.draws.months },
       diminishingReturns: base.d1,
       rates: base.hireRates,
       ranges: base.ranges,
       months: status,
       stamps: {
         assumptions: { date: A.date, fingerprint: A.fingerprint, overrides: inputs.overrides || {} },
-        data: { stamp: env.ds.stamp, settledTo: base.ctx.settled[base.ctx.settled.length - 1] || null,
+        data: { stamp: env.ds.stamp, settledTo: base.ctx.settled[base.ctx.settled.length - 1] || null, settlingUsed: base.ctx.settlingUsed.slice(),
           repoFileGenerated: env.ds.repo.generated_at, uploadTakenOn: env.ds.bench ? env.ds.bench.at : null },
         eploy: { file: env.eploy.dataset.file, fileDate: env.eploy.dataset.file_date },
       },

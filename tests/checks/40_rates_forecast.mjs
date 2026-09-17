@@ -74,11 +74,14 @@ export default function (check, { assert, near }) {
       near(rec.modelHires * (pf + of), all, 0.02, `${role} both factors against every hire (the earlier scaling)`);
       const monthly = rec.months.map(mo => count(role, [mo], c => c[2] === 'other').hires);
       near(RAC.assumptions.get(A, 'other_hires_monthly', role), monthly.reduce((a, b) => a + b, 0) / monthly.length, 1e-4, `${role} other-source hires a month`);
-      const inc = (xs, q) => { const s = xs.slice().sort((a, b) => a - b); const k = (s.length - 1) * q, f = Math.floor(k); return s[f] + (s[Math.min(f + 1, s.length - 1)] - s[f]) * (k - f); };
-      near(RAC.assumptions.get(A, 'other_hires_low', role), inc(monthly, 0.1), 1e-4, `${role} other-source low month`);
-      near(RAC.assumptions.get(A, 'other_hires_high', role), inc(monthly, 0.9), 1e-4, `${role} other-source high month`);
+      const os = RAC.testing.otherSources(eploy, A, role, rec.months);
+      const recent = rec.months.filter(mo => mo >= '2026-03').map(mo => count(role, [mo], c => c[2] === 'other').hires);
+      near(os.recentMean, recent.reduce((a, b) => a + b, 0) / recent.length, 1e-12, `${role} average since March 2026`);
+      const mean = monthly.reduce((a, b) => a + b, 0) / monthly.length;
+      const variance = monthly.reduce((a, b) => a + (b - mean) ** 2, 0) / (monthly.length - 1);
+      near(os.dispersion, Math.max(1, variance / mean), 1e-12, `${role} other-source dispersion`);
       assert(RAC.assumptions.get(A, 'other_hires_credited_share', role) === 0, `${role} credited share should start at 0%`);
-      out.push(`${role}: model ${rec.modelHires.toFixed(1)} hires; x ${pf} = ${paid} platform hires; other sources ${other} (${monthly.join(', ')} a month, average ${(other / monthly.length).toFixed(2)}); ${pf} + ${of} = ${(pf + of).toFixed(4)}, the earlier scaling to ${all}`);
+      out.push(`${role}: model ${rec.modelHires.toFixed(1)} hires; x ${pf} = ${paid} platform hires; other sources ${other} (${monthly.join(', ')} a month, average ${(other / monthly.length).toFixed(2)}, since March ${os.recentMean.toFixed(2)}); ${pf} + ${of} = ${(pf + of).toFixed(4)}, the earlier scaling to ${all}`);
     }
     return out.join('; ');
   });
@@ -93,12 +96,38 @@ export default function (check, { assert, near }) {
     return `SMR Google, applications October to June: ${g.apps} applications, ${g.passed} passed screening, ${g.hires} hires`;
   });
 
-  check('Blend-strength tests learn only from months before the ones they predict', () => {
+  check('Blend-strength tests use test months with 5 months of history, learning only from earlier months', () => {
     const months = RAC.rates.maturedMonths(eploy, 4);
-    const sp = RAC.testing.splits(months);
-    assert(sp.length === 2, 'expected two splits');
-    sp.forEach(s => assert(s.train[s.train.length - 1] < s.test[0], `train ${s.train} overlaps test ${s.test}`));
-    return sp.map(s => `${s.train[0]} to ${s.train[s.train.length - 1]} predicting ${s.test[0]} to ${s.test[s.test.length - 1]}`).join('; ');
+    const sp = RAC.testing.testMonths(months, RAC.assumptions.get(A, 'test_min_history_months'));
+    assert(JSON.stringify(sp.map(s => s.test[0])) === JSON.stringify(['2026-03', '2026-04', '2026-05']), 'test months ' + sp.map(s => s.test[0]));
+    sp.forEach(s => {
+      assert(s.train.length >= 5, `${s.test[0]} has only ${s.train.length} months of history`);
+      assert(s.train.every(mo => mo < s.test[0]), `train ${s.train} not before ${s.test}`);
+    });
+    return sp.map(s => `${s.test[0]} from ${s.train[0]} to ${s.train[s.train.length - 1]}`).join('; ');
+  });
+
+  check('Own figures replace the average only when clearly better; leave-one-out flags unstable values', () => {
+    const G = RAC.testing.GRID;
+    const month = (mo, gainAt5, pearson = 10, cells = 10) => ({ month: mo, pearson, cells, ll: Object.fromEntries(G.map(v => [v, v === 5 ? gainAt5 : 0])) });
+    // Dispersion 1: a gain of 3 is clear, 1.5 is not.
+    assert(RAC.testing.decide([month('a', 1.5), month('b', 1.5)], () => true, 2).value === 5, 'a gain of 3 should use the own figure');
+    assert(RAC.testing.decide([month('a', 0.7), month('b', 0.8)], () => true, 2).value === RAC.testing.AVERAGE, 'a gain of 1.5 should keep the average');
+    // Dispersion 4 divides the same gain of 3 down to 0.75.
+    const noisy = RAC.testing.decide([month('a', 1.5, 40), month('b', 1.5, 40)], () => true, 2);
+    assert(noisy.value === RAC.testing.AVERAGE && Math.abs(noisy.phi - 4) < 1e-12, 'dispersion not applied');
+    const lo = RAC.testing.leaveOneOut([month('a', 3), month('b', 0), month('c', 0)], 2, 5);
+    assert(lo.unstable && lo.loo.find(x => x.month === 'a').value === RAC.testing.AVERAGE, 'leaving out the only strong month should flag instability');
+    const out = [];
+    for (const role of RAC.ROLES) {
+      const t = RAC.testing.blendStrengths(eploy, A, role);
+      for (const k of Object.keys(t)) {
+        assert(t[k].loo.length === 3, `${role} ${k}: ${t[k].loo.length} leave-one-out values`);
+        if (t[k].value !== RAC.testing.AVERAGE) assert(t[k].gain >= RAC.assumptions.get(A, 'own_figure_min_gain'), `${role} ${k} used without a clear gain`);
+        out.push(`${role} ${k} ${t[k].value}${t[k].unstable ? ' (unstable)' : ''}`);
+      }
+    }
+    return out.join('; ');
   });
 
   check('Diminishing returns fit recovers a known rate from made-up data', () => {

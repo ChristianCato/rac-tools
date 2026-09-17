@@ -27,9 +27,11 @@
     const bench = (state.bench && state.bench[role]) || null;
     const w = RAC.cost.normWindow(bench);
     const mode = w.mode || 'all';
-    const ctx = RAC.cost.context(ds, A, role, bench);
+    const ctx = RAC.cost.context(ds, A, role, bench, { includeSettling: !!state.includeSettling });
     const rates = RAC.rates.build(eploy, A, role, { regions: ds.regions });
-    const bias = RAC.assumptions.get(A, 'remaining_error_factor', role);
+    // The plan's own adjustment where Setup sets one, as the plan uses it.
+    const eb = state.remainingError && state.remainingError[role];
+    const bias = eb != null && eb >= 0.5 && eb <= 2 ? eb : RAC.assumptions.get(A, 'remaining_error_factor', role);
     // Hires scaled as the plan scales them: reconciled to the hires Eploy
     // credited to the platforms, plus the plan's share of other-source hires.
     const s = state.otherHiresShare && state.otherHiresShare[role];

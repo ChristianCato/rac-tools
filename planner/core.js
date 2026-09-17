@@ -86,7 +86,32 @@
     return xs[lo] + (xs[hi] - xs[lo]) * (rank - lo);
   }
 
-  RAC.util = { sum, parseCsv, fingerprint, stableKey, addMonths, monthEnd, daysBetween, percentileInc };
+  // Random numbers from a fixed seed (mulberry32), so a simulation gives the
+  // same result every time it runs on the same inputs.
+  function rng(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  // Standard normal draws from a uniform source (Box-Muller).
+  function normals(rand) {
+    let spare = null;
+    return function () {
+      if (spare !== null) { const v = spare; spare = null; return v; }
+      let u = 0;
+      while (u <= 1e-12) u = rand();
+      const r = Math.sqrt(-2 * Math.log(u)), t = 2 * Math.PI * rand();
+      spare = r * Math.sin(t);
+      return r * Math.cos(t);
+    };
+  }
+
+  RAC.util = { sum, parseCsv, fingerprint, stableKey, addMonths, monthEnd, daysBetween, percentileInc, rng, normals };
 
   // A small store for built plans, keyed on every input. Cleared when the data
   // changes (RAC.plan.invalidate, called from the app's resetDataCaches).

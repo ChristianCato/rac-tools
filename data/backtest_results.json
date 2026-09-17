@@ -9,219 +9,463 @@
     "SMR": {
       "data": "SMR data from rac_data.js (the live app's data, taken 2026-09-17)",
       "eploy": "Corrected RAC Eploy Data Oct 2025 - Aug 2026.xlsx (2026-09-15)",
-      "adjustmentLearnedFrom": 3,
+      "adjustmentLearnedFrom": 0,
       "applications": [
         {
           "month": "2026-03",
-          "learnedFrom": "2025-10 to 2026-02",
-          "bRole": 0.5,
+          "learnedFrom": "2025-12 to 2026-02",
+          "bRole": 0.7,
           "k": 100000,
-          "bias": 1.0626,
+          "bias": 1.1122,
           "spend": 46679.1,
-          "predicted": 639.3861,
+          "predicted": 658.999,
           "actual": 536.377,
-          "miss": -0.1611
+          "miss": -0.1861
         },
         {
           "month": "2026-04",
-          "learnedFrom": "2025-10 to 2026-03",
+          "learnedFrom": "2025-12 to 2026-03",
           "bRole": 0.6,
-          "k": 100,
-          "bias": 1.0613,
+          "k": 100000,
+          "bias": 1.1435,
           "spend": 47827.13,
-          "predicted": 596.6539,
+          "predicted": 555.6575,
           "actual": 695.115,
-          "miss": 0.165
+          "miss": 0.251
         },
         {
           "month": "2026-05",
-          "learnedFrom": "2025-10 to 2026-04",
-          "bRole": 0.8,
-          "k": 100,
-          "bias": 1.1307,
+          "learnedFrom": "2025-12 to 2026-04",
+          "bRole": 0.7,
+          "k": 100000,
+          "bias": 1.124,
           "spend": 49685.78,
-          "predicted": 574.3931,
+          "predicted": 589.0041,
           "actual": 591.191,
-          "miss": 0.0292
+          "miss": 0.0037
         },
         {
           "month": "2026-06",
-          "learnedFrom": "2025-10 to 2026-05",
-          "bRole": 0.8,
-          "k": 100,
-          "bias": 1.1331,
+          "learnedFrom": "2025-12 to 2026-05",
+          "bRole": 0.7,
+          "k": 100000,
+          "bias": 1.1233,
           "spend": 54214.33,
-          "predicted": 587.9352,
+          "predicted": 600.214,
           "actual": 697.57,
-          "miss": 0.1865
+          "miss": 0.1622
         },
         {
           "month": "2026-07",
-          "learnedFrom": "2025-10 to 2026-06",
-          "bRole": 0.8,
-          "k": 100,
-          "bias": 1.0052,
+          "learnedFrom": "2025-12 to 2026-06",
+          "bRole": 0.7,
+          "k": 100000,
+          "bias": 1.0963,
           "spend": 63145,
-          "predicted": 772.2688,
+          "predicted": 716.4948,
           "actual": 643.103,
-          "miss": -0.1673
+          "miss": -0.1024
         }
       ],
-      "hires": [
-        {
-          "month": "2026-01",
-          "learnedFrom": "2025-10 to 2025-12",
-          "recon": 0.8099,
-          "predicted": 3.5938,
-          "actual": 13,
-          "miss": 2.6173
-        },
-        {
-          "month": "2026-02",
-          "learnedFrom": "2025-10 to 2026-01",
-          "recon": 1.0373,
-          "predicted": 5.9232,
-          "actual": 10,
-          "miss": 0.6883
-        },
-        {
-          "month": "2026-03",
-          "learnedFrom": "2025-10 to 2026-02",
-          "recon": 1.1228,
-          "predicted": 10.8871,
-          "actual": 16,
-          "miss": 0.4696
-        },
-        {
-          "month": "2026-04",
-          "learnedFrom": "2025-10 to 2026-03",
-          "recon": 1.2002,
-          "predicted": 10.9758,
-          "actual": 12,
-          "miss": 0.0933
-        },
-        {
-          "month": "2026-05",
-          "learnedFrom": "2025-10 to 2026-04",
-          "recon": 1.1445,
-          "predicted": 12.115,
-          "actual": 10,
-          "miss": -0.1746
-        }
-      ],
+      "hiresCheck": {
+        "note": "Paid-media hires predicted from earlier months against the hires Eploy credited to the four platforms. A check only: hire ranges come from the counts behind the rates.",
+        "months": [
+          {
+            "month": "2026-03",
+            "learnedFrom": "2025-10 to 2026-02",
+            "recon": 1.101,
+            "predicted": 11.2649,
+            "actual": 16,
+            "miss": 0.4203
+          },
+          {
+            "month": "2026-04",
+            "learnedFrom": "2025-10 to 2026-03",
+            "recon": 1.1676,
+            "predicted": 10.343,
+            "actual": 12,
+            "miss": 0.1602
+          },
+          {
+            "month": "2026-05",
+            "learnedFrom": "2025-10 to 2026-04",
+            "recon": 1.123,
+            "predicted": 12.3524,
+            "actual": 10,
+            "miss": -0.1904
+          }
+        ]
+      },
       "final": {
         "roleRate": 0.7,
         "strength": 100000,
-        "adjustment": 1.0983
+        "adjustment": 1.1134
+      },
+      "sensitivity": {
+        "blend": {
+          "screen_blend_n": {
+            "value": 5,
+            "best": 5,
+            "gain": 2.15,
+            "dispersion": 10.22,
+            "leaveOneOut": [
+              {
+                "month": "2026-03",
+                "value": 0
+              },
+              {
+                "month": "2026-04",
+                "value": 100000
+              },
+              {
+                "month": "2026-05",
+                "value": 100000
+              }
+            ],
+            "unstable": true
+          },
+          "location_screen_blend_n": {
+            "value": 400,
+            "best": 400,
+            "gain": 3.32,
+            "dispersion": 1.88,
+            "leaveOneOut": [
+              {
+                "month": "2026-03",
+                "value": 100000
+              },
+              {
+                "month": "2026-04",
+                "value": 50
+              },
+              {
+                "month": "2026-05",
+                "value": 200
+              }
+            ],
+            "unstable": true
+          },
+          "region_hire_blend_n": {
+            "value": 100000,
+            "best": 100000,
+            "gain": 0,
+            "dispersion": 1.48,
+            "leaveOneOut": [
+              {
+                "month": "2026-03",
+                "value": 100000
+              },
+              {
+                "month": "2026-04",
+                "value": 100000
+              },
+              {
+                "month": "2026-05",
+                "value": 100000
+              }
+            ],
+            "unstable": false
+          }
+        },
+        "backtest": {
+          "value": {
+            "roleRate": 0.7,
+            "strength": 100000,
+            "adjustment": 1.1134
+          },
+          "bestBeforeRule": {
+            "bRole": 0.7,
+            "k": 100000
+          },
+          "gain": 0,
+          "dispersion": 5.41,
+          "leaveOneOut": [
+            {
+              "month": "2025-12",
+              "bRole": 0.8,
+              "k": 100000,
+              "bias": 1.1128
+            },
+            {
+              "month": "2026-01",
+              "bRole": 0.7,
+              "k": 100000,
+              "bias": 1.1501
+            },
+            {
+              "month": "2026-02",
+              "bRole": 0.8,
+              "k": 100000,
+              "bias": 1.1585
+            },
+            {
+              "month": "2026-03",
+              "bRole": 0.8,
+              "k": 100000,
+              "bias": 1.1168
+            },
+            {
+              "month": "2026-04",
+              "bRole": 0.7,
+              "k": 100000,
+              "bias": 1.1396
+            },
+            {
+              "month": "2026-05",
+              "bRole": 0.7,
+              "k": 100000,
+              "bias": 1.1125
+            },
+            {
+              "month": "2026-06",
+              "bRole": 0.7,
+              "k": 100000,
+              "bias": 1.139
+            },
+            {
+              "month": "2026-07",
+              "bRole": 0.7,
+              "k": 100000,
+              "bias": 1.0963
+            }
+          ],
+          "unstable": {
+            "bRole": false,
+            "k": false,
+            "bias": false
+          }
+        }
       }
     },
     "Patrol": {
       "data": "Patrol data from rac_data.js (the live app's data, taken 2026-09-17)",
       "eploy": "Corrected RAC Eploy Data Oct 2025 - Aug 2026.xlsx (2026-09-15)",
-      "adjustmentLearnedFrom": 3,
+      "adjustmentLearnedFrom": 0,
       "applications": [
         {
           "month": "2026-03",
-          "learnedFrom": "2025-10 to 2026-02",
+          "learnedFrom": "2025-12 to 2026-02",
           "bRole": 0.8,
-          "k": 20,
-          "bias": 1.1185,
+          "k": 100000,
+          "bias": 1.1692,
           "spend": 48068.37,
-          "predicted": 644.0239,
+          "predicted": 662.9114,
           "actual": 747,
-          "miss": 0.1599
+          "miss": 0.1268
         },
         {
           "month": "2026-04",
-          "learnedFrom": "2025-10 to 2026-03",
+          "learnedFrom": "2025-12 to 2026-03",
           "bRole": 0.8,
-          "k": 20,
-          "bias": 1.0965,
+          "k": 100000,
+          "bias": 1.1188,
           "spend": 77086.63,
-          "predicted": 806.5024,
+          "predicted": 1039.5459,
           "actual": 951.31,
-          "miss": 0.1796
+          "miss": -0.0849
         },
         {
           "month": "2026-05",
-          "learnedFrom": "2025-10 to 2026-04",
-          "bRole": 0.8,
-          "k": 50,
-          "bias": 1.0495,
+          "learnedFrom": "2025-12 to 2026-04",
+          "bRole": 0.7,
+          "k": 100000,
+          "bias": 1.0873,
           "spend": 68048.21,
-          "predicted": 764.4283,
+          "predicted": 768.7469,
           "actual": 446.318,
-          "miss": -0.4161
+          "miss": -0.4194
         },
         {
           "month": "2026-06",
-          "learnedFrom": "2025-10 to 2026-05",
-          "bRole": 0.8,
-          "k": 50,
-          "bias": 1.1552,
+          "learnedFrom": "2025-12 to 2026-05",
+          "bRole": 0.7,
+          "k": 100000,
+          "bias": 1.192,
           "spend": 91748.32,
-          "predicted": 655.6324,
+          "predicted": 704.8701,
           "actual": 809.954,
-          "miss": 0.2354
+          "miss": 0.1491
         },
         {
           "month": "2026-07",
-          "learnedFrom": "2025-10 to 2026-06",
+          "learnedFrom": "2025-12 to 2026-06",
           "bRole": 0.7,
-          "k": 100,
-          "bias": 1.1374,
+          "k": 100000,
+          "bias": 1.1619,
           "spend": 82744.69,
-          "predicted": 648.5477,
+          "predicted": 655.136,
           "actual": 1083.179,
-          "miss": 0.6702
+          "miss": 0.6534
         }
       ],
-      "hires": [
-        {
-          "month": "2026-01",
-          "learnedFrom": "2025-10 to 2025-12",
-          "recon": 1.3941,
-          "predicted": 5.3199,
-          "actual": 19,
-          "miss": 2.5715
-        },
-        {
-          "month": "2026-02",
-          "learnedFrom": "2025-10 to 2026-01",
-          "recon": 1.4431,
-          "predicted": 9.0584,
-          "actual": 6,
-          "miss": -0.3376
-        },
-        {
-          "month": "2026-03",
-          "learnedFrom": "2025-10 to 2026-02",
-          "recon": 1.3356,
-          "predicted": 10.649,
-          "actual": 11,
-          "miss": 0.033
-        },
-        {
-          "month": "2026-04",
-          "learnedFrom": "2025-10 to 2026-03",
-          "recon": 1.3139,
-          "predicted": 12.6554,
-          "actual": 9,
-          "miss": -0.2888
-        },
-        {
-          "month": "2026-05",
-          "learnedFrom": "2025-10 to 2026-04",
-          "recon": 1.1575,
-          "predicted": 11.7625,
-          "actual": 4,
-          "miss": -0.6599
-        }
-      ],
+      "hiresCheck": {
+        "note": "Paid-media hires predicted from earlier months against the hires Eploy credited to the four platforms. A check only: hire ranges come from the counts behind the rates.",
+        "months": [
+          {
+            "month": "2026-03",
+            "learnedFrom": "2025-10 to 2026-02",
+            "recon": 1.3652,
+            "predicted": 11.1989,
+            "actual": 11,
+            "miss": -0.0178
+          },
+          {
+            "month": "2026-04",
+            "learnedFrom": "2025-10 to 2026-03",
+            "recon": 1.3397,
+            "predicted": 17.6677,
+            "actual": 9,
+            "miss": -0.4906
+          },
+          {
+            "month": "2026-05",
+            "learnedFrom": "2025-10 to 2026-04",
+            "recon": 1.1809,
+            "predicted": 11.8385,
+            "actual": 4,
+            "miss": -0.6621
+          }
+        ]
+      },
       "final": {
         "roleRate": 0.6,
-        "strength": 100,
-        "adjustment": 0.9665
+        "strength": 100000,
+        "adjustment": 1.0196
+      },
+      "sensitivity": {
+        "blend": {
+          "screen_blend_n": {
+            "value": 0,
+            "best": 0,
+            "gain": 3.46,
+            "dispersion": 7.38,
+            "leaveOneOut": [
+              {
+                "month": "2026-03",
+                "value": 0
+              },
+              {
+                "month": "2026-04",
+                "value": 0
+              },
+              {
+                "month": "2026-05",
+                "value": 0
+              }
+            ],
+            "unstable": false
+          },
+          "location_screen_blend_n": {
+            "value": 200,
+            "best": 200,
+            "gain": 8.96,
+            "dispersion": 2.19,
+            "leaveOneOut": [
+              {
+                "month": "2026-03",
+                "value": 800
+              },
+              {
+                "month": "2026-04",
+                "value": 5
+              },
+              {
+                "month": "2026-05",
+                "value": 100
+              }
+            ],
+            "unstable": true
+          },
+          "region_hire_blend_n": {
+            "value": 100000,
+            "best": 100000,
+            "gain": 0,
+            "dispersion": 1.08,
+            "leaveOneOut": [
+              {
+                "month": "2026-03",
+                "value": 100000
+              },
+              {
+                "month": "2026-04",
+                "value": 100000
+              },
+              {
+                "month": "2026-05",
+                "value": 100000
+              }
+            ],
+            "unstable": false
+          }
+        },
+        "backtest": {
+          "value": {
+            "roleRate": 0.6,
+            "strength": 100000,
+            "adjustment": 1.0196
+          },
+          "bestBeforeRule": {
+            "bRole": 0.6,
+            "k": 100000
+          },
+          "gain": 0,
+          "dispersion": 5.5,
+          "leaveOneOut": [
+            {
+              "month": "2025-12",
+              "bRole": 0.6,
+              "k": 100000,
+              "bias": 1.0145
+            },
+            {
+              "month": "2026-01",
+              "bRole": 0.6,
+              "k": 100000,
+              "bias": 1.0215
+            },
+            {
+              "month": "2026-02",
+              "bRole": 0.6,
+              "k": 100000,
+              "bias": 0.998
+            },
+            {
+              "month": "2026-03",
+              "bRole": 0.6,
+              "k": 100000,
+              "bias": 1.038
+            },
+            {
+              "month": "2026-04",
+              "bRole": 0.7,
+              "k": 100000,
+              "bias": 1.0568
+            },
+            {
+              "month": "2026-05",
+              "bRole": 0.6,
+              "k": 100000,
+              "bias": 0.9495
+            },
+            {
+              "month": "2026-06",
+              "bRole": 0.6,
+              "k": 100000,
+              "bias": 1.0239
+            },
+            {
+              "month": "2026-07",
+              "bRole": 0.7,
+              "k": 100000,
+              "bias": 1.1619
+            }
+          ],
+          "unstable": {
+            "bRole": false,
+            "k": false,
+            "bias": true
+          }
+        }
       }
     }
   }
