@@ -5,6 +5,17 @@ Usage (from the repo folder):
     python tools/eploy_import.py "PATH/TO/Eploy workbook.xlsx"
     python tools/eploy_import.py "PATH/TO/Eploy workbook.xlsx" --check
     python tools/eploy_import.py "PATH/TO/Eploy workbook.xlsx" --accept-changes
+Options for comparisons (results kept outside the repo):
+    --measure progressed   count Progressed Past Screening as quality (the
+                           measure before 17 September 2026; for files
+                           without "Quality Applies")
+    --out PATH             write the result here instead of data/eploy_rates.json
+    --previous PATH        compare with this import instead of data/eploy_rates.json
+
+The quality measure (user decision, 17 September 2026) is the column "Quality
+Applies": TRUE wherever Progressed Past Screening is TRUE, plus applications
+closed at To Review or Call Back for a reason other than the candidate's
+merit. It is used exactly as provided.
 
 What it does, in order. It stops with a message at the first problem:
 1. Reads the sheet "Application Report - All Roles" by column header name
@@ -12,13 +23,16 @@ What it does, in order. It stops with a message at the first problem:
 2. Maps roles, regions and sources using data/eploy_mappings.csv. Any label not
    in that file stops the import and is listed, so a new label is decided on,
    not guessed.
-3. Validates every planned-role row: Hired and Progressed Past Screening must
-   read TRUE or FALSE (an empty value usually means formulas without saved
-   values: open and save the file in Excel first); application dates must fall
-   between eploy_first_month and the file's own date.
+3. Validates every planned-role row: Hired, Progressed Past Screening and
+   Quality Applies must read TRUE or FALSE (an empty value usually means
+   formulas without saved values: open and save the file in Excel first);
+   every hired and every progressed application must be Quality Applies; no
+   application at a "Rejected - Multiple Applications" stage may be Quality
+   Applies; application dates must fall between eploy_first_month and the
+   file's own date.
 4. Compares with the previous import (data/eploy_rates.json) on the months both
-   hold: applications, progressed and hires by role and platform. Any shift
-   above 10% on a count of 20 or more stops the import unless
+   hold: applications, quality applications and hires by role and platform.
+   Any shift above 10% on a count of 20 or more stops the import unless
    --accept-changes is given.
 5. Writes data/eploy_rates.json: counts by role, region, platform and
    application month, plus the dataset file name and date. No candidate-level
@@ -46,6 +60,9 @@ REQUIRED = {
     'role': 'Patrol or SMR',
     'region': 'Region',
 }
+QUALITY_COLUMNS = {'quality': 'Quality Applies', 'stage': 'Current Workflow Stage'}
+REPEAT_STAGE = 'Rejected - Multiple Applications'
+MEASURES = {'quality': 'Quality Applies', 'progressed': 'Progressed Past Screening'}
 PLATFORMS = ('indeed', 'meta', 'google', 'appcast', 'other')
 SHIFT_LIMIT = 0.10
 SHIFT_MIN_COUNT = 20
@@ -96,16 +113,16 @@ def as_flag(value, column, problems):
     return None
 
 
-def read_workbook(path, maps, start_month, file_date):
+def read_workbook(path, maps, start_month, file_date, measure='quality'):
     from openpyxl import load_workbook
     wb = load_workbook(path, read_only=True, data_only=True)
     try:
-        return read_sheet(wb, maps, start_month, file_date)
+        return read_sheet(wb, maps, start_month, file_date, measure)
     finally:
         wb.close()   # read-only workbooks hold the file open until closed
 
 
-def read_sheet(wb, maps, start_month, file_date):
+def read_sheet(wb, maps, start_month, file_date, measure='quality'):
     if SHEET not in wb.sheetnames:
         raise ImportStopped(f'sheet "{SHEET}" not found; sheets were: {", ".join(wb.sheetnames)}')
     rows = wb[SHEET].iter_rows(values_only=True)
@@ -118,7 +135,8 @@ def read_sheet(wb, maps, start_month, file_date):
         raise ImportStopped('the sheet has no header row')
     col = {}
     missing = []
-    for key, name in REQUIRED.items():
+    wanted = dict(REQUIRED, **(QUALITY_COLUMNS if measure == 'quality' else {}))
+    for key, name in wanted.items():
         hits = [i for i, h in enumerate(header) if h == name]
         if not hits:
             missing.append(name)
@@ -131,7 +149,7 @@ def read_sheet(wb, maps, start_month, file_date):
 
     unmapped = defaultdict(int)
     problems = defaultdict(int)
-    counts = defaultdict(lambda: [0, 0, 0])
+    counts = defaultdict(lambda: [0, 0, 0, 0])   # applications, quality, hires, progressed
     stats = defaultdict(int)
     first = last = None
     lo = start_month + '-01'
@@ -170,7 +188,19 @@ def read_sheet(wb, maps, start_month, file_date):
             continue
         hired = as_flag(r[col['hired']], REQUIRED['hired'], problems)
         prog = as_flag(r[col['progressed']], REQUIRED['progressed'], problems)
-        if region is None or platform is None or hired is None or prog is None:
+        if measure == 'quality':
+            quality = as_flag(r[col['quality']], QUALITY_COLUMNS['quality'], problems)
+            stage = '' if r[col['stage']] is None else str(r[col['stage']]).strip()
+            if quality is not None:
+                if hired and not quality:
+                    problems[('Quality Applies', 'FALSE on a hired application')] += 1
+                if prog and not quality:
+                    problems[('Quality Applies', 'FALSE on an application that progressed past screening')] += 1
+                if quality and REPEAT_STAGE.lower() in stage.lower():
+                    problems[('Quality Applies', f'TRUE at stage "{stage}" (repeat applications are not quality)')] += 1
+        else:
+            quality = prog
+        if region is None or platform is None or hired is None or prog is None or quality is None:
             continue
         if hired and not prog:
             stats['hired_not_marked_progressed_' + role] += 1
@@ -178,8 +208,9 @@ def read_sheet(wb, maps, start_month, file_date):
         last = day if last is None or day > last else last
         c = counts[(role, region, platform, day[:7])]
         c[0] += 1
-        c[1] += prog
+        c[1] += quality
         c[2] += hired
+        c[3] += prog
     if unmapped:
         lines = [f'  {kind}: "{label}" ({n} rows)' for (kind, label), n in sorted(unmapped.items())]
         raise ImportStopped('labels not in data/eploy_mappings.csv; add each one, then re-run:\n' + '\n'.join(lines))
@@ -194,7 +225,7 @@ def read_sheet(wb, maps, start_month, file_date):
 
 def totals(cells, months=None):
     t = defaultdict(lambda: [0, 0, 0])
-    for role, region, platform, month, a, p, h in cells:
+    for role, region, platform, month, a, p, h, *_ in cells:
         if months is not None and month not in months:
             continue
         for key in ((role, platform), (role, 'all sources')):
@@ -212,7 +243,7 @@ def compare(previous, cells):
     old, new = totals(previous['cells'], common), totals(cells, common)
     shifts, notes = [], []
     for key in sorted(set(old) | set(new)):
-        for i, what in enumerate(('applications', 'progressed', 'hires')):
+        for i, what in enumerate(('applications', 'quality (' + previous.get('quality_measure', MEASURES['progressed']) + ' before)', 'hires')):
             a, b = old[key][i], new[key][i]
             if a == b:
                 continue
@@ -225,21 +256,23 @@ def compare(previous, cells):
     return shifts, notes, sorted(new_months - old_months), sorted(old_months - new_months)
 
 
-def build(path, accept_changes=False):
+def build(path, accept_changes=False, measure='quality', previous_path=None):
     maps = read_mappings()
     start = first_month()
     file_date = datetime.datetime.fromtimestamp(os.path.getmtime(path)).date().isoformat()
-    counts, stats, first, last = read_workbook(path, maps, start, file_date)
+    counts, stats, first, last = read_workbook(path, maps, start, file_date, measure)
     cells = [[*k, *v] for k, v in sorted(counts.items())]
     with open(MAPPINGS, 'rb') as f:   # line endings ignored, so a Windows checkout matches
         mapping_hash = hashlib.sha256(f.read().replace(b'\r\n', b'\n')).hexdigest()[:12]
     unknown = defaultdict(int)
-    for role, region, platform, month, a, p, h in cells:
+    for role, region, platform, month, a, p, h, *_ in cells:
         if region == 'Unknown':
             unknown[role] += a
     out = {
         'note': 'Aggregated from the Eploy application report by tools/eploy_import.py. '
-                'cells: [role, region, platform, application month, applications, progressed past screening, hires].',
+                'cells: [role, region, platform, application month, applications, quality applications, hires, progressed past screening]. '
+                'quality_measure names the column counted as quality.',
+        'quality_measure': MEASURES[measure],
         'dataset': {
             'file': os.path.basename(path),
             'file_date': file_date,
@@ -262,9 +295,11 @@ def build(path, accept_changes=False):
               f'Applications {first} to {last}; file dated {file_date}.',
               f'Applications with no region (role totals only): {dict(unknown)}.',
               f'Hired but not marked progressed: {out["dataset"]["hired_not_marked_progressed"]}.']
+    report.append(f'Quality measure: {MEASURES[measure]}.')
     previous = None
-    if os.path.exists(OUT):
-        with open(OUT, encoding='utf-8') as f:
+    previous_path = previous_path or OUT
+    if os.path.exists(previous_path):
+        with open(previous_path, encoding='utf-8') as f:
             previous = json.load(f)
     if previous:
         shifts, notes, added, dropped = compare(previous, cells)
@@ -287,20 +322,32 @@ def main(argv=None):
     ap.add_argument('workbook')
     ap.add_argument('--check', action='store_true', help='validate and confirm data/eploy_rates.json matches; write nothing')
     ap.add_argument('--accept-changes', action='store_true', help='write even if counts shifted more than 10%%')
+    ap.add_argument('--measure', choices=sorted(MEASURES), default=None,
+                    help='column counted as quality (default: Quality Applies; with --check, the measure the checked file was built with)')
+    ap.add_argument('--out', default=OUT, help='where to write the result (default: data/eploy_rates.json)')
+    ap.add_argument('--previous', default=None, help='import to compare with (default: the file being replaced)')
     args = ap.parse_args(argv)
+    out_path = os.path.abspath(args.out)
+    measure = args.measure
+    if measure is None:
+        measure = 'quality'
+        if args.check and os.path.exists(out_path):
+            with open(out_path, encoding='utf-8') as f:
+                held = json.load(f).get('quality_measure', MEASURES['progressed'])
+            measure = next(k for k, v in MEASURES.items() if v == held)
     try:
-        out, previous, report = build(args.workbook, args.accept_changes)
+        out, previous, report = build(args.workbook, args.accept_changes, measure, args.previous or out_path)
     except ImportStopped as e:
         print('IMPORT STOPPED: ' + str(e))
         return 1
     print('\n'.join(report))
     if args.check:
         same = previous is not None and previous['cells'] == out['cells'] and previous['dataset'] == out['dataset'] \
-            and previous['mappings_sha256'] == out['mappings_sha256']
+            and previous['mappings_sha256'] == out['mappings_sha256'] and previous.get('quality_measure') == out['quality_measure']
         print('CHECK: data/eploy_rates.json matches the workbook' if same
               else 'CHECK FAILED: data/eploy_rates.json does not match the workbook; run the import without --check')
         return 0 if same else 1
-    with open(OUT, 'w', encoding='utf-8', newline='\n') as f:
+    with open(out_path, 'w', encoding='utf-8', newline='\n') as f:
         f.write('{\n')
         items = [(k, v) for k, v in out.items() if k != 'cells']
         for k, v in items:
@@ -308,7 +355,7 @@ def main(argv=None):
         f.write('  "cells": [\n')
         f.write(',\n'.join('    ' + json.dumps(c) for c in out['cells']))
         f.write('\n  ]\n}\n')
-    print(f'Wrote {os.path.relpath(OUT, ROOT)}: {len(out["cells"])} aggregated rows.')
+    print(f'Wrote {out_path}: {len(out["cells"])} aggregated rows.')
     return 0
 
 

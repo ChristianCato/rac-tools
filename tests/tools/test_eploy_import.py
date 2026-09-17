@@ -13,19 +13,24 @@ spec = importlib.util.spec_from_file_location('eploy_import', os.path.join(HERE,
 imp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(imp)
 
+# Columns 0 to 8 as in the first dataset; 9 and 10 arrived with version 2.
 HEADERS = ['Vacancy ID', 'Application Date', 'Candidate ID', 'Corrected Detail', 'Hired',
-           'Progressed Past Screening', 'Patrol or SMR', 'Region', 'Title:']
+           'Progressed Past Screening', 'Patrol or SMR', 'Region', 'Title:', 'Quality Applies', 'Current Workflow Stage']
 D = datetime.datetime
 
 
 def rows_default():
     return [
-        ['V1', D(2026, 1, 5), 'CAND-SECRET-1', 'Paid Indeed', 'TRUE', 'TRUE', 'SMR', 'London', 'Tech'],
-        ['V1', D(2026, 1, 6), 'CAND-SECRET-2', 'Paid Facebook ', 'FALSE', 'TRUE', 'SMR', 'London', 'Tech'],
-        ['V2', D(2026, 2, 1), 'CAND-SECRET-3', 'Indeed (Organic or Paid)', 'FALSE', 'FALSE', 'Patrol', 'Yorkshire and The Humber', 'Tech'],
-        ['V3', D(2026, 2, 2), 'CAND-SECRET-4', 'Organic Google Search', 'FALSE', 'FALSE', 'SMR', None, 'Tech'],
-        ['V4', D(2026, 2, 3), 'CAND-SECRET-5', 'Some New Board', 'FALSE', 'FALSE', 'Other', 'Mars', 'Other job'],
+        ['V1', D(2026, 1, 5), 'CAND-SECRET-1', 'Paid Indeed', 'TRUE', 'TRUE', 'SMR', 'London', 'Tech', 'TRUE', 'Hired'],
+        ['V1', D(2026, 1, 6), 'CAND-SECRET-2', 'Paid Facebook ', 'FALSE', 'TRUE', 'SMR', 'London', 'Tech', 'TRUE', 'First Stage Interview'],
+        ['V2', D(2026, 2, 1), 'CAND-SECRET-3', 'Indeed (Organic or Paid)', 'FALSE', 'FALSE', 'Patrol', 'Yorkshire and The Humber', 'Tech', 'FALSE', 'To Review - Rejected - Unsuitable'],
+        ['V3', D(2026, 2, 2), 'CAND-SECRET-4', 'Organic Google Search', 'FALSE', 'FALSE', 'SMR', None, 'Tech', 'TRUE', 'To Review - Rejected - Location'],
+        ['V4', D(2026, 2, 3), 'CAND-SECRET-5', 'Some New Board', 'FALSE', 'FALSE', 'Other', 'Mars', 'Other job', 'FALSE', 'To Review'],
     ]
+
+
+def filler(day):
+    return ['V9', day, 'C', 'Paid Indeed', 'FALSE', 'FALSE', 'SMR', 'London', 'T', 'FALSE', 'To Review']
 
 
 def make(folder, name, headers=HEADERS, rows=None, order=None):
@@ -45,9 +50,9 @@ def make(folder, name, headers=HEADERS, rows=None, order=None):
     return path
 
 
-def run(path, accept=False):
+def run(path, accept=False, measure='quality'):
     try:
-        out, prev, report = imp.build(path, accept)
+        out, prev, report = imp.build(path, accept, measure)
         return out, None
     except imp.ImportStopped as e:
         return None, str(e)
@@ -64,26 +69,34 @@ def main():
                 fails.append(name)
 
         # 1. Columns in another order, extra columns: reads by name.
-        order = [8, 7, 6, 5, 4, 3, 2, 1, 0]
+        order = list(range(len(HEADERS)))[::-1]
         out, err = run(make(tmp, 'reordered.xlsx', order=order))
         cells = out and {tuple(c[:4]): c[4:] for c in out['cells']}
         ok = out is not None and cells == {
-            ('SMR', 'London', 'indeed', '2026-01'): [1, 1, 1],
-            ('SMR', 'London', 'meta', '2026-01'): [1, 1, 0],
-            ('Patrol', 'Yorkshire & Humber', 'indeed', '2026-02'): [1, 0, 0],
-            ('SMR', 'Unknown', 'other', '2026-02'): [1, 0, 0],
+            ('SMR', 'London', 'indeed', '2026-01'): [1, 1, 1, 1],
+            ('SMR', 'London', 'meta', '2026-01'): [1, 1, 0, 1],
+            ('Patrol', 'Yorkshire & Humber', 'indeed', '2026-02'): [1, 0, 0, 0],
+            ('SMR', 'Unknown', 'other', '2026-02'): [1, 1, 0, 0],
         }
-        case('columns read by header name in any order', ok, err or str(cells))
+        case('columns read by header name in any order; quality counted from Quality Applies', ok, err or str(cells))
         text = json.dumps(out)
         case('output holds no candidate-level fields', out is not None and 'CAND-SECRET' not in text and 'V1' not in text
-             and all(len(c) == 7 for c in out['cells']) and out['dataset']['rows_other_roles'] == 1,
+             and all(len(c) == 8 for c in out['cells']) and out['dataset']['rows_other_roles'] == 1
+             and out['quality_measure'] == 'Quality Applies',
              'candidate or vacancy value found in output' if 'CAND-SECRET' in text else '')
         case('rows with no region counted and reported', out is not None and out['dataset']['unknown_region_applications'] == {'SMR': 1})
 
-        # 2. Missing required column.
+        # 2. Missing required columns.
         h = [x if x != 'Hired' else 'Hired?' for x in HEADERS]
         out, err = run(make(tmp, 'missing.xlsx', headers=h))
         case('missing column stops the import', out is None and 'required columns not found in row 2: Hired' in (err or ''), err)
+        h = [x if x != 'Quality Applies' else 'Quality' for x in HEADERS]
+        out, err = run(make(tmp, 'noquality.xlsx', headers=h))
+        case('missing Quality Applies stops the import', out is None and 'Quality Applies' in (err or ''), err)
+        old = make(tmp, 'version1.xlsx', headers=HEADERS[:9], rows=[r[:9] for r in rows_default()])
+        out, err = run(old, measure='progressed')
+        case('a first-version file imports with --measure progressed', out is not None and out['quality_measure'] == 'Progressed Past Screening'
+             and {tuple(c[:4]): c[4:] for c in out['cells']}[('SMR', 'Unknown', 'other', '2026-02')] == [1, 0, 0, 0], err)
 
         # 3. Unmapped labels are listed.
         rows = rows_default()
@@ -93,11 +106,15 @@ def main():
         case('unmapped labels stop the import and are listed', out is None and 'source: "Paid Snapchat" (1 rows)' in (err or '')
              and 'region: "Atlantis" (1 rows)' in (err or ''), err)
 
-        # 4. Unexpected Hired value.
+        # 4. Unexpected flag values.
         rows = rows_default()
         rows[0][4] = 'Yes'
         out, err = run(make(tmp, 'badflag.xlsx', rows=rows))
         case('unexpected Hired value stops the import', out is None and "Hired: 'Yes' (1 rows)" in (err or ''), err)
+        rows = rows_default()
+        rows[2][9] = None
+        out, err = run(make(tmp, 'blankquality.xlsx', rows=rows))
+        case('blank Quality Applies stops the import', out is None and 'Quality Applies: empty (1 rows)' in (err or ''), err)
 
         # 5. Empty formula column.
         rows = rows_default()
@@ -107,7 +124,21 @@ def main():
         case('empty formula column stops the import with the Excel hint', out is None and 'Progressed Past Screening: empty' in (err or '')
              and 'open the workbook in Excel' in (err or ''), err)
 
-        # 6. Date out of range.
+        # 6. Quality rules.
+        rows = rows_default()
+        rows[0][9] = 'FALSE'
+        out, err = run(make(tmp, 'hirednotq.xlsx', rows=rows))
+        case('a hired application that is not quality stops the import', out is None and 'FALSE on a hired application (1 rows)' in (err or ''), err)
+        rows = rows_default()
+        rows[1][9] = 'FALSE'
+        out, err = run(make(tmp, 'prognotq.xlsx', rows=rows))
+        case('a progressed application that is not quality stops the import', out is None and 'FALSE on an application that progressed past screening (1 rows)' in (err or ''), err)
+        rows = rows_default()
+        rows[3][10] = 'To Review - Rejected - Multiple Applications'
+        out, err = run(make(tmp, 'repeat.xlsx', rows=rows))
+        case('a repeat application marked quality stops the import', out is None and 'Rejected - Multiple Applications' in (err or ''), err)
+
+        # 7. Date out of range.
         rows = rows_default()
         rows[0][1] = D(2025, 6, 1)
         out, err = run(make(tmp, 'early.xlsx', rows=rows))
@@ -117,17 +148,17 @@ def main():
         out, err = run(make(tmp, 'late.xlsx', rows=rows))
         case('date after the file date stops the import', out is None and 'outside 2025-10-01 to 2026-09-15' in (err or ''), err)
 
-        # 7. Comparison with the previous import.
-        base_rows = rows_default() + [['V9', D(2026, 1, 9), 'C', 'Paid Indeed', 'FALSE', 'FALSE', 'SMR', 'London', 'T']] * 30
+        # 8. Comparison with the previous import.
+        base_rows = rows_default() + [filler(D(2026, 1, 9))] * 30
         out, err = run(make(tmp, 'prev.xlsx', rows=base_rows))
         with open(imp.OUT, 'w', encoding='utf-8') as f:
             json.dump(out, f)
-        more = base_rows + [['V9', D(2026, 1, 10), 'C', 'Paid Indeed', 'FALSE', 'FALSE', 'SMR', 'London', 'T']] * 5
+        more = base_rows + [filler(D(2026, 1, 10))] * 5
         out2, err2 = run(make(tmp, 'shifted.xlsx', rows=more))
         case('shift above 10% on a shared month stops the import', out2 is None and 'SMR indeed applications: 31 to 36' in (err2 or ''), err2)
         out3, err3 = run(make(tmp, 'shifted.xlsx', rows=more), accept=True)
         case('--accept-changes lets a reviewed shift through', out3 is not None, err3)
-        added = base_rows + [['V9', D(2026, 3, 10), 'C', 'Paid Indeed', 'FALSE', 'FALSE', 'SMR', 'London', 'T']] * 20
+        added = base_rows + [filler(D(2026, 3, 10))] * 20
         out4, err4 = run(make(tmp, 'added.xlsx', rows=added))
         case('a new month alone does not count as a shift', out4 is not None, err4)
 

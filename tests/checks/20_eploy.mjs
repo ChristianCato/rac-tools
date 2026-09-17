@@ -35,15 +35,18 @@ export default function (check, { assert }) {
     const plats = new Set(['indeed', 'meta', 'google', 'appcast', 'other']);
     let apps = 0;
     for (const c of d.cells) {
-      assert(c.length === 7, 'unexpected row shape ' + JSON.stringify(c));
-      const [role, region, plat, month, a, p, h] = c;
+      assert(c.length === 8, 'unexpected row shape ' + JSON.stringify(c));
+      const [role, region, plat, month, a, q, h, pr] = c;
       assert(['SMR', 'Patrol'].includes(role) && regions.has(region) && plats.has(plat) && /^\d{4}-\d{2}$/.test(month), 'unexpected labels ' + JSON.stringify(c));
-      assert([a, p, h].every(Number.isInteger) && a >= p && p >= h && h >= 0, 'counts out of order ' + JSON.stringify(c));
+      assert([a, q, h, pr].every(Number.isInteger) && a >= q && q >= h && h >= 0 && a >= pr && pr >= h, 'counts out of order ' + JSON.stringify(c));
+      // Quality includes every progressed application (and is the same thing under the first measure).
+      assert(d.quality_measure === 'Quality Applies' ? q >= pr : q === pr, 'quality and progressed disagree ' + JSON.stringify(c));
       apps += a;
     }
     assert(apps === d.dataset.rows_smr + d.dataset.rows_patrol, `applications ${apps} differ from rows read ${d.dataset.rows_smr + d.dataset.rows_patrol}`);
     const keys = Object.keys(d).sort().join(',');
-    assert(keys === 'cells,dataset,eploy_first_month,mappings_sha256,note', 'unexpected top-level fields: ' + keys);
-    return `${d.cells.length} rows, ${apps} applications, dataset ${d.dataset.file} dated ${d.dataset.file_date}`;
+    assert(keys === 'cells,dataset,eploy_first_month,mappings_sha256,note,quality_measure', 'unexpected top-level fields: ' + keys);
+    assert(['Quality Applies', 'Progressed Past Screening'].includes(d.quality_measure), 'quality measure ' + d.quality_measure);
+    return `${d.cells.length} rows, ${apps} applications, dataset ${d.dataset.file} dated ${d.dataset.file_date}, quality measure ${d.quality_measure}`;
   });
 }
