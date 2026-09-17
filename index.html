@@ -424,6 +424,12 @@ input[type=range]::-moz-range-thumb {
   background: rgba(255,255,255,0.12); color: #9DB0CC; margin-right: 10px;
 }
 .sync-ok { color: #8FD3AE; }
+.sync-test { color: #FFD2B0; background: rgba(255,102,0,0.22); }
+.test-banner {
+  background: var(--rac-orange-lt); color: var(--ink); border-bottom: 1px solid #F5C9A6;
+  font-size: 12.5px; line-height: 1.45; padding: 7px 20px;
+}
+.test-banner strong { color: #9A3D00; }
 .signin-wrap {
   min-height: 100vh; display: flex; align-items: center; justify-content: center;
   background: var(--rac-navy); padding: 20px;
@@ -2298,6 +2304,14 @@ let SB_TOKEN = null;
 try { SB_TOKEN = JSON.parse(localStorage.getItem('rac-session') || 'null'); } catch (e) {}
 const ALLOWED_DOMAIN = '@enhancemedia.co.uk';
 
+// Only the live address saves. Test links (Vercel branch previews) and local
+// copies use the same database as the live app, so a change made while testing
+// would otherwise overwrite the plans and data everyone else works from. They
+// still read the live data, so what they show matches the live app until
+// something is changed.
+const SAVE_HOST = 'rac-tools.vercel.app';
+const CAN_SAVE = typeof window !== 'undefined' && window.location.hostname === SAVE_HOST;
+
 let onSignedOut = () => {};
 const sbSignedIn = () => !!(SB_TOKEN && SB_TOKEN.access_token);
 function sbClear() { SB_TOKEN = null; localStorage.removeItem('rac-session'); }
@@ -2379,6 +2393,7 @@ async function sbGet(key) {
 }
 
 async function sbSet(key, value) {
+  if (!CAN_SAVE) return false;   // test version: never write to the live database
   const r = await sbFetch(SB_URL + '?on_conflict=k', {
     method: 'POST',
     headers: { Prefer: 'resolution=merge-duplicates' },
@@ -3522,6 +3537,23 @@ function dataQuality(months, apps) {
 
 // Every month the dataset holds, oldest first.
 let _monthsCache = null;
+// Bumped whenever the data changes, so anything holding a month list can tell.
+let DATA_VERSION = 0;
+
+// Months can arrive after the app has started: the shared database is read a
+// moment after load, and the Data tab adds months while the app is open. Every
+// figure held from the earlier data has to go, or a new month sits in the data
+// but carries no weight in the plan. The September SMR plan held August this
+// way: in the data, but weighted 0.
+function resetDataCaches() {
+  _monthsCache = null;
+  _weights = null;
+  _weightCount = 0;
+  _planCache.clear();
+  Object.keys(_platformCPACache).forEach(k => delete _platformCPACache[k]);
+  Object.keys(_typicalCache).forEach(k => delete _typicalCache[k]);
+  DATA_VERSION += 1;
+}
 function dataMonths() {
   if (_monthsCache) return _monthsCache;
   const set = new Set();
@@ -3590,7 +3622,7 @@ function windowStats(plat, region, role, from, to) {
 
 function BenchmarksTab({ state, setState, role: roleView, setRole: setRoleView }) {
   const role = roleView;
-  const months = useMemo(() => dataMonths(), []);
+  const months = useMemo(() => dataMonths(), [DATA_VERSION]);
   // Everything read below goes through the module window, so point it at the
   // role being looked at before anything is worked out.
   setBenchWindow(benchFor(state, roleView));
@@ -5305,6 +5337,11 @@ function exportPlanPDF(state, roleFilter, opts) {
 // the plans or the data. Newest first. Dated, no version numbers.
 // ====================================================================
 const CHANGELOG = [
+  { date: '18 Sep', items: [
+    'Test links no longer save. Vercel builds a test version of the app for every branch, and those versions used the same database as the live app, so trying a change on one could overwrite the plans and data everyone works from. Only rac-tools.vercel.app now saves. Test versions still read the live plans and data, show a banner saying nothing is saved, and show Not saved where the live app shows Saved.',
+    'Months added after the app has opened now count in the plan. The app worked out its list of months once, when it first needed it, and never again. The shared database is read a moment after the app loads, so a month held only there could miss that list: the September SMR plan held August in its data but gave it no weight, and planned on May to July rather than June to August. The month list, the weighting and every stored figure built from them are now cleared whenever months are added, whether from the database or the Data tab.',
+    'Added automatic checks in a tests folder, which is not published with the app. They rebuild the September SMR plan as sent on 28 August and as the app held it on 16 September and confirm the figures match, confirm a month added after the app opens is weighted, and confirm a test version cannot save.',
+  ] },
   { date: '28 Aug', items: [
     'Column I of the Workings sheet no longer disagrees with the plan. It was an Excel formula that rebuilt the cost per application from scratch, and it could not match, for two reasons. It pulled the cell toward a plain spend over applications figure for the platform, where the plan pulls it toward the platform figure that has itself already been pulled toward the role benchmark. And it counted the applications behind a cell as column E, where the plan uses that count levelled to the length of the period. Both effects are small on a cell with hundreds of applications and largest on a thin one. On the September SMR plan West Midlands Meta read 47.28 pounds and 99.1 applications in the workbook against 46 pounds and 102 in the PDF, a gap of 3%, and the cost per hire and the location totals were out with it. Column I is now the figure the plan used, written in as a number. The arithmetic behind it has moved to column Q, in words, with the numbers the plan actually used and a note where the count differs from column E. Predicted applications, cost per hire and the totals are still live formulas and now read off a figure that matches the plan. Nothing in the model changed.',
   ] },
@@ -8472,6 +8509,7 @@ function applyMonths(months, cells, lastDate) {
     DATA.data_current_through = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
   }
   DATA.generated_at = todayISO();
+  resetDataCaches();
 }
 
 function HireRates() {
@@ -9511,6 +9549,11 @@ function App() {
 
   return (
     <div className="app">
+      {!CAN_SAVE && (
+        <div className="test-banner" role="status">
+          <strong>Test version.</strong> Nothing you change here is saved. Plans and data are read from the live app.
+        </div>
+      )}
       <div className="app-header">
         <img className="logo-mark" alt="RAC"
           src="data:image/png;base64,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" />
@@ -9545,6 +9588,11 @@ function App() {
             a.click();
             URL.revokeObjectURL(a.href);
           }}>Back up</a>
+        {!CAN_SAVE && sync !== 'loading' && sync !== 'offline' ? (
+          <span className="sync sync-test" title="Test version. Changes stay in this browser and are not saved for everyone.">
+            Not saved
+          </span>
+        ) : (
         <span className={'sync sync-' + sync} title={
           sync === 'ok' ? 'Saved for everyone'
             : sync === 'saving' ? 'Saving'
@@ -9553,6 +9601,7 @@ function App() {
           {sync === 'ok' ? 'Saved' : sync === 'saving' ? 'Saving'
             : sync === 'offline' ? 'Reconnecting' : 'Loading'}
         </span>
+        )}
 
         {tool === 'planner' && (
           <>
