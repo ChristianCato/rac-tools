@@ -231,8 +231,10 @@ def build(path, accept_changes=False):
     file_date = datetime.datetime.fromtimestamp(os.path.getmtime(path)).date().isoformat()
     counts, stats, first, last = read_workbook(path, maps, start, file_date)
     cells = [[*k, *v] for k, v in sorted(counts.items())]
-    with open(MAPPINGS, 'rb') as f:
-        mapping_hash = hashlib.sha256(f.read()).hexdigest()[:12]
+    with open(MAPPINGS, 'rb') as f:   # line endings ignored, so a Windows checkout matches
+        mapping_hash = hashlib.sha256(f.read().replace(b'
+', b'
+')).hexdigest()[:12]
     unknown = defaultdict(int)
     for role, region, platform, month, a, p, h in cells:
         if region == 'Unknown':
