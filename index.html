@@ -614,6 +614,7 @@ input[type=range]::-moz-range-thumb {
 <script type="text/babel" src="ui/plan_panels.jsx"></script>
 <script type="text/babel" src="ui/method_tab.jsx"></script>
 <script type="text/babel" src="ui/onerac_tab.jsx"></script>
+<script type="text/babel" src="ui/assumptions_tab.jsx"></script>
 <script type="text/babel" data-type="module">
 const { useState, useEffect, useMemo, useRef, createContext, useContext } = React;
 
@@ -2696,7 +2697,7 @@ async function sbSendLink(email) {
 // deliberately not in here: it lives in the shared workspace, so a link that
 // set it would move everyone else's month too.
 const ROUTE_TOOLS = ['planner', 'priorities', 'pacing', 'data', 'changelog'];
-const ROUTE_TABS = ['setup', 'plan', 'platforms', 'benchmarks', 'onerac', 'method'];
+const ROUTE_TABS = ['setup', 'plan', 'platforms', 'benchmarks', 'onerac', 'assumptions', 'method'];
 
 function routeFromHash() {
   const h = (window.location.hash || '').replace(/^#\/?/, '');
@@ -5621,6 +5622,7 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '18 Sep', items: [
+    'New Assumptions tab: every value the model uses, what this plan used, what testing gave, where it came from and when it was set, with the reasoning behind each one underneath. Values live in assumptions.csv in the repository, not in the code, so changing one means editing that file on a branch, checking it on the test link and merging, and every change carries a date and an author. The tab flags any value set for this plan rather than taken from the file, and any agreed value whose tested figure has met the rule for switching.',
     'Plans made before this release stay exactly as they were, in an archive copy of the old app at /archive/. It is read-only, shows an amber banner, and reads its own copy of the plans and data, taken automatically the first time this release loads on the live address, before anything is written. It runs the previous engine on the data it had, in the same order, so it gives the figures those plans were made with. Reopening one of those plans in the live app will show different figures, because the calculations changed; the archive is where the originals are.',
     'Plans can now be marked as issued. A plan that has been sent to RAC is stored exactly as it was, under its own record, written once: from then on it shows the figures RAC was sent, whatever changes in the data or the assumptions since, and its PDF and workings are made from the stored copy rather than worked out again. An issued plan cannot be renamed, deleted or written over, and changing anything while it is open starts a new plan instead. The plan list marks issued plans, and a banner says when a plan was issued and by whom.',
     'OneRAC planning added, on its own tab. Pick the locations OneRAC runs in and the month each one starts; from that month they are planned there and left out of the SMR and Patrol plans, so nothing is planned twice. Open roles are the two roles’ open roles in those locations added together, and past performance is their spend and applications added together, which is what a combined campaign would have spent and received. Cost per application is then blended to the mix of open roles, and a self-competition setting (0% until it is measured) lowers it for the two roles no longer bidding against each other. Quality and hire rates, diminishing returns, spending caps, cost limits and ranges are the same as a role plan. The OneRAC budget comes off both role budgets, split by the open roles in those locations, unless that is switched off; each role plan shows it as a OneRAC hold-back. OneRAC has its own PDF and workings export. Campaign names with OneRAC in the role position are read by the Windsor pull and the pacing tool, and the Data tab takes OneRAC rows from the master file without changing SMR or Patrol.',
@@ -9959,6 +9961,7 @@ function App() {
     { id: 'platforms', label: 'Platforms' },
     { id: 'benchmarks', label: 'Benchmarks' },
     { id: 'onerac', label: 'OneRAC' },
+    { id: 'assumptions', label: 'Assumptions' },
     { id: 'method', label: 'Method' },
   ];
 
@@ -10178,6 +10181,8 @@ function App() {
                   plan={buildOneRacPlan(plannerState)}
                   onExportPdf={() => exportOneRacPDF(plannerState, { planName: loadedVersion ? loadedVersion.name : 'Working plan' })}
                   onExportWorkings={() => exportOneRacWorkings(plannerState, { planName: loadedVersion ? loadedVersion.name : 'Working plan' })} />}
+                {tab === 'assumptions' && <RACUI.AssumptionsTab plan={buildFundingPlan(roleView, { ...planParams(roleView, plannerState), appTarget: (plannerState.appTarget || {})[roleView] || 0 })}
+                  role={roleView} roles={ROLES} setRoleView={setRoleView} roleFull={ROLE_FULL} />}
                 {tab === 'method' && <RACUI.MethodTab plan={buildFundingPlan(roleView, { ...planParams(roleView, plannerState), appTarget: (plannerState.appTarget || {})[roleView] || 0 })}
                   role={roleView} roles={ROLES} setRoleView={setRoleView} roleFull={ROLE_FULL} />}
               </>

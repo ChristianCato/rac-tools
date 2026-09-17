@@ -327,6 +327,21 @@ with sync_playwright() as pw:
                  f"{want4['apps']:.0f} applications and {want4['hires']:.1f} hires = the planner; "
                  f"role-mix adjustment x{want4['adjustment']:.3f}, self-competition {want4['selfCompetition']:.0%}; "
                  f"London out of the SMR plan, hold-back \u00a3{want4['roleHoldback']:,.0f}")
+    # The Assumptions tab lists every value with where it came from.
+    page.locator('.tab-btn', has_text='Assumptions').click()
+    page.wait_for_selector('[data-panel="assumptions"]', timeout=30000)
+    page.wait_for_timeout(800)
+    rows = page.locator('[data-panel="assumptions"] .alloc-table tbody tr').count()
+    want_rows = page.evaluate("(role) => RAC.text.assumptionRows(RAC.app.state.A, role, null).length", 'SMR')
+    if rows < want_rows:
+        fails.append(f'the Assumptions tab lists {rows} values, the file holds at least {want_rows}')
+    body = page.inner_text('[data-panel="assumptions"]')
+    low = body.lower()
+    for want in ['assumptions.csv', 'agreed, informed by tests', 'testing gave', 'quality rate blend strength']:
+        if want not in low:
+            fails.append(f'the Assumptions tab does not show {want!r}')
+    notes.append(f'Assumptions tab: {rows} values with their source, date and tested figure')
+    page.screenshot(path=os.path.join(OUT, 'assumptions.png'), full_page=True)
     page.screenshot(path=os.path.join(OUT, 'onerac.png'), full_page=True)
     if errors or guard.blocked or guard.writes:
         fails.append(f'OneRAC run: errors {errors[:2]}, blocked {guard.blocked[:3]}, writes {guard.writes[:3]}')
