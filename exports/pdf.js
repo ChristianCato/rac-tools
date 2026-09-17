@@ -28,6 +28,19 @@
   const LINE = [214, 219, 226], ZEBRA = [245, 247, 250], HEAD = [232, 236, 242], WARN = [176, 76, 20];
   const PAGE_W = 297, PAGE_H = 210, M = 14, BOTTOM = 192;
 
+  // Cost limits set for this plan (D6), for the assumptions box.
+  function limitLines(p, F) {
+    const lim = (p.inputs && p.inputs.limits) || {};
+    const cph = Object.keys(lim.cph || {}).filter(r => lim.cph[r] > 0);
+    const cpa = [];
+    Object.keys(lim.cpa || {}).forEach(r => P().forEach(q => { if ((lim.cpa[r] || {})[q] > 0) cpa.push(`${r} ${L()[q]} ${F.gbp(lim.cpa[r][q], 2)}`); }));
+    const out = [];
+    if (cph.length) out.push(`Cost per hire limits: ${cph.map(r => `${r} ${F.gbp(lim.cph[r])}`).join(', ')}. The plan stops adding spend where a limit would be passed.`);
+    if (cpa.length) out.push(`Cost per application limits: ${cpa.join(', ')}.`);
+    if (!out.length) out.push('Cost limits: none set for this plan.');
+    return out;
+  }
+
   function titleOf(d, monthLabel) {
     const t = d.plan.hireTarget > 0 ? `plan for ${d.plan.hireTarget} hires` : 'plan';
     return `RAC ${monthLabel} ${d.roleName} ${t}`;
@@ -222,6 +235,7 @@
         fees && fees.on ? `Platform fees: Indeed ${F.pct(fees.rates.indeed, 2)}, Meta ${F.pct(fees.rates.meta, 2)} and Google ${F.pct(fees.rates.google, 2)} of media spend (Appcast none), inside the budget (${F.gbp(fees.total, 2)} in this plan). Forecasts use media spend.`
           : 'Platform fees: none in this plan (fees apply to plans from ' + F.month(fees ? fees.firstMonth : '') + ').',
         'Attribution: quality and hire rates came from RAC’s applicant tracking data, which credited each application to the last source used; Meta and Google rates were moved towards the role average (see Method).',
+        ...limitLines(p, F),
         ...p.minimumShortfalls.map(x => x.text + '.'),
       ];
       const lowCells = p.locations.flatMap(l => P().map(q => l.cells[q])).filter(c => c.range && c.range.hires && c.range.hires.lowConfidence).length;

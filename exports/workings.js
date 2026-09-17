@@ -437,6 +437,19 @@
         [null, N1, GBP, GBP, N1, GBP]);
       });
     }
+    const lim = (plan.inputs && plan.inputs.limits) || {};
+    const limitRows = [];
+    Object.keys(lim.cph || {}).forEach(r => { if (lim.cph[r] > 0) limitRows.push([`Most a hire may cost: ${r}`, lim.cph[r], 'Set on Setup for this plan']); });
+    Object.keys(lim.cpa || {}).forEach(r => P().forEach(q => {
+      if ((lim.cpa[r] || {})[q] > 0) limitRows.push([`Most an application may cost: ${r} ${L()[q]}`, lim.cpa[r][q], 'Set on Setup for this plan']);
+    }));
+    s.blank();
+    s.add('title', ['Cost limits']);
+    if (!limitRows.length) s.note('None set for this plan.');
+    else {
+      s.head(['', 'Limit', 'Where it came from', '', '', '']);
+      limitRows.forEach(row => s.body(row, [null, GBP2]));
+    }
     if (plan.minimumShortfalls.length) {
       s.blank();
       s.add('title', ['Minimums the spending caps did not allow']);

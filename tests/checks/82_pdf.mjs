@@ -35,7 +35,8 @@ export default function (check, { assert }) {
     const must = [F.gbp(plan.budget), F.gbp(plan.deployable), F.gbp(plan.placed), F.gbp(plan.unplaced.total), F.gbp(plan.fees.total, 2),
       F.num(plan.totals.allHires), F.num(plan.totals.hires), F.num(plan.totals.otherHires), F.int(plan.totals.apps), F.int(plan.totals.passed),
       `${F.num(plan.totals.range.allHires.low, 0)} to ${F.num(plan.totals.range.allHires.high, 0)}`,
-      'Budget the plan could not place efficiently', 'Assumptions and risks', 'What the spending caps allow', RAC.text.ATTRIBUTION.slice(0, 60)];
+      'Budget the plan could not place efficiently', 'Assumptions and risks', 'What the spending caps allow', RAC.text.ATTRIBUTION.slice(0, 60),
+      'Cost limits: none set for this plan.'];
     plan.locations.forEach(l => { must.push(l.region, F.gbp(l.spend)); RAC.PLATFORMS.forEach(p => { if (l.cells[p].spend > 0) must.push(F.gbp(l.cells[p].spend), F.gbp(l.cells[p].plannedCpa, 2)); }); });
     RAC.PLATFORMS.forEach(p => must.push(F.gbp(plan.platforms[p].spend), F.gbp(plan.platforms[p].media)));
     plan.reach.byMultiple.forEach(m => must.push(F.num(m.hiresAtBudget)));
@@ -50,6 +51,22 @@ export default function (check, { assert }) {
     const method = RAC.text.method(plan.A, 'SMR', plan, bt);
     method.forEach(s => assert(all.includes(s.heading), 'method heading missing: ' + s.heading));
     return `${pages.length} pages: ${[...new Set(kinds)].join(', ')}; ${must.length} planner figures found; stamp and page number on every page`;
+  });
+
+  check('PDF: cost limits set for a plan are printed with it', () => {
+    const plan = build('SMR', { ...OCT, limits: { cph: { 'South East': 4000 }, cpa: { 'South East': { indeed: 45 } } } });
+    const out = RAC.pdf.build(FakePDF, [doc('SMR', plan)], opts);
+    assert(!out.problems.length, out.problems.join('; '));
+    const all = out.texts.join(String.fromCharCode(10));
+    assert(all.includes('Cost per hire limits: South East £4,000'), 'the cost per hire limit is not printed');
+    assert(all.includes('Cost per application limits: South East Indeed £45.00'), 'the cost per application limit is not printed');
+    const w = RAC.workings.build([doc('SMR', plan)], opts);
+    const summary = w.sheets[0].rows.map(r => String(r.cells[0]));
+    assert(summary.some(t => t === 'Most a hire may cost: South East'), 'the workings do not list the cost per hire limit');
+    assert(summary.some(t => t === 'Most an application may cost: South East Indeed'), 'the workings do not list the cost per application limit');
+    const c = plan.locations.find(l => l.region === 'South East').cells.indeed;
+    assert(c.spend === 0 || c.plannedCpa <= 45 + 1e-6, `South East Indeed planned at £${c.plannedCpa.toFixed(2)} against a £45 limit`);
+    return `both limits printed in the PDF and the workings; South East Indeed planned at £${c.plannedCpa.toFixed(2)} within its £45 limit`;
   });
 
   check('PDF: no cost per hire on £0 rows, no location application targets, title names the target', () => {

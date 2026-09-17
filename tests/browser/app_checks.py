@@ -357,6 +357,38 @@ with sync_playwright() as pw:
     if errors or guard.blocked or guard.writes:
         fails.append(f'OneRAC run: errors {errors[:2]}, blocked {guard.blocked[:3]}, writes {guard.writes[:3]}')
     ctx.close()
+
+    # Cost limits (D6) in a page of their own, so nothing set earlier is in the way.
+    ctx, page, guard, errors = new_page(browser, TEST, db=copy.deepcopy(DB), libs=LIBS)
+    page.goto(TEST + '#planner/setup')
+    page.wait_for_selector('[data-panel="cost-limits-SMR"]', timeout=60000)
+    page.wait_for_timeout(800)
+    # Cost limits (D6): setting one reaches the plan and the spend comes down.
+    panel = page.locator('[data-panel="cost-limits-SMR"]')
+    if panel.count() != 1:
+        fails.append('no cost limits panel on Setup')
+    else:
+        before_plan = page.evaluate(EXPECTED_JS, 'SMR')
+        box = page.locator('[data-field="cpa-SMR-South East-indeed"]')
+        box.click(); box.fill('45'); box.press('Tab')
+        page.wait_for_timeout(2000)
+        line = "    daysInMonth: window.__AVP_DATA__.days_in_month[month], capMultiple: w.capMultiple, bench: w.bench[role], planMonth: month,"
+        want_limit = page.evaluate(EXPECTED_JS.replace(
+            line,
+            line + "\n    limits: role === 'SMR' ? { cph: {}, cpa: { 'South East': { indeed: 45 } } } : { cph: {}, cpa: {} },"), 'SMR')
+        page.locator('.tab-btn', has_text='Plan').first.click()
+        page.wait_for_timeout(800)
+        after = kpis(page)
+        if abs(after[0] - want_limit['apps']) > 1:
+            fails.append(f'with a cost per application limit the screen showed {after[0]} applications, the planner {want_limit["apps"]:.0f}')
+        if abs(want_limit['apps'] - before_plan['apps']) < 1:
+            fails.append('the cost per application limit changed nothing, so this check proves nothing')
+        notes.append(f"cost limits: South East Indeed held to £45 an application moved the plan from "
+                     f"{before_plan['apps']:.0f} to {after[0]} applications, as the planner says")
+    if errors or guard.blocked or guard.writes:
+        fails.append(f'cost limits run: errors {errors[:2]}, blocked {guard.blocked[:3]}, writes {guard.writes[:3]}')
+    page.screenshot(path=os.path.join(OUT, 'cost_limits.png'), full_page=True)
+    ctx.close()
     browser.close()
 
 for n in notes:

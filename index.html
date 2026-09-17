@@ -616,6 +616,7 @@ input[type=range]::-moz-range-thumb {
 <script type="text/babel" src="ui/onerac_tab.jsx"></script>
 <script type="text/babel" src="ui/assumptions_tab.jsx"></script>
 <script type="text/babel" src="ui/market_table.jsx"></script>
+<script type="text/babel" src="ui/cost_limits.jsx"></script>
 <script type="text/babel" data-type="module">
 const { useState, useEffect, useMemo, useRef, createContext, useContext } = React;
 
@@ -2313,6 +2314,12 @@ function planParams(role, s) {
     includeSettling: !!s.includeSettling,
     bench: (s.bench && s.bench[role]) || null,
     planMonth: s.planMonth || null,
+    // Cost limits (D6): the most a hire may cost in a location, and the most an
+    // application may cost there on a platform. Blank or 0 means no limit.
+    limits: {
+      cph: ((s.limits || {}).cph || {})[role] || {},
+      cpa: ((s.limits || {}).cpa || {})[role] || {},
+    },
   };
 }
 
@@ -2356,6 +2363,7 @@ function oneRacParams(s) {
     platMin: one.setup.platMin || {}, platMax: one.setup.platMax || {},
     coverage: one.setup.coverage || {}, comboMin: {},
     regionMin: one.setup.regionMin || {}, regionMax: one.setup.regionMax || {},
+    limits: { cph: (one.setup.limits || {}).cph || {}, cpa: (one.setup.limits || {}).cpa || {} },
     daysInMonth: (DATA.days_in_month && DATA.days_in_month[s.planMonth]) || 30,
     capMultiple: s.capMultiple || 1.0,
     includeSettling: !!s.includeSettling,
@@ -3306,6 +3314,11 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
             <RACUI.CoreSettings role={role} state={state} update={update}
               plan={buildFundingPlan(role, { ...planParams(role, state), appTarget: state.appTarget[role] || 0 })}
               fmt={{ fmtGBP, fmtInt, monthShort }} />
+
+            <div className="section-label" style={{ marginTop: 16 }}>Cost limits</div>
+            <RACUI.CostLimits role={role} state={state} update={update} regions={state.liveRegions[role] || []}
+              plan={buildFundingPlan(role, { ...planParams(role, state), appTarget: state.appTarget[role] || 0 })}
+              fmt={{ fmtGBP, fmtInt }} />
 
             {role === ROLES[0] && (
               <>
@@ -5701,6 +5714,7 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '18 Sep', items: [
+    'Cost limits can now be set. Setup has a table for the most a hire may cost in each location and the most an application may cost there on each platform. The plan stops adding spend where a limit would be passed, moves that money to locations still within theirs, and shows anything it could not place. Cost per hire is by location only, because the data does not support a cost per hire by platform. Each box shows what that location or platform is costing in the plan now, so a limit can be set against something real. Limits are saved with the plan and printed in the PDF assumptions and the workings. The calculations already allowed for them; there was no way to set them.',
     'Setup now shows what the market was doing each month, beside the remaining-error adjustment: how the cost of a click and of a thousand impressions moved on Google and Meta, and how many people were searching for these jobs. It is a guide, not part of the plan, and none of it goes into the PDF or the workings. Cost is shown as an index against each platform’s own average, so 100 is an average month.',
     'The Changelog screen now also shows what has been changed in the plans: the budget, the hire target and the five planning settings, and months folded in on the Data tab, with who changed each one, when, what it was and what it became. Each change is written down on its own, so nothing here can be overwritten. Changes to the model itself are changes to assumptions.csv, and the screen links to that file’s history.',
     'New Assumptions tab: every value the model uses, what this plan used, what testing gave, where it came from and when it was set, with the reasoning behind each one underneath. Values live in assumptions.csv in the repository, not in the code, so changing one means editing that file on a branch, checking it on the test link and merging, and every change carries a date and an author. The tab flags any value set for this plan rather than taken from the file, and any agreed value whose tested figure has met the rule for switching.',
