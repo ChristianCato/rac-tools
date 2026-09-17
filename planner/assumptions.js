@@ -31,6 +31,7 @@
     meta_google_pull:         { unit: 'share', min: 0, max: 1 },
     location_screen_blend_n:  { unit: 'count', min: 0, max: 100000, perRole: true },
     region_hire_blend_n:      { unit: 'count', min: 0, max: 100000, perRole: true },
+    hire_reconciliation_factor:{ unit: 'multiple', min: 0.1, max: 10, perRole: true },
     d1_role_rate:             { unit: 'exponent', min: 0.05, max: 1, perRole: true },
     d1_prior_strength:        { unit: 'count', min: 0, max: 100000, perRole: true },
     remaining_error_factor:   { unit: 'multiple', min: 0.5, max: 2, perRole: true },

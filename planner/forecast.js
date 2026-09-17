@@ -1,0 +1,118 @@
+// RAC planner: the forecast. One function turns spend in a location and
+// platform into applications, applications that pass screening, and hires.
+// The plan, the testing, the screens and both exports all use it.
+//
+// Planned cost per application at a monthly spend S (D1 and D2):
+//   usual cost per application x (S / usual spend) ^ (1 - b) x remaining-error adjustment
+// where b is the platform's diminishing returns rate for the role:
+//   b = (n x fitted rate + k x shared role rate) / (n + k)
+//   fitted rate: how applications rose with spend within each location,
+//     from settled months (log applications against log spend, each
+//     location's own average taken out, so differences between locations do
+//     not count as a spend effect)
+//   n: location-months behind the fit; k: d1_prior_strength
+//   shared role rate: d1_role_rate
+// A rate of 1 means no diminishing returns. Rates are held at 1 or below: above
+// 1 each extra pound would buy applications more cheaply than the last, which
+// the split between platforms cannot use.
+//
+// Applications = S / planned cost per application
+// Hires = applications x screening pass rate used x hire rate after screening
+//         x reconciliation factor (hire_reconciliation_factor)
+(function (RAC) {
+  'use strict';
+
+  // Within-location fit of log applications on log spend for one platform.
+  function fitRate(ds, A, role, plat, months) {
+    const min = RAC.assumptions.get(A, 'typical_month_min_spend');
+    const set = new Set(months);
+    let sxy = 0, sxx = 0, n = 0, cells = 0;
+    ds.regions.forEach(r => {
+      const m = RAC.data.monthly(ds, plat, r, role);
+      const pts = Object.keys(m).filter(mo => set.has(mo) && m[mo].spend > min && m[mo].apps > 0)
+        .map(mo => [Math.log(m[mo].spend), Math.log(m[mo].apps)]);
+      if (pts.length < 3) return;
+      const mx = pts.reduce((a, p) => a + p[0], 0) / pts.length;
+      const my = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+      pts.forEach(([x, y]) => { sxy += (x - mx) * (y - my); sxx += (x - mx) ** 2; });
+      n += pts.length; cells += 1;
+    });
+    return { fitted: sxx > 0 ? sxy / sxx : null, n: sxx > 0 ? n : 0, cells };
+  }
+
+  // Diminishing returns rates for every platform in a role.
+  //   months: the settled months the fit may use
+  //   opts.roleRate, opts.k override the assumptions (for testing)
+  function rates(ds, A, role, months, opts = {}) {
+    const bRole = opts.roleRate !== undefined ? opts.roleRate : RAC.assumptions.get(A, 'd1_role_rate', role);
+    const k = opts.k !== undefined ? opts.k : RAC.assumptions.get(A, 'd1_prior_strength', role);
+    const out = {};
+    RAC.PLATFORMS.forEach(p => {
+      const f = opts.fits ? opts.fits[p] : fitRate(ds, A, role, p, months);
+      const blended = f.fitted === null ? bRole : (f.n * f.fitted + k * bRole) / (f.n + k);
+      out[p] = { ...f, roleRate: bRole, k, blended, b: Math.min(1, blended), heldAtOne: blended > 1 };
+    });
+    return out;
+  }
+
+  // Everything the forecast needs for one location and platform.
+  //   ctx: RAC.cost.context; hireRates: RAC.rates.build; d1: rates() above
+  //   factors: { bias, recon } (remaining-error adjustment, reconciliation)
+  function prepare(ctx, hireRates, d1, factors, plat, region) {
+    const usual = RAC.cost.usualCpa(ctx, plat, region);
+    const level = RAC.cost.usualSpend(ctx, plat, region);
+    const r = RAC.rates.cell(hireRates, plat, region);
+    // With no spend level to anchor on (the platform never ran anywhere in the
+    // window), cost per application is taken as flat.
+    const b = level.spend > 0 ? d1[plat].b : 1;
+    return {
+      plat, region,
+      cpaUsual: usual.cpa, usual,
+      spendUsual: level.spend, spendBasis: level.basis,
+      b, bias: factors.bias, recon: factors.recon,
+      screen: r.screen, hireAfterScreening: r.hireAfterScreening, rates: r,
+      hirePerApplication: r.hirePerApplication * factors.recon,
+    };
+  }
+
+  // Spend-level adjustment to cost per application at spend S.
+  function spendAdjustment(pc, S) {
+    if (!(S > 0) || !(pc.spendUsual > 0)) return 1;
+    return Math.pow(S / pc.spendUsual, 1 - pc.b);
+  }
+
+  // The forecast for one location and platform at monthly spend S.
+  function at(pc, S) {
+    if (!(S > 0) || !(pc.cpaUsual > 0)) {
+      return { spend: 0, apps: 0, passed: 0, hires: 0, cpa: pc.cpaUsual * pc.bias, spendAdjustment: 1 };
+    }
+    const adj = spendAdjustment(pc, S);
+    const cpa = pc.cpaUsual * adj * pc.bias;
+    const apps = S / cpa;
+    const passed = apps * pc.screen;
+    const hires = passed * pc.hireAfterScreening * pc.recon;
+    return { spend: S, apps, passed, hires, cpa, spendAdjustment: adj };
+  }
+
+  // Cost of the next hire at spend S (the split equalises this).
+  function marginalCostPerHire(pc, S) {
+    const x = Math.max(S, 1);
+    const f = at(pc, x);
+    if (!(f.hires > 0)) return Infinity;
+    return x / (pc.b * f.hires);
+  }
+
+  // Spend at which the next hire costs lambda.
+  function spendForMarginal(pc, lambda) {
+    const h1 = pc.hirePerApplication;
+    if (!(h1 > 0) || !(pc.cpaUsual > 0)) return 0;
+    // hires(S) = c x S^b, with c = h1 x spendUsual^(1-b) / (cpaUsual x bias)
+    const su = pc.spendUsual > 0 ? pc.spendUsual : 1;
+    const c = h1 * Math.pow(su, 1 - pc.b) / (pc.cpaUsual * pc.bias);
+    if (pc.b >= 1) return lambda * c >= 1 ? Infinity : 0;
+    // marginal cost = S^(1-b) / (b c)  =>  S = (lambda b c)^(1/(1-b))
+    return Math.pow(lambda * pc.b * c, 1 / (1 - pc.b));
+  }
+
+  RAC.forecast = { fitRate, rates, prepare, spendAdjustment, at, marginalCostPerHire, spendForMarginal };
+})(window.RAC = window.RAC || {});

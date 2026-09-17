@@ -4,6 +4,9 @@
     "planner/core.js",
     "planner/assumptions.js",
     "planner/data.js",
-    "planner/cost.js"
+    "planner/cost.js",
+    "planner/rates.js",
+    "planner/forecast.js",
+    "planner/testing.js"
   ]
 }
