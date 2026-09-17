@@ -23,13 +23,16 @@ The browser checks are separate, because they need a browser:
 
     python tests/browser/save_guard.py
     python tests/browser/app_checks.py
+    python tests/browser/export_checks.py
 
 Both use `browser/guard.py`, which answers or blocks every request the page
 makes (see below).
 
 Needs Python 3 and Playwright (`pip install playwright`, then
 `playwright install chromium`). The script's opening comment explains the
-`--libs` option for machines without internet access.
+`--libs` option for machines without internet access. `export_checks.py` also
+needs pypdf and openpyxl, and LibreOffice for the workings part; without
+LibreOffice or openpyxl it says so and reports that part as skipped.
 
 ## What each check covers
 
@@ -44,6 +47,7 @@ Needs Python 3 and Playwright (`pip install playwright`, then
 | Planner checks (`checks/`) | Assumptions file, Eploy import, part months and cost per application, hire rates and forecast, testing on past months and tested values, spending caps and allocation, platform fees, the connection to the app (including pacing for plans made before the release), and what RAC sees: the Method and glossary text, the version stamp and the output checks (no em-dashes, no Hiring Lab, no location application targets, no cost per hire on £0 rows, title names the hire target). Each check's note says what it compared. |
 | Browser: app_checks.py | In a real browser at the test link address: the Plan tab equals the planner, changing Patrol's window on Benchmarks leaves SMR unchanged, both header role buttons switch the role, every core Setup field (cap multiple, credited share, expected hires from other sources, remaining-error adjustment, include months still settling) reaches the plan, a month still settling is flagged, the out-of-reach panel shows the planner's figures at cap multiples 1 to 3, Use those counts instead sets that role's open roles to RAC's plan column without a page error, a broken assumptions.csv stops the app naming the row, and nothing is written. |
 | Pacing for saved September plans | Runs when `RAC_PACING_DIR` points at the folder holding `LIVE_pacing_<name>.xlsx` and `TEST_pacing_<name>.xlsx` (Performance Pacing exports of the same saved plan from the live app and the test link); skipped otherwise. Each pair goes through `python tools/compare_pacing.py`, which compares every plan spend and plan applications figure and the plan name. Exports hold RAC spend figures, so they stay in the data folder. |
+| Browser: export_checks.py | In a real browser at the test link address: the PDF button saves a document whose text (read with pypdf) holds the planner's figures, the title with the hire target and the version stamp on every page; "PDF, no notes" drops only the notes page; and the Workings button saves a workbook that carries no saved answers, so LibreOffice works out all of its formulas from scratch, and every one of them then gives the planner's own figure. |
 | Browser: save_guard.py | In a real browser, the live address saves and a test link reads but never writes, shows the test version banner and shows Not saved. |
 | Browser: network guard | Every request the page makes is either handled by the check or blocked, so no browser check can reach a real server other than the listed library files. Probe requests confirm the block works; any other blocked request fails the check. |
 

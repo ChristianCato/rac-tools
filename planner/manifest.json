@@ -17,6 +17,7 @@
     "exports/text.js",
     "exports/stamp.js",
     "exports/checks.js",
-    "exports/pdf.js"
+    "exports/pdf.js",
+    "exports/workings.js"
   ]
 }

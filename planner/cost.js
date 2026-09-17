@@ -95,6 +95,9 @@
         months: used,
         // Weighted average monthly spend over the window months it ran.
         avgSpend: wspendMonths > 0 ? spendSum / wspendMonths : 0,
+        // The weighted sums before scaling, so the workings export can show
+        // the same arithmetic as a formula over the monthly rows.
+        weighted: { spend, apps, clicks, wsum, scale, ranSpend: spendSum, ranWeight: wspendMonths },
       };
     });
   }

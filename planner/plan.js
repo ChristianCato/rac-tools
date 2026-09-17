@@ -696,6 +696,48 @@
     return out;
   }
 
+  // Every monthly figure the role's calculations read, carried in the plan so
+  // the workings export renders from the plan alone (B3, data sources and
+  // blend inputs sheets).
+  function rawMonthly(base) {
+    const ctx = base.ctx;
+    const rows = [];
+    ctx.ds.regions.forEach(region => P().forEach(plat => {
+      const m = RAC.data.monthly(ctx.ds, plat, region, base.role);
+      Object.keys(m).sort().forEach(mo => {
+        rows.push({ platform: plat, region, month: mo, spend: m[mo].spend, apps: m[mo].apps, clicks: m[mo].clicks });
+      });
+    }));
+    return { months: ctx.ds.months.slice(), weights: { ...ctx.weights }, monthCount: ctx.monthCount, rows };
+  }
+
+  // The window figures behind every cost per application, kept in the plan so
+  // the workings export can show each one as a formula over the monthly rows.
+  function blendRecord(base) {
+    const ctx = base.ctx;
+    const window = {};
+    P().forEach(plat => {
+      window[plat] = {};
+      ctx.ds.regions.forEach(region => {
+        const s = RAC.cost.windowStats(ctx, plat, region);
+        const w = s.weighted;
+        window[plat][region] = {
+          wspend: w.spend, wapps: w.apps, wclicks: w.clicks, wsum: w.wsum,
+          spend: s.spend, apps: s.apps, rawCpa: s.rawCpa,
+          ranSpend: w.ranSpend, ranWeight: w.ranWeight, avgSpend: s.avgSpend,
+        };
+      });
+    });
+    const platform = {};
+    const typical = {};
+    P().forEach(plat => {
+      const x = RAC.cost.platformCpa(ctx, plat);
+      platform[plat] = { apps: x.apps, spend: x.spend || 0, rawCpa: x.rawCpa, cpa: x.cpa, source: x.source };
+      typical[plat] = RAC.cost.typicalMonth(ctx, plat);
+    });
+    return { window, platform, typical };
+  }
+
   function build(role, inputs, env) {
     if (!env || !env.A || !env.A.ok) throw new Error('The assumptions file has not loaded or is invalid, so the planner cannot run.');
     if (!env.eploy) throw new Error('The Eploy rates file has not loaded, so the planner cannot run.');
@@ -753,6 +795,8 @@
       rates: base.hireRates,
       ranges: base.ranges,
       months: status,
+      raw: rawMonthly(base),
+      blend: blendRecord(base),
       stamps: {
         assumptions: { date: A.date, fingerprint: A.fingerprint, overrides: inputs.overrides || {} },
         data: { stamp: env.ds.stamp, settledTo: base.ctx.settled[base.ctx.settled.length - 1] || null, settlingUsed: base.ctx.settlingUsed.slice(),
