@@ -50,12 +50,14 @@ function appWith({ bench = liveBench(), hire = fileHireRates(), csv, data = read
 
 export default function (check, { assert, near }) {
   check('index.html loads the planner files in the manifest order', () => {
-    const tags = [...html.matchAll(/<script src="(planner\/[^"]+)"><\/script>/g)].map(m => m[1]);
+    const tags = [...html.matchAll(/<script src="((?:planner|exports)\/[^"]+)"><\/script>/g)].map(m => m[1]);
     assert(JSON.stringify(tags) === JSON.stringify(manifest().files), 'index.html: ' + tags.join(', '));
     assert(html.indexOf('src="rac_data.js"') < html.indexOf('src="planner/core.js"'), 'planner must load after rac_data.js');
-    assert(html.indexOf('src="planner/app.js"') < html.indexOf('<script type="text/babel"'), 'planner must load before the app script');
-    assert(/<script type="text\/babel" src="ui\/benchmarks_tab\.jsx"><\/script>\s*<script type="text\/babel" src="ui\/plan_panels\.jsx"><\/script>\s*<script type="text\/babel" data-type="module">/.test(html), 'UI files not loaded before the app');
-    return `${tags.length} planner files, then ui/benchmarks_tab.jsx and ui/plan_panels.jsx, then the app`;
+    assert(html.indexOf('src="exports/checks.js"') < html.indexOf('<script type="text/babel"'), 'planner and export files must load before the app script');
+    const ui = ['benchmarks_tab', 'plan_panels', 'method_tab'];
+    const uiRe = new RegExp(ui.map(u => `<script type="text/babel" src="ui/${u}\\.jsx"></script>\\s*`).join('') + '<script type="text/babel" data-type="module">');
+    assert(uiRe.test(html), 'UI files not loaded before the app');
+    return `${tags.length} planner and export files, then ${ui.map(u => 'ui/' + u + '.jsx').join(', ')}, then the app`;
   });
 
   check('The pacing copy of the previous engine is the frozen engine, unchanged', () => {

@@ -1,5 +1,5 @@
 {
-  "note": "Load order of the planner files. index.html and tests/lib/planner.mjs both read this list.",
+  "note": "Load order of the planner and export files. index.html and tests/lib/planner.mjs both read this list.",
   "files": [
     "planner/core.js",
     "planner/assumptions.js",
@@ -13,6 +13,9 @@
     "planner/allocate.js",
     "planner/plan.js",
     "planner/legacy_shape.js",
-    "planner/app.js"
+    "planner/app.js",
+    "exports/text.js",
+    "exports/stamp.js",
+    "exports/checks.js"
   ]
 }

@@ -734,6 +734,7 @@
       ...target,
       reach,
       settings: base.settings,
+      A,   // the assumption values used, overrides included (text, exports, snapshots)
       settlingUsed,
       includeSettling: !!inputs.includeSettling,
       hireTarget: inputs.hireTarget || 0,

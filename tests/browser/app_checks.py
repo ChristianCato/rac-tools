@@ -251,6 +251,19 @@ with sync_playwright() as pw:
         page.locator('.tab-btn', has_text=tab).first.click()
         page.wait_for_timeout(600)
     page.screenshot(path=os.path.join(OUT, 'method.png'))
+    # Method tab: the shared text, with this plan's values, and the version stamp.
+    method = page.locator('[data-panel="method"]')
+    if method.count() != 1:
+        fails.append('Method tab not shown')
+    else:
+        mt = method.inner_text()
+        needed = ['Platform fees', 'Spending caps', 'Testing and agreed settings', 'Code b0a7d5c', 'rate of 0.65', '1.096']
+        missing = [n for n in needed if n not in mt]
+        if missing:
+            fails.append(f'Method tab lacks {missing}')
+        if '—' in mt or 'Hiring Lab' in mt:
+            fails.append('Method tab text fails the output checks')
+        notes.append('Method tab: shared text shown with the version stamp "' + [l for l in mt.splitlines() if l.startswith('Code ')][0][:80] + '..."' if 'Code ' in mt else 'Method tab: no stamp line')
     if guard.writes:
         fails.append(f'test link sent database writes: {guard.writes[:3]}')
     if errors:

@@ -28,6 +28,9 @@
 <script src="planner/plan.js"></script>
 <script src="planner/legacy_shape.js"></script>
 <script src="planner/app.js"></script>
+<script src="exports/text.js"></script>
+<script src="exports/stamp.js"></script>
+<script src="exports/checks.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -605,6 +608,7 @@ input[type=range]::-moz-range-thumb {
 <div id="root"></div>
 <script type="text/babel" src="ui/benchmarks_tab.jsx"></script>
 <script type="text/babel" src="ui/plan_panels.jsx"></script>
+<script type="text/babel" src="ui/method_tab.jsx"></script>
 <script type="text/babel" data-type="module">
 const { useState, useEffect, useMemo, useRef, createContext, useContext } = React;
 
@@ -9007,6 +9011,8 @@ function DataTool() {
 // CHANGELOG VIEW
 // ====================================================================
 
+// LEGACY (not shown since 18 September 2026; the Method tab is ui/method_tab.jsx,
+// with its text from exports/text.js). Kept until phase 2.
 function MethodTab({ state }) {
   const months = dataMonths();
   const first = months[0], last = months[months.length - 1];
@@ -9803,7 +9809,8 @@ function App() {
                 {tab === 'platforms' && <PlatformsTab state={plannerState} role={roleView} setRole={setRoleView} />}
                 {tab === 'benchmarks' && <RACUI.BenchmarksTab state={plannerState} setState={setPlannerState} role={roleView} setRole={setRoleView}
                   dataVersion={DATA_VERSION} fmt={{ fmtGBP, fmtInt, monthShort }} />}
-                {tab === 'method' && <MethodTab state={plannerState} />}
+                {tab === 'method' && <RACUI.MethodTab plan={buildFundingPlan(roleView, { ...planParams(roleView, plannerState), appTarget: (plannerState.appTarget || {})[roleView] || 0 })}
+                  role={roleView} roles={ROLES} setRoleView={setRoleView} roleFull={ROLE_FULL} />}
               </>
             )}
             {tool === 'priorities' && (
