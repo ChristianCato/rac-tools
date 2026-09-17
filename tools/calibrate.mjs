@@ -208,7 +208,7 @@ if (WRITE) {
     const r = RAC.util.parseCsv(lines[i])[0];
     if (c.value !== null) r[2] = String(c.value);
     r[3] = String(c.tested);
-    if (r[6] !== AGREED) r[6] = 'tested';
+    if (!r[6].startsWith('agreed')) r[6] = 'tested';   // agreed rows keep their source; only the tested column moves
     r[7] = today; r[8] = c.notes;
     lines[i] = r.map(q).join(',');
   }

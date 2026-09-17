@@ -14,55 +14,55 @@ export default function (check, { assert, near }) {
     .filter(c => c[0] === role && months.includes(c[3]) && pred(c))
     .reduce((t, c) => ({ apps: t.apps + c[4], passed: t.passed + c[5], hires: t.hires + c[6] }), { apps: 0, passed: 0, hires: 0 });
 
-  check('Screening and hire rates match a direct count from the Eploy rows', () => {
+  check('Quality and hire rates match a direct count from the Eploy rows', () => {
     const out = [];
     for (const role of RAC.ROLES) {
       const r = RAC.rates.build(eploy, A, role);
       const sm = ['2025-10', '2025-11', '2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05'];
-      assert(JSON.stringify(r.screenMonths) === JSON.stringify(sm), `${role} screening months ${r.screenMonths}`);
+      assert(JSON.stringify(r.screenMonths) === JSON.stringify(sm), `${role} quality months ${r.screenMonths}`);
       assert(JSON.stringify(r.hireMonths) === JSON.stringify(sm), `${role} hire months ${r.hireMonths}`);
       const all = count(role, sm, () => true);
       const roleRate = all.passed / all.apps;
-      near(r.roleScreen, roleRate, 1e-12, role + ' role screening rate');
+      near(r.roleScreen, roleRate, 1e-12, role + ' role quality rate');
       const N = RAC.assumptions.get(A, 'screen_blend_n', role);
       for (const p of ['indeed', 'appcast']) {
         const t = count(role, sm, c => c[2] === p);
-        near(r.platform[p].used, (t.passed + N * roleRate) / (t.apps + N), 1e-12, `${role} ${p} screening rate`);
+        near(r.platform[p].used, (t.passed + N * roleRate) / (t.apps + N), 1e-12, `${role} ${p} quality rate`);
       }
       for (const p of ['meta', 'google']) {
         const t = count(role, sm, c => c[2] === p);
-        near(r.platform[p].used, (t.passed / t.apps + roleRate) / 2, 1e-12, `${role} ${p} screening rate (halfway)`);
+        near(r.platform[p].used, (t.passed / t.apps + roleRate) / 2, 1e-12, `${role} ${p} quality rate (halfway)`);
       }
       // As used this release: no location adjustment, role average after
-      // screening. The blend formula is checked at the tested strengths.
+      // quality. The blend formula is checked at the tested strengths.
       const roleHire = all.hires / all.passed;
       const M = A.tested.location_screen_blend_n[role], Rn = 200;
       const rb = RAC.rates.build(eploy, A, role, { location_screen_blend_n: M, region_hire_blend_n: Rn });
       for (const l of ['London', 'South East', 'Scotland', 'North East']) {
         const t = count(role, sm, c => c[1] === l);
         assert(r.location[l].screenAdjustment === 1, `${role} ${l}: location adjustment not off`);
-        near(r.location[l].hireAfterScreening, roleHire, 1e-12, `${role} ${l}: hire rate after screening not the role average`);
-        near(rb.location[l].screenAdjustment, (t.apps * ((t.passed / t.apps) / roleRate) + M) / (t.apps + M), 1e-12, `${role} ${l} screening adjustment`);
-        near(rb.location[l].hireAfterScreening, (t.hires + Rn * roleHire) / (t.passed + Rn), 1e-12, `${role} ${l} hire rate after screening`);
+        near(r.location[l].hireAfterScreening, roleHire, 1e-12, `${role} ${l}: hire rate after quality not the role average`);
+        near(rb.location[l].screenAdjustment, (t.apps * ((t.passed / t.apps) / roleRate) + M) / (t.apps + M), 1e-12, `${role} ${l} quality adjustment`);
+        near(rb.location[l].hireAfterScreening, (t.hires + Rn * roleHire) / (t.passed + Rn), 1e-12, `${role} ${l} hire rate after quality`);
       }
       const c = RAC.rates.cell(r, 'google', 'London');
       near(c.hirePerApplication, r.platform.google.used * r.location.London.screenAdjustment * r.location.London.hireAfterScreening, 1e-15, 'hires per application');
-      out.push(`${role}: role screening ${(roleRate * 100).toFixed(1)}%, hire after screening ${(roleHire * 100).toFixed(1)}%, London hires per Google application ${(c.hirePerApplication * 100).toFixed(2)}%`);
+      out.push(`${role}: role quality rate ${(roleRate * 100).toFixed(1)}%, hire rate after quality ${(roleHire * 100).toFixed(1)}%, London hires per Google application ${(c.hirePerApplication * 100).toFixed(2)}%`);
     }
     return out.join('; ');
   });
 
-  check('Patrol London: the location screening adjustment reflects its weak screening when on, and is exactly 1 when off', () => {
-    // Off for this release (agreed); at its tested strength it would pick up London's weak screening.
+  check('Patrol London: the location quality adjustment reflects its weak quality rate when on, and is exactly 1 when off', () => {
+    // Off for this release (agreed); at its tested strength it would pick up London's weak quality rate.
     const off = RAC.rates.build(eploy, A, 'Patrol');
-    assert(RAC.assumptions.get(A, 'location_screen_blend_n', 'Patrol') >= RAC.rates.OFF, 'location screening adjustment expected off');
+    assert(RAC.assumptions.get(A, 'location_screen_blend_n', 'Patrol') >= RAC.rates.OFF, 'location quality adjustment expected off');
     Object.entries(off.location).forEach(([l, x]) => assert(x.screenAdjustment === 1, `${l} adjustment ${x.screenAdjustment} while off`));
     const tested = A.tested.location_screen_blend_n.Patrol;
     const r = RAC.rates.build(eploy, A, 'Patrol', { location_screen_blend_n: tested });
     const x = r.location.London;
     assert(x.screenAdjustment < 0.6, 'Patrol London adjustment ' + x.screenAdjustment);
     const perApp = RAC.PLATFORMS.map(p => RAC.rates.cell(off, p, 'London').hirePerApplication);
-    return `London passed ${x.passed} of ${x.apps} (${(x.ownScreen * 100).toFixed(1)}%, role ${(r.roleScreen * 100).toFixed(1)}%); adjustment 1 while off, ${x.screenAdjustment.toFixed(2)} at the tested strength ${tested}; ` +
+    return `London had ${x.passed} quality applications of ${x.apps} (${(x.ownScreen * 100).toFixed(1)}%, role ${(r.roleScreen * 100).toFixed(1)}%); adjustment 1 while off, ${x.screenAdjustment.toFixed(2)} at the tested strength ${tested}; ` +
       `hires per application by platform as used ${perApp.map(v => (v * 100).toFixed(2) + '%').join(', ')}`;
   });
 
@@ -102,7 +102,7 @@ export default function (check, { assert, near }) {
     }
     assert(/^source,Paid Google Demand Gen,other,/m.test(csv), 'Paid Google Demand Gen should stay in other sources');
     const g = count('SMR', ['2025-10', '2025-11', '2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06'], c => c[2] === 'google');
-    return `SMR Google, applications October to June: ${g.apps} applications, ${g.passed} passed screening, ${g.hires} hires`;
+    return `SMR Google, applications October to June: ${g.apps} applications, ${g.passed} quality applications, ${g.hires} hires`;
   });
 
   check('Blend-strength tests use test months with 5 months of history, learning only from earlier months', () => {

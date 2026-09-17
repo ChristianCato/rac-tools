@@ -12,7 +12,9 @@
 //   source  agreed (decided with the user); tested (set by a committed
 //           script from the data); "agreed, informed by tests" (an agreed
 //           setting, with the tested figure alongside; user decision
-//           17 September 2026); default (a starting value awaiting testing)
+//           17 September 2026); "agreed, informed by data" (a rule agreed
+//           with the user after measuring it in the data); default (a
+//           starting value awaiting testing)
 //   date    when the value was set, YYYY-MM-DD
 //
 // Rule for "agreed, informed by tests" (user decision, 17 September 2026):
@@ -25,7 +27,8 @@
 
   const COLUMNS = ['key', 'name', 'value', 'tested', 'unit', 'role', 'source', 'date', 'notes'];
   const AGREED_TESTED = 'agreed, informed by tests';
-  const SOURCES = ['agreed', 'tested', AGREED_TESTED, 'default'];
+  const AGREED_DATA = 'agreed, informed by data';
+  const SOURCES = ['agreed', 'tested', AGREED_TESTED, AGREED_DATA, 'default'];
 
   // What the planner needs. perRole: true means one row for SMR and one for
   // Patrol; otherwise one row with role "all".
@@ -182,5 +185,5 @@
     return { ...A, values, fingerprint: A.fingerprint + '+' + RAC.util.fingerprint(RAC.util.stableKey(changes)) };
   }
 
-  RAC.assumptions = { COLUMNS, SCHEMA, SOURCES, AGREED_TESTED, parse, get, entry, withValues };
+  RAC.assumptions = { COLUMNS, SCHEMA, SOURCES, AGREED_TESTED, AGREED_DATA, parse, get, entry, withValues };
 })(window.RAC = window.RAC || {});

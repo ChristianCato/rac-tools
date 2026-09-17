@@ -78,7 +78,7 @@ const env2a = { ds: RAC.data.snapshot(withRoleMonthly(BASE, F2A.raw, 'SMR'), { a
 const off = { remaining_error_factor: { SMR: 1 }, paid_hire_reconciliation_factor: { SMR: 1 }, other_hires_credit_factor: { SMR: 0 } };
 const noBias = { remaining_error_factor: { SMR: 1 } };
 add('C. Diminishing returns in the split and the forecast', next(env2a, { overrides: off, compare: { previousHireRates: true, previousCeilings: true, noOtherSources: true } }));
-add('D. Hires from screening and hire rates (Eploy)', next(env2a, { overrides: off, compare: { previousCeilings: true, noOtherSources: true } }));
+add('D. Hires from quality and hire rates (Eploy)', next(env2a, { overrides: off, compare: { previousCeilings: true, noOtherSources: true } }));
 add('E. Hires reconciled to platform hires in Eploy, plus expected hires from other sources (0% credited)', next(env2a, { overrides: noBias, compare: { previousCeilings: true } }));
 add('E100. For comparison only: 100% credited (equals the earlier scaling to every hire)', next(env2a, { overrides: noBias, otherHiresShare: 1, compare: { previousCeilings: true } }), 'not carried into F');
 add('F. Spending caps on successful months', next(env2a, { overrides: noBias }));

@@ -136,7 +136,19 @@ def main():
         rows = rows_default()
         rows[3][10] = 'To Review - Rejected - Multiple Applications'
         out, err = run(make(tmp, 'repeat.xlsx', rows=rows))
-        case('a repeat application marked quality stops the import', out is None and 'Rejected - Multiple Applications' in (err or ''), err)
+        case('a repeat application closed at To Review and marked quality stops the import',
+             out is None and 'TRUE at stage "To Review - Rejected - Multiple Applications"' in (err or ''), err)
+        rows = rows_default()
+        rows[3][10] = 'Call Back - Rejected - Multiple Applications'
+        out, err = run(make(tmp, 'repeat_callback.xlsx', rows=rows))
+        case('a repeat application closed at Call Back and marked quality stops the import',
+             out is None and 'TRUE at stage "Call Back - Rejected - Multiple Applications"' in (err or ''), err)
+        rows = rows_default()
+        rows[1][10] = 'First Stage Interview - Rejected - Multiple Applications'
+        out, err = run(make(tmp, 'repeat_later.xlsx', rows=rows))
+        case('a repeat application closed after screening stays quality',
+             out is not None and {tuple(c[:4]): c[4:] for c in (out or {'cells': []})['cells']}.get(
+                 ('SMR', 'London', 'meta', '2026-01')) == [1, 1, 0, 1], err)
 
         # 7. Date out of range.
         rows = rows_default()

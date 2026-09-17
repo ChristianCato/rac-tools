@@ -1,6 +1,6 @@
 # Re-running the Eploy import
 
-The planner's screening pass rates and hire rates come from RAC's Eploy
+The planner's quality rates and hire rates come from RAC's Eploy
 application report. The report holds candidate-level data, so it never goes in
 the repo. The import turns it into counts by role, region, platform and
 application month (`data/eploy_rates.json`), and only that file is committed.
@@ -21,8 +21,9 @@ application month (`data/eploy_rates.json`), and only that file is committed.
      map to indeed, meta, google, appcast or other.
    - **Unexpected values.** Hired, Progressed Past Screening and Quality Applies
      must read TRUE or FALSE; every hired and every progressed application must
-     be Quality Applies; no application at a "Rejected - Multiple Applications"
-     stage may be Quality Applies; application dates must fall between
+     be Quality Applies; no application closed at "To Review - Rejected -
+     Multiple Applications" or "Call Back - Rejected - Multiple Applications"
+     may be Quality Applies; application dates must fall between
      `eploy_first_month` (assumptions.csv) and the file's own date.
    - **Shifts above 10%.** Counts for months both files hold moved by more than
      10% (on counts of 20 or more). Find out why before accepting. If the change
@@ -44,8 +45,11 @@ From the second version of the dataset (17 September 2026), quality is the
 column **Quality Applies**: TRUE wherever Progressed Past Screening is TRUE,
 plus applications closed at To Review or Call Back for a reason other than the
 candidate's merit (location, salary, role filled, withdrawal, banked, silver
-medallist). Repeat applications are not quality. It is used exactly as
-provided. `data/eploy_rates.json` records which column was counted
+medallist). Repeat applications closed at To Review or Call Back are not
+quality; a repeat application closed at a later stage had already passed
+screening, so it stays quality (user decision, 17 September 2026, on 8 SMR and
+Patrol rows at "First Stage Interview - Rejected - Multiple Applications").
+It is used exactly as provided. `data/eploy_rates.json` records which column was counted
 (`quality_measure`); each row holds applications, quality applications, hires
 and, for comparison, applications that progressed past screening.
 
@@ -66,7 +70,7 @@ Location and Region columns moved one place right).
 Outcomes take time to be recorded, so recent application months are left out
 until they settle (`assumptions.csv`):
 
-- `screening_maturity_months`: a month's screening results count once this many
+- `screening_maturity_months`: a month's quality results count once this many
   further months have started by the file's date.
 - `hire_maturity_months`: the same for hires.
 

@@ -31,6 +31,9 @@
   const ATTRIBUTION = 'Quality and hire rates by platform came from RAC’s applicant tracking data, which credited each application to the last source a candidate used before applying. ' +
     'Earlier interactions, particularly with Meta and Google, likely had more influence than this shows, so their contribution to quality applications and hires may have been undervalued. ' +
     'For this reason, Meta and Google rates were moved towards the role average. We will assess this separately.';
+  // Agreed wording for the quality measure (user, 17 September 2026).
+  const QUALITY_DEFINITION = 'A quality application is one that progressed past screening, or was closed at screening for a reason other than the candidate’s suitability, ' +
+    'such as location, salary, the role being filled, withdrawal, or being banked for future roles. Repeat applications from the same candidate are not counted.';
   const RANGE_LINE = 'The range shows how far our model has missed in testing, and it is wider wherever there is less evidence behind the figure.';
   const ROW_RANGE_LINE = 'Row ranges are wider than the total and do not add up to it, because single locations swing more than the plan as a whole.';
 
@@ -94,11 +97,11 @@
       `The plan starts from the monthly budget${v.feesOn === false ? '' : ', which includes platform fees'}. Indeed Premium (campaigns x days in the month x ${f.gbp(v.premiumRate)} a day, plus the Indeed fee where fees apply) and the Combined Activity reserve come off the top${v.includesDisplay ? ', and the Google Display remarketing campaign is part of Combined Activity, so its spend sits in that reserve rather than in the planned Google spend' : ''}. What remains is the deployable budget.`,
       'The deployable budget is split between live locations by their share of open roles, within any location minimums and maximums, the spending caps and any cost limits. Money a location cannot take moves to locations with room, again by open roles. Anything no location can take is shown as budget the plan could not place efficiently.',
       'Within each location, money goes to whichever platform delivers the next hire most cheaply, until the platforms cost the same per extra hire or reach their spending caps. Minimums and floors set on Setup are then applied, but never above a spending cap; where a cap stops a minimum being met, the plan says by how much.',
-      'Predicted applications, applications that passed screening and hires come from one forecast, used by the screens, this document and the workings export alike.');
+      'Predicted applications, quality applications and hires come from one forecast, used by the screens, this document and the workings export alike.');
 
     add('Data used',
       `Monthly spend and applications by location and platform came from the ad platforms (Indeed from RAC’s applicant tracking data). Past spend was media spend, without platform fees. A month counted once it was complete and at least ${v.settleDays} days had passed between its last day and the date the data was taken, so applications recorded late were in. A plan can choose to include complete months still settling; each one used is flagged as not yet settled, so its figures may change. ${window}`,
-      `Screening and hire rates came from RAC’s applicant tracking data (Eploy), from applications made in ${f.month(v.eployFirst)} onwards. Screening outcomes counted once ${v.screenMaturity} further months had started, and hires once ${v.hireMaturity} further months had started, so recent applications with unfinished outcomes did not pull the rates down.`,
+      `Quality and hire rates came from RAC’s applicant tracking data (Eploy), from applications made in ${f.month(v.eployFirst)} onwards. Quality outcomes counted once ${v.screenMaturity} further months had started, and hires once ${v.hireMaturity} further months had started, so recent applications with unfinished outcomes did not pull the rates down.`,
       ATTRIBUTION);
 
     add('Cost per application',
@@ -107,14 +110,15 @@
       `A remaining-error adjustment of ${v.bias.toFixed(3)} multiplies every planned cost per application. Testing on past months, with each month predicted from the months before it, found predictions still missed by ${v.biasTested !== null && v.biasTested !== undefined ? v.biasTested.toFixed(3) : 'n/a'} overall. That figure is used only when it stays on the same side of 1 with any one test month left out; otherwise the adjustment is 1.00.${v.biasDefault === 1 && v.biasTested !== 1 ? ` For ${role} it did not hold, so the default is 1.00.` : ''}${plan && v.bias !== v.biasDefault ? ` This plan set it to ${v.bias.toFixed(3)} (default ${v.biasDefault.toFixed(3)}).` : ''}`,
       'Planned cost per application = usual cost per application x spend-level adjustment x remaining-error adjustment. Predicted applications = media spend / planned cost per application.');
 
-    add('Screening and hires',
-      `Hires = applications x screening pass rate x hire rate after screening. For Indeed and Appcast, the screening pass rate was the platform’s own rate blended with the role average (every source) as if ${v.screenBlend} further applications at the average had been added${tested(v.screenBlendTested)}. For Meta and Google it was moved ${f.pct(v.pull)} of the way to the role average, for the reason given under Data used.`,
-      `${v.locBlend >= OFF ? 'Location differences in screening were not applied for this release' : `Each location’s screening was adjusted towards its own rate, blended by ${v.locBlend} applications`}${tested(v.locBlendTested)}. ${v.regionBlend >= OFF ? 'The hire rate after screening was the role average for every location, because regional differences had not carried forward from one period to the next in testing.' : `The hire rate after screening was each region’s own, blended with the role average by ${v.regionBlend}.`}`,
+    add('Quality and hires',
+      QUALITY_DEFINITION,
+      `Hires = applications x quality rate x hire rate after quality. For Indeed and Appcast, the quality rate was the platform’s own rate blended with the role average (every source) as if ${v.screenBlend} further applications at the average had been added${tested(v.screenBlendTested)}. For Meta and Google it was moved ${f.pct(v.pull)} of the way to the role average, for the reason given under Data used.`,
+      `${v.locBlend >= OFF ? 'Location differences in quality were not applied for this release' : `Each location’s quality rate was adjusted towards its own rate, blended by ${v.locBlend} applications`}${tested(v.locBlendTested)}. ${v.regionBlend >= OFF ? 'The hire rate after quality was the role average for every location, because regional differences had not carried forward from one period to the next in testing.' : `The hire rate after quality was each region’s own, blended with the role average by ${v.regionBlend}.`}`,
       `Predicted hires were then scaled by ${v.paidFactor.toFixed(3)}, so that on past months they matched the hires RAC’s applicant tracking data credited to Indeed, Meta, Google and Appcast.`,
       `RAC also recorded hires from other sources (organic, job alerts, agencies and others). The plan shows these as a separate line, Expected hires from other sources: ${f.num(v.otherMonthly)} a month${plan && v.otherMonthly !== v.otherMonthlyDefault ? ` (set for this plan; the monthly average was ${f.num(v.otherMonthlyDefault)})` : ', the monthly average'}. It counts towards the hire target but does not depend on the budget. ${v.share > 0 ? `${f.pct(v.share)} of them were credited to paid media, so they grow with paid spend.` : 'None of them were credited to paid media.'}`);
 
     add('Spending caps',
-      `Each location and platform has a spending cap: its largest successful month since ${f.month(v.capFirst)} x the spending cap multiple (${f.pct(v.capMultiple)} in this ${plan ? 'plan' : 'release by default'}). A month counted towards the cap when it had at least ${f.gbp(v.capMinSpend)} of spend and ${v.capMinApps} applications, its cost per application was at or below what the model expected at that spend (and at or below any cost per application limit), and the location’s screening pass rate that month was no more than ${f.pct(v.qualityDrop)} below its usual rate (checked where at least ${v.qualityMin} applications would normally have passed screening, in months whose screening had settled).`,
+      `Each location and platform has a spending cap: its largest successful month since ${f.month(v.capFirst)} x the spending cap multiple (${f.pct(v.capMultiple)} in this ${plan ? 'plan' : 'release by default'}). A month counted towards the cap when it had at least ${f.gbp(v.capMinSpend)} of spend and ${v.capMinApps} applications, its cost per application was at or below what the model expected at that spend (and at or below any cost per application limit), and the location’s quality rate that month was no more than ${f.pct(v.qualityDrop)} below its usual rate (checked where at least ${v.qualityMin} quality applications would normally have been expected, in months whose quality outcomes had settled).`,
       'Where a location and platform had no successful month, its usual monthly spend (or the platform’s typical month) was used instead, and the row is flagged. The plan never spends above a cap, including to meet a minimum. Caps were set on past media spend, so where fees apply the cap on planned spend includes the fee.');
 
     add('Cost limits',
@@ -126,7 +130,7 @@
     add('Ranges',
       `${RANGE_LINE} The plan total’s application range is the middle ${f.pct(v.pHigh - v.pLow)} of how far our predictions missed in testing (${f.signedPct(v.rangeLow)} to ${f.signedPct(v.rangeHigh)}${testMonths.length ? `, over ${testMonths.length} test months from ${f.month(testMonths[0])} to ${f.month(testMonths[testMonths.length - 1])}` : ''}). We make no claim about how often the actual result falls inside the range until there are at least ${v.hitRateMonths} test months.`,
       `${ROW_RANGE_LINE} Rows start from the plan’s range and widen where fewer applications sat behind their cost per application (strength ${v.widen}) and where planned spend sat further from past spend.`,
-      `Hire ranges combine the application range with the uncertainty in the screening and hire rates (from the counts behind them), the uncertainty in the match to platform hires, chance variation in the number of hires itself, and the month-to-month variation in hires from other sources, over ${f.int(v.draws)} simulated months. A row is marked low confidence where its hire rate was uncertain by more than about ${f.pct(Math.exp(v.lowRateSd) - 1)} or fewer than ${v.lowApps} applications sat behind its cost per application.`);
+      `Hire ranges combine the application range with the uncertainty in the quality and hire rates (from the counts behind them), the uncertainty in the match to platform hires, chance variation in the number of hires itself, and the month-to-month variation in hires from other sources, over ${f.int(v.draws)} simulated months. A row is marked low confidence where its hire rate was uncertain by more than about ${f.pct(Math.exp(v.lowRateSd) - 1)} or fewer than ${v.lowApps} applications sat behind its cost per application.`);
 
     add('Testing and agreed settings',
       `Testing predicted each past month from the months before it only, starting with months that had at least ${v.minHistory} earlier months of data. With few test months so far, settings that tested well may have done so by chance. For this release, the settings above are agreed values informed by testing, and the tested figure is recorded beside each. A setting moves to its tested figure only once there are at least ${v.switchMonths} test months and leaving out any one month does not change the result. A location’s or platform’s own figure replaces the average only where it predicted clearly better (by ${v.minGain} units of likelihood).`);
@@ -150,11 +154,12 @@
       { term: 'Spend-level adjustment', text: 'How much cost per application rose or fell because planned spend differed from past spend.' },
       { term: 'Remaining-error adjustment', text: 'A multiplier on cost per application for what testing on past months still missed, used only where the direction held with any one test month left out.' },
       { term: 'Planned cost per application', text: 'Historic cost after the thin-data, spend-level and remaining-error adjustments, on the total cost including any fee.' },
-      { term: 'Screening pass rate', text: 'The share of applications that progressed past screening in RAC’s applicant tracking data.' },
-      { term: 'Hire rate after screening', text: 'Hires over applications that passed screening.' },
+      { term: 'Quality application', text: QUALITY_DEFINITION.replace('A quality application is one', 'One') },
+      { term: 'Quality rate', text: 'The share of applications that counted as quality applications in RAC’s applicant tracking data.' },
+      { term: 'Hire rate after quality', text: 'Hires over quality applications.' },
       { term: 'Expected hires from other sources', text: 'Hires RAC recorded outside Indeed, Meta, Google and Appcast, as a monthly figure. Counted towards the hire target; not driven by the budget.' },
       { term: 'Spending cap', text: 'The most the plan will spend on a location and platform: its largest successful month x the spending cap multiple (plus the fee where fees apply).' },
-      { term: 'Successful month', text: 'A past month whose cost per application was at or below what the model expected at that spend, and whose screening was not unusually weak.' },
+      { term: 'Successful month', text: 'A past month whose cost per application was at or below what the model expected at that spend, and whose quality rate was not unusually weak.' },
       { term: 'Budget not placed', text: 'Money no location could take within its maximum, spending caps and cost limits.' },
       { term: 'Range', text: `${RANGE_LINE} ${ROW_RANGE_LINE}` },
       { term: 'Low confidence', text: 'A row with little evidence behind its hire rate or its cost per application.' },
@@ -185,5 +190,5 @@
     return rows;
   }
 
-  RAC.text = { fmt, values, method, glossary, assumptionRows, ATTRIBUTION, RANGE_LINE, ROW_RANGE_LINE };
+  RAC.text = { fmt, values, method, glossary, assumptionRows, ATTRIBUTION, QUALITY_DEFINITION, RANGE_LINE, ROW_RANGE_LINE };
 })(window.RAC = window.RAC || {});

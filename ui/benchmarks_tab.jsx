@@ -132,7 +132,7 @@
             {' '}Cost per application is the usual figure the plan starts from, before it is adjusted for the planned
             spend level. Cost per hire is at the usual spend, after the remaining-error adjustment
             (x{bias.toFixed(3)}) and the reconciliation to the hires RAC recorded against the four platforms, including
-            the {Math.round(share * 100)}% of other-source hires credited to paid media (x{recon.toFixed(3)}). Screening and hire rates came
+            the {Math.round(share * 100)}% of other-source hires credited to paid media (x{recon.toFixed(3)}). Quality and hire rates came
             from {eploy.dataset.file} ({eploy.dataset.file_date}), applications {rates.screenMonths[0]} to {rates.screenMonths[rates.screenMonths.length - 1]}.
           </div>
         </div>
@@ -151,8 +151,8 @@
         <Section id="byLocation" title="By location, across all platforms" sub={rangeLabel + '. Blended by where spend went in the window.'}>
           <table className="alloc-table">
             <thead><tr>
-              <th>Location</th><th>Cost per application</th><th>Cost per hire</th><th>Screening pass rate</th>
-              <th>Hire rate after screening</th><th>Applications</th><th>Spend</th>
+              <th>Location</th><th>Cost per application</th><th>Cost per hire</th><th>Quality rate</th>
+              <th>Hire rate after quality</th><th>Applications</th><th>Spend</th>
             </tr></thead>
             <tbody>
               {grid.map(({ region, cells }) => {
@@ -177,7 +177,7 @@
         <Section id="byPlatform" title="By platform, across all locations" sub={rangeLabel + '. Cost per application is the platform figure every location is pulled towards.'}>
           <table className="alloc-table">
             <thead><tr>
-              <th>Platform</th><th>Cost per application</th><th>Screening pass rate used</th><th>Basis</th>
+              <th>Platform</th><th>Cost per application</th><th>Quality rate used</th><th>Basis</th>
               <th>Locations with data</th><th>Applications</th><th>Spend</th>
             </tr></thead>
             <tbody>

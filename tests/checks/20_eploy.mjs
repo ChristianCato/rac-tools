@@ -49,4 +49,14 @@ export default function (check, { assert }) {
     assert(['Quality Applies', 'Progressed Past Screening'].includes(d.quality_measure), 'quality measure ' + d.quality_measure);
     return `${d.cells.length} rows, ${apps} applications, dataset ${d.dataset.file} dated ${d.dataset.file_date}, quality measure ${d.quality_measure}`;
   });
+
+  check('The quality measure in use is Quality Applies', () => {
+    // User decision, 17 September 2026: the quality measure is the workbook's
+    // own "Quality Applies" column, used exactly as provided.
+    const d = JSON.parse(readRoot('data/eploy_rates.json'));
+    assert(d.quality_measure === 'Quality Applies', 'quality measure is ' + d.quality_measure);
+    const q = d.cells.reduce((t, c) => t + c[5], 0), pr = d.cells.reduce((t, c) => t + c[7], 0);
+    assert(q > pr, `quality ${q} should be above progressed past screening ${pr}`);
+    return `${q} quality applications against ${pr} that progressed past screening, from ${d.dataset.file}`;
+  });
 }

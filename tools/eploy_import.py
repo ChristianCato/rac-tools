@@ -15,7 +15,10 @@ Options for comparisons (results kept outside the repo):
 The quality measure (user decision, 17 September 2026) is the column "Quality
 Applies": TRUE wherever Progressed Past Screening is TRUE, plus applications
 closed at To Review or Call Back for a reason other than the candidate's
-merit. It is used exactly as provided.
+merit. It is used exactly as provided. Repeat applications ("Rejected -
+Multiple Applications") are not quality where they were closed at To Review or
+Call Back. A repeat application closed at a later stage had already passed
+screening, so it stays quality.
 
 What it does, in order. It stops with a message at the first problem:
 1. Reads the sheet "Application Report - All Roles" by column header name
@@ -27,9 +30,10 @@ What it does, in order. It stops with a message at the first problem:
    Quality Applies must read TRUE or FALSE (an empty value usually means
    formulas without saved values: open and save the file in Excel first);
    every hired and every progressed application must be Quality Applies; no
-   application at a "Rejected - Multiple Applications" stage may be Quality
-   Applies; application dates must fall between eploy_first_month and the
-   file's own date.
+   application closed at "To Review - Rejected - Multiple Applications" or
+   "Call Back - Rejected - Multiple Applications" may be Quality Applies;
+   application dates must fall between eploy_first_month and the file's own
+   date.
 4. Compares with the previous import (data/eploy_rates.json) on the months both
    hold: applications, quality applications and hires by role and platform.
    Any shift above 10% on a count of 20 or more stops the import unless
@@ -61,7 +65,13 @@ REQUIRED = {
     'region': 'Region',
 }
 QUALITY_COLUMNS = {'quality': 'Quality Applies', 'stage': 'Current Workflow Stage'}
-REPEAT_STAGE = 'Rejected - Multiple Applications'
+# Repeat applications are not quality, but only where the application was closed
+# at screening (user decision, 17 September 2026). Applications that reached a
+# later stage and were then closed as a repeat had already passed screening, so
+# the file marks them quality and the import accepts that.
+REPEAT_OUTCOME = 'Rejected - Multiple Applications'
+REPEAT_CLOSED_AT = ('To Review', 'Call Back')
+REPEAT_STAGES = tuple(f'{s} - {REPEAT_OUTCOME}' for s in REPEAT_CLOSED_AT)
 MEASURES = {'quality': 'Quality Applies', 'progressed': 'Progressed Past Screening'}
 PLATFORMS = ('indeed', 'meta', 'google', 'appcast', 'other')
 SHIFT_LIMIT = 0.10
@@ -196,8 +206,8 @@ def read_sheet(wb, maps, start_month, file_date, measure='quality'):
                     problems[('Quality Applies', 'FALSE on a hired application')] += 1
                 if prog and not quality:
                     problems[('Quality Applies', 'FALSE on an application that progressed past screening')] += 1
-                if quality and REPEAT_STAGE.lower() in stage.lower():
-                    problems[('Quality Applies', f'TRUE at stage "{stage}" (repeat applications are not quality)')] += 1
+                if quality and stage.lower() in [s.lower() for s in REPEAT_STAGES]:
+                    problems[('Quality Applies', f'TRUE at stage "{stage}" (a repeat application closed at screening is not quality)')] += 1
         else:
             quality = prog
         if region is None or platform is None or hired is None or prog is None or quality is None:

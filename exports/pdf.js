@@ -8,7 +8,7 @@
 //   2. locations
 //   3. platforms
 //   4. location and platform, one table per platform, with the cost per
-//      application build-up, spending cap, screening and hire rates and ranges
+//      application build-up, spending cap, quality and hire rates and ranges
 //   5. method and glossary (exports/text.js)
 // Every page carries the version stamp (exports/stamp.js). Before saving, the
 // output checks (exports/checks.js) run on every string drawn, every table
@@ -179,7 +179,7 @@
         ['  from paid media', `${F.num(t.hires)}`, `range ${range(r.hires.low, r.hires.high)}`],
         ['  expected from other sources', `${F.num(t.otherHires)}`, `range ${range(r.otherHires.low, r.otherHires.high)}`],
         ['Predicted applications', F.int(t.apps), `range ${range(r.apps.low, r.apps.high)}`],
-        ['Applications passing screening', F.int(t.passed), ''],
+        ['Quality applications', F.int(t.passed), ''],
         ['Cost per application (paid media)', F.gbp(t.cpa, 2), ''],
         ['Cost per hire (paid media)', F.gbp(t.cph), ''],
         [p.hireTarget > 0 ? `Budget for ${p.hireTarget} hires` : 'Budget for the target', target, ''],
@@ -235,7 +235,7 @@
       const cols = [
         { label: 'Location', w: 34 }, { label: 'Open roles', w: 16, align: 'right' }, { label: 'Spend', w: 22, align: 'right' },
         { label: 'Spending room (caps and limits)', w: 28, align: 'right' },
-        { label: 'Applications (range)', w: 34, align: 'right' }, { label: 'Passing screening', w: 18, align: 'right' },
+        { label: 'Applications (range)', w: 34, align: 'right' }, { label: 'Quality applications', w: 18, align: 'right' },
         { label: 'Hires, paid media (range)', w: 30, align: 'right' }, { label: 'Cost per application', w: 20, align: 'right' },
         { label: 'Cost per hire', w: 20, align: 'right' }, { label: 'Notes', w: 47 },
       ];
@@ -269,8 +269,8 @@
       const cols = [
         { label: 'Platform', w: 24 }, { label: 'Spend', w: 22, align: 'right' },
         { label: 'Media', w: 22, align: 'right' }, { label: 'Platform fee', w: 20, align: 'right' },
-        { label: 'Applications (range)', w: 30, align: 'right' }, { label: 'Passing screening', w: 18, align: 'right' },
-        { label: 'Screening pass rate used (basis)', w: 60 },
+        { label: 'Applications (range)', w: 30, align: 'right' }, { label: 'Quality applications', w: 18, align: 'right' },
+        { label: 'Quality rate used (basis)', w: 60 },
         { label: 'Hires, paid media (range)', w: 29, align: 'right' }, { label: 'Cost per application', w: 22, align: 'right' },
         { label: 'Cost per hire', w: 22, align: 'right' },
       ];
@@ -289,7 +289,7 @@
         [F.int(t.apps), range(t.range.apps.low, t.range.apps.high)], F.int(t.passed), `role average ${F.pct(p.rates.roleScreen, 1)}`,
         [F.num(t.hires), range(t.range.hires.low, t.range.hires.high)], F.gbp(t.cpa, 2), F.gbp(t.cph)] });
       table(cols, body, { rowCheck: r => ({ label: r.label, spend: r.spend, cph: r.cph }) });
-      para(`Within each location, money goes where the next hire costs least, up to each platform's spending cap. Hire rate after screening: ${F.pct(p.rates.roleHire, 1)}, the role average for every location. ${RAC.text.ATTRIBUTION}`, M, PAGE_W - 2 * M, 7.5);
+      para(`Within each location, money goes where the next hire costs least, up to each platform's spending cap. Hire rate after quality: ${F.pct(p.rates.roleHire, 1)}, the role average for every location. ${RAC.text.ATTRIBUTION}`, M, PAGE_W - 2 * M, 7.5);
     }
 
     function cells(d, title) {
@@ -305,7 +305,7 @@
           { label: 'Thin-data adjustment', w: 16, align: 'right' }, { label: 'Spend-level adjustment', w: 16, align: 'right' },
           { label: 'Remaining error adjustment', w: 17, align: 'right' }, { label: 'Planned cost per application', w: 19, align: 'right' },
           { label: 'Applications (range)', w: 25, align: 'right' },
-          { label: 'Screening pass rate', w: 16, align: 'right' }, { label: 'Hire rate after screening', w: 16, align: 'right' },
+          { label: 'Quality rate', w: 16, align: 'right' }, { label: 'Hire rate after quality', w: 16, align: 'right' },
           { label: 'Hires (range)', w: 21, align: 'right' }, { label: 'Cost per hire', w: 17, align: 'right' },
         ];
         const body = p.locations.map(l => {
@@ -335,7 +335,7 @@
             [F.num(x.apps), appRange(x.range)], '', '', [F.num(x.hires), hireRange(x.range)], x.spend > 0 && x.hires > 0 ? F.gbp(x.spend / x.hires) : '-'] });
         table(cols, body, { rowCheck: r => ({ label: r.label, spend: r.spend, cph: r.cph }) });
         para(`Planned cost per application = historic cost per application x thin-data adjustment x spend-level adjustment x remaining-error adjustment${fee > 0 ? ` x ${(1 + fee).toFixed(4)} (the ${L()[q]} fee)` : ''}. ` +
-          `The screening pass rate for ${L()[q]} was ${p.rates.platform[q].basis}. Spending caps: largest successful month since ${F.month(RAC.assumptions.get(p.A, 'ceiling_first_month'))} x the cap multiple${fee > 0 ? ', plus the fee' : ''}.`, M, PAGE_W - 2 * M, 7.2);
+          `The quality rate for ${L()[q]} was ${p.rates.platform[q].basis}. Spending caps: largest successful month since ${F.month(RAC.assumptions.get(p.A, 'ceiling_first_month'))} x the cap multiple${fee > 0 ? ', plus the fee' : ''}.`, M, PAGE_W - 2 * M, 7.2);
       });
     }
 
