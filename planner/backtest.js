@@ -11,12 +11,12 @@
 // The ranges and row widening come from these misses, so they describe the
 // model as used.
 //
-// Remaining-error rule (user decision, 17 September 2026): the adjustment is
-// applied only if costs missed in the same direction in every test month
-// (each predicted from the months before it, with no adjustment); otherwise
-// it is 1.00. Where it applies, it is what those predictions missed overall
-// (predicted over actual applications, latest remaining_error_months months,
-// 0 meaning all).
+// Remaining-error rule (user decisions, 17 September 2026): each test month is
+// predicted from the months before it with no adjustment. The tested figure is
+// what those predictions missed overall (predicted over actual applications,
+// latest remaining_error_months months, 0 meaning all). It applies only when
+// it stays on the same side of 1 with any one test month left out (and with
+// none left out); otherwise the adjustment is 1.00.
 //
 // Tested figures (shown beside the agreed values): the shared rate and its
 // strength that predicted the test months best (Poisson deviance on location
@@ -126,22 +126,29 @@
     return { ...pick, best: { bRole: best.bRole, k: best.k }, gain, phi, months, table };
   }
 
-  // The remaining-error rule at given settings: each month predicted from the
-  // months before it with no adjustment. `same` is true when costs missed in
-  // the same direction in every month; `tested` is predicted over actual
-  // applications (latest `recent` months); `bias` is tested where the rule
-  // applies, otherwise 1.
+  // The remaining-error rule at given settings (see the note at the top).
+  // Each month's prediction depends only on the months before it, so the
+  // figure with a month left out is a sum over the others.
+  //   tested: predicted over actual applications
+  //   leftOut: the same with each month left out in turn
+  //   same: every one of them on the same side of 1
+  //   bias: tested where the rule applies, otherwise 1
   function errorRule(ds, A, role, months, cache, params, recent) {
     const per = months.map(L => {
       const cells = predictMonth(ds, A, role, L, params, cache);
       const predicted = U.sum(cells.map(c => c.predicted)), actual = U.sum(cells.map(c => c.actual));
       return { month: L, predicted, actual, costMiss: actual > 0 ? predicted / actual - 1 : null };
     }).filter(m => m.predicted > 0 && m.actual > 0);
-    const use = recent ? per.slice(-recent) : per;
-    const sp = U.sum(use.map(m => m.predicted)), sa = U.sum(use.map(m => m.actual));
-    const tested = sp > 0 && sa > 0 ? sp / sa : 1;
-    const same = per.length > 0 && (per.every(m => m.costMiss > 0) || per.every(m => m.costMiss < 0));
-    return { months: per, tested, same, bias: same ? tested : 1 };
+    const ratio = (list) => {
+      const use = recent ? list.slice(-recent) : list;
+      const sp = U.sum(use.map(m => m.predicted)), sa = U.sum(use.map(m => m.actual));
+      return sp > 0 && sa > 0 ? sp / sa : 1;
+    };
+    const tested = ratio(per);
+    const leftOut = per.length > 1 ? per.map(m => ({ month: m.month, value: ratio(per.filter(x => x !== m)) })) : [];
+    const all = [tested, ...leftOut.map(x => x.value)];
+    const same = per.length > 1 && (all.every(v => v > 1) || all.every(v => v < 1));
+    return { months: per, tested, leftOut, same, bias: same ? tested : 1 };
   }
 
   // The values chosen with each of the months left out in turn, and whether

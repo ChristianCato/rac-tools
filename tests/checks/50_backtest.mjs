@@ -99,6 +99,10 @@ export default function (check, { assert, near }) {
     }
     const w = RAC.ROLES.map(r => RAC.assumptions.entry(A, 'row_widen_apps', r));
     assert(w.every(e => e.source === RAC.assumptions.AGREED_TESTED) && w[0].parsed === w[1].parsed, 'row widening should be one agreed value for both roles');
+    // Kept only while each role's rows hold at least 70% of their misses (user, 17 Sep 2026).
+    const held = RAC.ROLES.map(r => fresh[r].rowWiden.table.find(x => x.c === w[0].parsed).coverage);
+    held.forEach((h, i) => assert(h >= 0.7, `row widening ${w[0].parsed}: ${RAC.ROLES[i]} rows held only ${(h * 100).toFixed(0)}% of their misses (below 70%: review)`));
+    out.push(`row widening ${w[0].parsed} held SMR ${(held[0] * 100).toFixed(0)}%, Patrol ${(held[1] * 100).toFixed(0)}% of misses`);
     const ref = RAC.ROLES.map(r => RAC.assumptions.entry(A, 'remaining_error_factor', r));
     assert(ref.every(e => e.source === RAC.assumptions.AGREED_TESTED), 'remaining-error adjustment should follow the agreed rule');
     const months = Math.min(...RAC.ROLES.map(r => results.roles[r].sensitivity.backtest.testMonths));

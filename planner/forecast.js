@@ -24,6 +24,13 @@
 //   + share credited to paid media x other_hires_credit_factor
 // It is the same for every location and platform, so it moves total hires and
 // the budget but not the split between platforms.
+//
+// Platform fees (user decision, 17 September 2026). For platforms with a fee
+// (Indeed, Meta), planned spend S includes the fee: media = S / (1 + fee
+// rate). Historic spend is media only, so the usual cost per application and
+// the spend-level adjustment work on media, and applications = media /
+// planned media cost per application. Cost per application and per hire are
+// reported on S, the total cost including the fee. With no fee, S is media.
 (function (RAC) {
   'use strict';
 
@@ -73,6 +80,7 @@
   // Everything the forecast needs for one location and platform.
   //   ctx: RAC.cost.context; hireRates: RAC.rates.build; d1: rates() above
   //   factors: { bias, recon } (remaining-error adjustment, reconciliation)
+  //   factors.fees: { platform: rate } (none: no fees)
   function prepare(ctx, hireRates, d1, factors, plat, region) {
     const usual = RAC.cost.usualCpa(ctx, plat, region);
     const level = RAC.cost.usualSpend(ctx, plat, region);
@@ -87,28 +95,44 @@
       cpaUsual: usual.cpa, usual,
       spendUsual: level.spend, spendBasis: level.basis,
       b, bias: factors.bias, recon: factors.recon,
+      fee: (factors.fees && factors.fees[plat]) || 0,
       screen: r.screen, hireAfterScreening: r.hireAfterScreening, rates: r,
       hirePerApplication: r.hirePerApplication * factors.recon,
     };
   }
 
-  // Spend-level adjustment to cost per application at spend S.
-  function spendAdjustment(pc, S) {
-    if (!(S > 0) || !(pc.spendUsual > 0)) return 1;
-    return Math.pow(S / pc.spendUsual, 1 - pc.b);
+  // Spend-level adjustment to cost per application at media spend m.
+  function spendAdjustment(pc, m) {
+    if (!(m > 0) || !(pc.spendUsual > 0)) return 1;
+    return Math.pow(m / pc.spendUsual, 1 - pc.b);
   }
 
-  // The forecast for one location and platform at monthly spend S.
+  // Planned cost per application on media alone, at media spend m (what the
+  // model expected in a past month, where spend was media only).
+  function mediaCpa(pc, m) {
+    return pc.cpaUsual * spendAdjustment(pc, m) * pc.bias;
+  }
+
+  // Media and fee in a planned spend S.
+  function split(pc, S) {
+    const media = S > 0 ? S / (1 + (pc.fee || 0)) : 0;
+    return { media, fee: S > 0 ? S - media : 0 };
+  }
+
+  // The forecast for one location and platform at monthly spend S (including
+  // any fee).
   function at(pc, S) {
+    const fee = pc.fee || 0;
     if (!(S > 0) || !(pc.cpaUsual > 0)) {
-      return { spend: 0, apps: 0, passed: 0, hires: 0, cpa: pc.cpaUsual * pc.bias, spendAdjustment: 1 };
+      return { spend: 0, media: 0, fee: 0, apps: 0, passed: 0, hires: 0, cpa: pc.cpaUsual * pc.bias * (1 + fee), cpaMedia: pc.cpaUsual * pc.bias, spendAdjustment: 1 };
     }
-    const adj = spendAdjustment(pc, S);
-    const cpa = pc.cpaUsual * adj * pc.bias;
-    const apps = S / cpa;
+    const m = split(pc, S);
+    const adj = spendAdjustment(pc, m.media);
+    const cpaMedia = pc.cpaUsual * adj * pc.bias;
+    const apps = m.media / cpaMedia;
     const passed = apps * pc.screen;
     const hires = passed * pc.hireAfterScreening * pc.recon;
-    return { spend: S, apps, passed, hires, cpa, spendAdjustment: adj };
+    return { spend: S, media: m.media, fee: m.fee, apps, passed, hires, cpa: S / apps, cpaMedia, spendAdjustment: adj };
   }
 
   // Cost of the next hire at spend S (the split equalises this).
@@ -119,17 +143,18 @@
     return x / (pc.b * f.hires);
   }
 
-  // Spend at which the next hire costs lambda.
+  // Spend (including any fee) at which the next hire costs lambda.
   function spendForMarginal(pc, lambda) {
     const h1 = pc.hirePerApplication;
     if (!(h1 > 0) || !(pc.cpaUsual > 0)) return 0;
-    // hires(S) = c x S^b, with c = h1 x spendUsual^(1-b) / (cpaUsual x bias)
+    // hires = c x m^b on media m, with c = h1 x spendUsual^(1-b) / (cpaUsual x bias)
     const su = pc.spendUsual > 0 ? pc.spendUsual : 1;
     const c = h1 * Math.pow(su, 1 - pc.b) / (pc.cpaUsual * pc.bias);
-    if (pc.b >= 1) return lambda * c >= 1 ? Infinity : 0;
-    // marginal cost = S^(1-b) / (b c)  =>  S = (lambda b c)^(1/(1-b))
-    return Math.pow(lambda * pc.b * c, 1 / (1 - pc.b));
+    const g = 1 + (pc.fee || 0);   // S = g x m
+    if (pc.b >= 1) return lambda * c / g >= 1 ? Infinity : 0;
+    // marginal cost = g x m^(1-b) / (b c)  =>  m = (lambda b c / g)^(1/(1-b))
+    return g * Math.pow(lambda * pc.b * c / g, 1 / (1 - pc.b));
   }
 
-  RAC.forecast = { fitRate, rates, prepare, spendAdjustment, at, marginalCostPerHire, spendForMarginal };
+  RAC.forecast = { fitRate, rates, prepare, spendAdjustment, mediaCpa, split, at, marginalCostPerHire, spendForMarginal };
 })(window.RAC = window.RAC || {});

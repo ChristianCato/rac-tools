@@ -21,6 +21,9 @@
 //      platform above its spending cap (user decision, 17 September 2026);
 //      what a minimum could not get is listed in minimumShortfalls.
 //   5. The forecast for every location and platform, totals and ranges.
+//      Platform fees (plans from fees_first_month): Indeed and Meta spend,
+//      including the Indeed Premium hold-back, is media plus fee; forecasts
+//      and spending caps work on media, costs are reported on the total.
 //   6. Budget needed for the hire target, by running the plan at trial budgets.
 //      Where the caps make the target unreachable, the plan reports the most
 //      hires achievable, the budget at which extra spend stops adding hires,
@@ -70,7 +73,8 @@
 //   remainingError (0.5 to 2; blank uses the assumptions file's value),
 //   includeSettling (count complete months still inside the settle period),
 //   bench (data window), limits: { cph: { region }, cpa: { region: { plat } } },
-//   oneRacHoldback, overrides (per-plan assumption values)
+//   oneRacHoldback, overrides (per-plan assumption values),
+//   planMonth (YYYY-MM; platform fees apply from fees_first_month)
 (function (RAC) {
   'use strict';
   const U = RAC.util;
@@ -109,7 +113,12 @@
     // effect of each change against the previous version. No screen sets them.
     const cmp = inputs.compare || {};
     const paidFactor = get('paid_hire_reconciliation_factor'), creditFactor = get('other_hires_credit_factor');
-    const factors = { bias, recon: paidFactor + share * creditFactor, paid: paidFactor, credit: creditFactor, share };
+    // Platform fees: plans for fees_first_month onwards (user decision,
+    // 17 September 2026).
+    const feeRates = { indeed: get('fee_rate_indeed'), meta: get('fee_rate_meta') };
+    const feesOn = !!inputs.planMonth && inputs.planMonth >= get('fees_first_month');
+    const fees = Object.fromEntries(P().map(pl => [pl, feesOn ? (feeRates[pl] || 0) : 0]));
+    const factors = { bias, recon: paidFactor + share * creditFactor, paid: paidFactor, credit: creditFactor, share, fees };
     const keep = cmp.noOtherSources ? 0 : 1 - share;
     const other = RAC.testing.otherSources(env.eploy, A, role, hireRates.hireMonths);
     const baseline = {
@@ -154,7 +163,9 @@
           ceiling = { ...ceiling, ceiling: base_ * capMultiple, base: base_, basis: 'previous: biggest month', largestSuccessful: peak };
         }
         const cpaCap = RAC.ceilings.spendAtCpaLimit(pc, cpaLimit);
-        cells[region][plat] = { pc, ceiling, cpaLimit, cpaCap, cap: Math.max(0, Math.min(ceiling.ceiling, cpaCap)) };
+        // Caps come from past media spend; the plan's spend includes the fee.
+        const capTotal = ceiling.ceiling * (1 + pc.fee);
+        cells[region][plat] = { pc, ceiling, cpaLimit, cpaCap, cap: Math.max(0, Math.min(capTotal, cpaCap)) };
       });
     });
     const ranges = {
@@ -164,8 +175,10 @@
       lowConfidenceMinApps: get('low_confidence_min_apps'),
       percentiles: [get('range_low_percentile'), get('range_high_percentile')],
     };
+    const feeInfo = { on: feesOn, planMonth: inputs.planMonth || null, firstMonth: get('fees_first_month'), rates: fees, fileRates: feeRates,
+      source: { indeed: entry('fee_rate_indeed').source, meta: entry('fee_rate_meta').source } };
     const base = { role, A, ds, ctx, hireRates, d1, factors, baseline, capMultiple, settings, cells, ranges, softCaps: !!cmp.previousCeilings,
-      premiumRate: RAC.assumptions.get(A, 'indeed_premium_rate') };
+      premiumRate: RAC.assumptions.get(A, 'indeed_premium_rate'), feeInfo };
     base.draws = hireDraws(base, env, !!cmp.previousHireRates);
     return base;
   }
@@ -279,7 +292,10 @@
   function allocate(base, p, withRanges = true) {
     const role = base.role;
     const days = p.daysInMonth || 30;
-    const premium = Math.round((p.premiumCampaigns || 0) * days * base.premiumRate);
+    // Indeed Premium: media at the daily rate, plus the Indeed fee.
+    const premiumMedia = Math.round((p.premiumCampaigns || 0) * days * base.premiumRate);
+    const premiumFee = Math.round(premiumMedia * base.factors.fees.indeed * 100) / 100;
+    const premium = premiumMedia + premiumFee;
     const combined = Math.max(0, Math.round(p.acReserve || 0));
     const oneRac = Math.max(0, Math.round(p.oneRacHoldback || 0));
     const budget = p.budget || 0;
@@ -522,7 +538,14 @@
 
     return {
       role, budget, daysInMonth: days,
-      holdbacks: { premium, combined, oneRac, total: premium + combined + oneRac },
+      holdbacks: { premium, premiumMedia, premiumFee, combined, oneRac, total: premium + combined + oneRac },
+      fees: {
+        ...base.feeInfo,
+        premium: premiumFee,
+        byPlatform: Object.fromEntries(P().map(pl => [pl, { media: platforms[pl].media, fee: platforms[pl].fee, total: platforms[pl].spend }])),
+        placed: U.sum(all.map(c => c.fee)),
+        total: premiumFee + U.sum(all.map(c => c.fee)),
+      },
       otherSources: { ...bl },
       deployable, coverageReserve, demandPool, totalVac, liveCount: locations.length,
       locations, platforms, totals, idleCells, allRegions: base.ds.regions.slice(),
@@ -541,10 +564,12 @@
     const r = base.ranges;
     const u = pc.usual;
     const ws = RAC.cost.windowStats(base.ctx, pc.plat, pc.region);
-    const w = RAC.backtest.widen(r.apps, r.widen, u.apps, S, pc.spendUsual, base.d1[pc.plat].seUsed);
+    const w = RAC.backtest.widen(r.apps, r.widen, u.apps, f.media, pc.spendUsual, base.d1[pc.plat].seUsed);
     const apps = RAC.backtest.band(r.apps, w);
     return {
       region: pc.region, platform: pc.plat, on, spend: S,
+      // Platform fee: spend = media + fee.
+      media: f.media, fee: f.fee, feeRate: pc.fee,
       apps: f.apps, passed: f.passed, hires: f.hires,
       cpa: f.apps > 0 ? f.cpa : null,
       cph: f.hires > 0 ? S / f.hires : null,
@@ -553,7 +578,7 @@
       applyRate: ws.clicks > 0 ? ws.apps / ws.clicks : null,
       platformCpa: u.platform.cpa, thinAdjustment: u.thinAdjustment, usualCpa: u.cpa, cpaSource: u.source,
       spendUsual: pc.spendUsual, spendBasis: pc.spendBasis, diminishingRate: pc.b,
-      spendAdjustment: f.spendAdjustment, remainingError: pc.bias, plannedCpa: f.cpa,
+      spendAdjustment: f.spendAdjustment, remainingError: pc.bias, plannedCpaMedia: f.cpaMedia, plannedCpa: f.cpa,
       // Screening and hires build-up.
       screenRate: pc.screen, platformScreen: pc.rates.platformScreen, screenBasis: pc.rates.platformBasis,
       screenAdjustment: pc.rates.screenAdjustment, hireAfterScreening: pc.hireAfterScreening,
@@ -562,13 +587,14 @@
       // the share of other-source hires credited to paid media.
       hiresPlatform: pc.recon > 0 ? f.hires * base.factors.paid / pc.recon : 0,
       hiresCredited: pc.recon > 0 ? f.hires * (base.factors.share * base.factors.credit) / pc.recon : 0,
-      // Spending cap.
-      ceiling: c.ceiling.ceiling, ceilingBase: c.ceiling.base, ceilingBasis: c.ceiling.basis, ceilingFlagged: c.ceiling.flagged,
+      // Spending cap: past media spend x multiple (ceiling), and the same
+      // with the fee added (ceilingTotal, what planned spend is held to).
+      ceiling: c.ceiling.ceiling, ceilingTotal: c.ceiling.ceiling * (1 + pc.fee), ceilingBase: c.ceiling.base, ceilingBasis: c.ceiling.basis, ceilingFlagged: c.ceiling.flagged,
       largestSuccessful: c.ceiling.largestSuccessful, largestMonth: c.ceiling.largestMonth, ceilingMonths: c.ceiling.months,
       cpaLimit: c.cpaLimit, cpaLimitSpend: Number.isFinite(c.cpaCap) ? c.cpaCap : null, cap: c.cap,
       aboveLimitByInstruction: aboveByInstruction,
-      aboveLargestSuccessful: Math.max(0, S - c.ceiling.base),
-      aboveLargestMonth: Math.max(0, S - c.ceiling.largestMonth),
+      aboveLargestSuccessful: Math.max(0, f.media - c.ceiling.base),
+      aboveLargestMonth: Math.max(0, f.media - c.ceiling.largestMonth),
       // Range.
       widen: w,
       range: S > 0 && withRanges ? {
@@ -587,11 +613,13 @@
 
   function rollUp(base, cells, extra) {
     const spend = U.sum(cells.map(c => c.spend));
+    const media = U.sum(cells.map(c => c.media));
+    const fee = U.sum(cells.map(c => c.fee));
     const apps = U.sum(cells.map(c => c.apps));
     const passed = U.sum(cells.map(c => c.passed));
     const hires = U.sum(cells.map(c => c.hires));
     return {
-      ...extra, spend, apps, passed, hires,
+      ...extra, spend, media, fee, apps, passed, hires,
       cpa: apps > 0 ? spend / apps : null,
       cph: hires > 0 ? spend / hires : null,
       screenRate: apps > 0 ? passed / apps : null,
@@ -610,7 +638,8 @@
     const evidence = U.sum(funded.map(c => c.historicApps || 0));
     const usual = U.sum(funded.map(c => c.spendUsual || 0));
     const se = U.sum(funded.map(c => c.spend * (base.d1[c.platform].seUsed || 0))) / spend;
-    const w = RAC.backtest.widen(r.apps, r.widen, evidence, spend, usual, se);
+    const media = U.sum(funded.map(c => c.media));
+    const w = RAC.backtest.widen(r.apps, r.widen, evidence, media, usual, se);
     const a = RAC.backtest.band(r.apps, w);
     return {
       widen: w,
@@ -674,7 +703,7 @@
     const hit = RAC.cache.get(key);
     if (hit) return hit;
     const baseKey = 'base|' + role + '|' + U.stableKey({ bench: inputs.bench, capMultiple: inputs.capMultiple, otherHiresShare: inputs.otherHiresShare,
-      otherHiresMonthly: inputs.otherHiresMonthly, remainingError: inputs.remainingError, includeSettling: !!inputs.includeSettling,
+      otherHiresMonthly: inputs.otherHiresMonthly, remainingError: inputs.remainingError, includeSettling: !!inputs.includeSettling, planMonth: inputs.planMonth || null,
       cpa: inputs.limits && inputs.limits.cpa, overrides: inputs.overrides, compare: inputs.compare }) + '|' + envStamp(env);
     let base = RAC.cache.get(baseKey);
     if (!base) base = RAC.cache.set(baseKey, prepare(role, inputs, env));

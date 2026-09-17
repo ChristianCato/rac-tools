@@ -7,7 +7,8 @@
 //     (at least switch_min_test_months test months, stable with any one month
 //     left out). The switch itself is an edit to the file.
 //   - remaining_error_factor follows its agreed rule: the tested figure only
-//     if costs missed in the same direction in every test month, otherwise 1.
+//     if it stays on the same side of 1 with any one test month left out,
+//     otherwise 1.
 //
 // Usage (from the repo folder):
 //   node tools/calibrate.mjs                 show what the tests give; change nothing
@@ -57,8 +58,8 @@ const AGREED_NOTE = {
   region_hire_blend_n: 'Agreed 17 Sep 2026 for this release: role average for both roles (100000).',
   d1_role_rate: 'Agreed 17 Sep 2026 for this release: 0.65 for both roles.',
   d1_prior_strength: 'Agreed 17 Sep 2026 for this release: shared across platforms (100000) for both roles.',
-  remaining_error_factor: 'Agreed 17 Sep 2026: the tested figure applies only if costs missed in the same direction in every test month; otherwise 1.00. Default for the Setup field.',
-  row_widen_apps: 'Agreed 17 Sep 2026 for this release: one strength for both roles, the one whose widened row ranges held the middle 80% of both roles\' location and platform misses together most closely.',
+  remaining_error_factor: 'Agreed 17 Sep 2026: the tested figure applies only if it stays on the same side of 1 with any one test month left out; otherwise 1.00. Default for the Setup field.',
+  row_widen_apps: 'Agreed 17 Sep 2026 for this release: one strength for both roles, kept while each role\'s widened row ranges hold at least 70% of its location and platform misses (proposed as the strength that held the middle 80% of both roles\' misses together most closely).',
 };
 const switchText = (months, unstable) => (months >= switchMin && !unstable
   ? `Switch rule met (${months} test months, stable): the tested figure may replace the agreed value.`
@@ -161,8 +162,9 @@ if (run('backtest')) {
     const costMisses = f.rule.months.map(m => `${m.month} ${pct(m.costMiss)}`).join(', ');
     set('remaining_error_factor', role, r4(f.tested.bias), `Tested ${today}: at the rate in use (${f.used.bRole}), predicted over actual applications in ${best.recent ? 'the latest ' + best.recent + ' test months' : 'all test months'} was ${r4(f.tested.bias)} (${learned}). ` +
       `Cost misses (predicted over actual applications, each month from earlier months, no adjustment): ${costMisses}; ` +
-      `${f.rule.same ? 'every month missed the same way, so the tested figure applies' : 'the direction changed between months, so 1.00 applies'}. ` +
-      `Leaving out each test month: ${looText('bias', v => v.toFixed(3))}; ${flag('bias')} (unstable if any moves by more than 5% or the rule changes).`, r4(f.used.bias));
+      `with each test month left out: ${f.rule.leftOut.map(x => `${x.month} ${x.value.toFixed(3)}`).join(', ')}; ` +
+      `${f.rule.same ? 'always on the same side of 1, so the tested figure applies' : 'not always on the same side of 1, so 1.00 applies'}. ` +
+      `Stability (leaving out each test month, rule re-applied): ${looText('bias', v => v.toFixed(3))}; ${flag('bias')} (unstable if any moves by more than 5% or the rule changes).`, r4(f.used.bias));
     (sensitivity[role] ||= {}).backtest = {
       used: { roleRate: f.used.bRole, strength: f.used.k, adjustment: r4(f.used.bias) },
       tested: { roleRate: f.tested.bRole, strength: f.tested.k, adjustment: r4(f.tested.bias) },
@@ -173,7 +175,10 @@ if (run('backtest')) {
     set('range_apps_low', role, r4(bt.appsRange.low), `Tested ${today}: 10th percentile (PERCENTILE.INC) of application misses, each month predicted from earlier months only: ${months}`);
     set('range_apps_high', role, r4(bt.appsRange.high), `Tested ${today}: 90th percentile of the same misses (${bt.appsRange.months} test months)`);
     set('range_apps_sigma', role, r4(bt.appsRange.sigma), `Tested ${today}: standard deviation of log(1 + miss) over the same months`);
-    set('row_widen_apps', role, bt.rowWiden.c, `Tested ${today}: for ${role} alone, the strength whose widened row ranges held the middle 80% of ${bt.rowWiden.cells} location and platform misses most closely (held ${(bt.rowWiden.coverage * 100).toFixed(0)}%); by strength ${bt.rowWiden.table.map(x => `${x.c}: ${(x.coverage * 100).toFixed(0)}%`).join(', ')}. ` +
+    const inUse = bt.rowWiden.table.find(x => x.c === RAC.assumptions.get(A, 'row_widen_apps', role));
+    const held = inUse ? `${(inUse.coverage * 100).toFixed(0)}%` : 'not on the test grid';
+    set('row_widen_apps', role, bt.rowWiden.c, `Tested ${today}: at the value in use, ${role} rows held ${held} of their misses` +
+      `${inUse && inUse.coverage < 0.7 ? ' (BELOW 70%: review)' : ' (at least 70%, so it stays)'}. For ${role} alone, the strength whose widened row ranges held the middle 80% of ${bt.rowWiden.cells} location and platform misses most closely (held ${(bt.rowWiden.coverage * 100).toFixed(0)}%); by strength ${bt.rowWiden.table.map(x => `${x.c}: ${(x.coverage * 100).toFixed(0)}%`).join(', ')}. ` +
       `Both roles together: ${pooledText}.`);
   }
 }

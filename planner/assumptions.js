@@ -31,6 +31,9 @@
   // Patrol; otherwise one row with role "all".
   const SCHEMA = {
     indeed_premium_rate:      { unit: 'gbp_per_day', min: 0, max: 500 },
+    fee_rate_indeed:          { unit: 'share', min: 0, max: 0.5 },
+    fee_rate_meta:            { unit: 'share', min: 0, max: 0.5 },
+    fees_first_month:         { unit: 'month' },
     role_cpa_benchmark:       { unit: 'gbp', min: 1, max: 1000, perRole: true },
     cpa_prior_apps:           { unit: 'count', min: 0, max: 10000 },
     cap_multiple_default:     { unit: 'multiple', min: 1, max: 3 },

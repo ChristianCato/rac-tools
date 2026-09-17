@@ -140,6 +140,22 @@ const reachOut = (name, plan) => {
 reachOut('Out of reach, rac_data.js (17 Sep), cap multiple 1 (default)', RAC.plan.build('SMR', { ...SEPT, capMultiple: 1 }, { ds: D.SMR.ds, A, eploy }));
 reachOut('Out of reach, rac_data.js with August counted (1 Oct), cap multiple 1 (default)', RAC.plan.build('SMR', { ...SEPT, capMultiple: 1 }, { ds: later, A, eploy }));
 reachOut('Out of reach, plan 2a data, cap multiple 1 (default)', RAC.plan.build('SMR', { ...SEPT, capMultiple: 1 }, env2a));
+
+// Platform fees: September SMR settings with fees applied as if it were an
+// October plan (September plans themselves never carry fees).
+const feesOn = { ...SEPT, capMultiple: 1, planMonth: '2026-10' };
+const withFees = RAC.plan.build('SMR', feesOn, { ds: D.SMR.ds, A, eploy });
+const noFeesPlan = RAC.plan.build('SMR', { ...SEPT, capMultiple: 1 }, { ds: D.SMR.ds, A, eploy });
+reachOut('Out of reach WITH PLATFORM FEES (Indeed 1.75%, Meta 2%), rac_data.js (17 Sep), September SMR settings, cap multiple 1', withFees);
+console.log(`Fees: £${withFees.fees.total.toFixed(2)} in total (Indeed Premium £${withFees.fees.premium.toFixed(2)}; ` +
+  RAC.PLATFORMS.map(p => `${p} £${withFees.fees.byPlatform[p].fee.toFixed(2)} on media £${withFees.fees.byPlatform[p].media.toFixed(2)}`).join('; ') + ')');
+console.log('| Cap multiple | Hires at budget: no fees | with fees | Not placed: no fees | with fees | Target or most hires: no fees | with fees |');
+console.log('|---|---|---|---|---|---|---|');
+noFeesPlan.reach.byMultiple.forEach((a, i) => {
+  const b = withFees.reach.byMultiple[i];
+  const t = (r) => (r.budgetForTarget ? `30 at ${gbp(r.budgetForTarget)}` : `most ${r.mostHires.toFixed(1)} at ${gbp(r.saturationBudget)}`);
+  console.log(`| ${a.multiple} | ${a.hiresAtBudget.toFixed(2)} | ${b.hiresAtBudget.toFixed(2)} | ${gbp(a.unplacedAtBudget)} | ${gbp(b.unplacedAtBudget)} | ${t(a)} | ${t(b)} |`);
+});
 for (const [name, plan] of [['H', H], ['J', J]]) {
   console.log(`\n${name}: window ${plan.windowMonths.join(', ')}; unplaced reasons: ${plan.unplaced.reasons.join('; ') || 'none'}`);
   console.log('Location | open roles | spend | cap | cap reason | applications | hires | cost per hire');

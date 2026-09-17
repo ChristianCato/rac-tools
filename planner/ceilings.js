@@ -43,7 +43,8 @@
       largestMonth = Math.max(largestMonth, x.spend);
       if (!(x.spend >= minSpend && x.apps >= minApps)) return;
       const cpa = x.spend / x.apps;
-      const expected = RAC.forecast.at(pc, x.spend).cpa;
+      // Past spend was media only, so this compares media with media.
+      const expected = RAC.forecast.mediaCpa(pc, x.spend);
       const passCost = cpa <= expected + 1e-9;
       const passLimit = cpaLimit === null || cpa <= cpaLimit + 1e-9;
       let q = { applied: false, pass: true, reason: '' };
@@ -72,13 +73,15 @@
     return { ceiling: base * multiple, base, basis, flagged, multiple, largestSuccessful, largestMonth, cpaLimit, months };
   }
 
-  // Spend at which planned cost per application reaches a limit (D6).
+  // Spend (including any fee) at which planned cost per application, on the
+  // total cost, reaches a limit (D6).
   function spendAtCpaLimit(pc, limit) {
     if (!(limit > 0)) return Infinity;
-    const atUsual = pc.cpaUsual * pc.bias;
+    const g = 1 + (pc.fee || 0);
+    const atUsual = pc.cpaUsual * pc.bias * g;
     if (pc.b >= 1 || !(pc.spendUsual > 0)) return atUsual <= limit ? Infinity : 0;
-    // cost = atUsual x (S / usual spend) ^ (1 - b), solved for cost = limit.
-    return pc.spendUsual * Math.pow(limit / atUsual, 1 / (1 - pc.b));
+    // cost = atUsual x (media / usual spend) ^ (1 - b), solved for cost = limit.
+    return g * pc.spendUsual * Math.pow(limit / atUsual, 1 / (1 - pc.b));
   }
 
   RAC.ceilings = { qualityByLocation, cell, spendAtCpaLimit };

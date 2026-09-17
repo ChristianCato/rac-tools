@@ -1,7 +1,7 @@
 // Setup and Plan panels for the planner's core settings and for targets the
 // spending caps put out of reach. Loaded by index.html as a Babel script
 // before the app; exposed as window.RACUI.CoreSettings and
-// window.RACUI.ReachPanel. Formatting helpers are passed in by the app.
+// window.RACUI.ReachPanel and window.RACUI.FeesNote. Formatting helpers are passed in by the app.
 //
 // Core Setup fields (user decision, 17 September 2026). Each is saved with the
 // plan and shown with its default from assumptions.csv beside it:
@@ -95,7 +95,7 @@
           note={<>
             Multiplies every planned cost per application (0.50 to 2.00). Default {s.remainingError.default.toFixed(3)} ({sourceLabel(s.remainingError.source)}):
             testing on past months still missed by {s.remainingError.tested != null ? s.remainingError.tested.toFixed(3) : 'n/a'}, which is used only
-            if costs missed in the same direction in every test month.
+            if it stays on the same side of 1 with any one test month left out.
             {s.remainingError.changed && <> {reset(() => perRole('remainingError', null))}.</>}
           </>}>
           <NumberField field={'remaining-error-' + role} value={s.remainingError.value}
@@ -159,6 +159,28 @@
     );
   }
 
+  // Platform fees in this plan (plans from October 2026): Indeed and Meta
+  // spend is media plus fee, and the budget includes the fees.
+  function FeesNote({ plan, fmt }) {
+    const f = plan && plan.v2 && plan.v2.fees;
+    if (!f || !f.on) return null;
+    const { fmtGBP } = fmt;
+    const pct = (x) => (x * 100).toFixed(2).replace(/0$/, '') + '%';
+    const L = window.RAC.PLATFORM_LABELS;
+    return (
+      <div className="banner banner-info" data-panel="fees" style={{ marginBottom: 18 }}>
+        <div className="banner-icon">i</div>
+        <div>
+          <strong>Platform fees included: {fmtGBP(f.total)}.</strong>{' '}
+          Indeed {pct(f.rates.indeed)} and Meta {pct(f.rates.meta)} of media spend, inside the budget.
+          {' '}{['indeed', 'meta'].map(p => `${L[p]}: media ${fmtGBP(f.byPlatform[p].media)}, fee ${fmtGBP(f.byPlatform[p].fee)}`).join('; ')};
+          {' '}Indeed Premium fee {fmtGBP(f.premium)}. Forecasts use media spend; costs per application and per hire include the fee.
+        </div>
+      </div>
+    );
+  }
+
   RACUI.CoreSettings = CoreSettings;
   RACUI.ReachPanel = ReachPanel;
+  RACUI.FeesNote = FeesNote;
 })();

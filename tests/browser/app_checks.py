@@ -83,7 +83,7 @@ EXPECTED_JS = """(role) => {
     coveragePct: w.coveragePct, premiumCampaigns: w.premiumCampaigns[role], acReserve: w.acReserve[role],
     platMin: w.platMin[role], platMax: w.platMax[role], coverage: w.coverage[role], comboMin: w.comboMin[role],
     regionMin: w.regionMin[role], regionMax: w.regionMax[role],
-    daysInMonth: window.__AVP_DATA__.days_in_month[month], capMultiple: w.capMultiple, bench: w.bench[role],
+    daysInMonth: window.__AVP_DATA__.days_in_month[month], capMultiple: w.capMultiple, bench: w.bench[role], planMonth: month,
   };
   p.otherHiresShare = (w.otherHiresShare || {})[role] ?? null;
   p.otherHiresMonthly = (w.otherHiresMonthly || {})[role] ?? null;
@@ -92,7 +92,7 @@ EXPECTED_JS = """(role) => {
   const plan = RAC.plan.build(role, p, RAC.app.env(window.__AVP_DATA__, 'browser-check'));
   return { apps: plan.totals.apps, hires: plan.totals.allHires, paid: plan.totals.hires, other: plan.totals.otherHires,
     deployable: plan.deployable, settledTo: plan.stamps.data.settledTo, reach: plan.reach,
-    settling: plan.settlingUsed.map(x => x.month), shortfalls: plan.minimumShortfalls.map(x => x.text) };
+    settling: plan.settlingUsed.map(x => x.month), shortfalls: plan.minimumShortfalls.map(x => x.text), fees: plan.fees.total, feesOn: plan.fees.on };
 }""" % (json.dumps(working), json.dumps({'SMR': SMR_VAC, 'Patrol': PATROL_VAC}))
 
 
@@ -136,6 +136,14 @@ with sync_playwright() as pw:
     if shown != (round(want['apps']), round(want['hires'], 1)):
         fails.append(f'Plan tab {shown} differs from the planner {want}')
     page.screenshot(path=os.path.join(OUT, 'plan_smr.png'))
+
+    # October plan: platform fees shown, with the planner's total.
+    fees_panel = page.locator('[data-panel="fees"]')
+    fee_text = f"£{want['fees']:,.0f}"
+    if not want['feesOn'] or fees_panel.count() != 1 or fee_text not in fees_panel.inner_text():
+        fails.append(f"fees line missing or not {fee_text}: {fees_panel.inner_text()[:200] if fees_panel.count() else 'not shown'}")
+    else:
+        notes.append(f"October plan fees: Plan tab shows {fee_text}, as the planner")
 
     # Out of reach at a 200% multiple on this data: the panel shows the planner's figures.
     reach = want['reach']

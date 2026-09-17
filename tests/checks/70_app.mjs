@@ -2,6 +2,7 @@
 // the screens' plan shape, and pacing for plans made before the release.
 import path from 'node:path';
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { loadPlannerContext, loadAssumptions, readRoot, manifest, ROOT } from '../lib/planner.mjs';
 import { loadEngine, readGzJson } from '../lib/engine.mjs';
 import { cellsFromRaw, septSmrSettings, compareCells, withRoleMonthly, PMAP } from '../lib/fixtures.mjs';
@@ -174,10 +175,25 @@ export default function (check, { assert, near }) {
     return `September SMR pacing rows equal the replay and the 16 September export (spend within £${c.maxSpend.toFixed(2)} on ${c.n} rows, £${paced.budgetForTarget} for 30 hires); October uses the planner`;
   });
 
+  // The exports hold RAC spend figures, so they stay in the data folder: set
+  // RAC_PACING_DIR to it. Each LIVE_pacing_<name>.xlsx is compared with
+  // TEST_pacing_<name>.xlsx by tools/compare_pacing.py.
   check('Pacing for saved September plans matches the live app today', () => {
-    const f = path.join(T, 'fixtures/live_pacing_2026-09.json');
-    if (!fs.existsSync(f)) return 'SKIPPED: needs a Performance Pacing export of the same saved September plan from the live app and from the c3-build test link; compare them with python tools/compare_pacing.py LIVE.xlsx TEST.xlsx (exports stay in the data folder)';
-    throw new Error('live pacing fixture present but no comparison written yet');
+    const dir = process.env.RAC_PACING_DIR;
+    if (!dir || !fs.existsSync(dir)) return 'SKIPPED: set RAC_PACING_DIR to the folder holding LIVE_pacing_*.xlsx and TEST_pacing_*.xlsx (Performance Pacing exports of the same saved September plans from the live app and the c3-build test link; never committed)';
+    const pairs = fs.readdirSync(dir).filter(n => /^LIVE_pacing_.+\.xlsx$/.test(n)).map(n => [n, n.replace(/^LIVE_/, 'TEST_')]);
+    assert(pairs.length > 0, 'no LIVE_pacing_*.xlsx in ' + dir);
+    const out = [];
+    for (const [live, test] of pairs) {
+      assert(fs.existsSync(path.join(dir, test)), 'missing ' + test);
+      const r = spawnSync('python', [path.join(ROOT, 'tools/compare_pacing.py'), path.join(dir, live), path.join(dir, test)], { encoding: 'utf8' });
+      const text = (r.stdout || '') + (r.stderr || '');
+      assert(r.status === 0 && /^MATCH:/m.test(text), `${live} against ${test}:
+${text}`);
+      const plan = (text.match(/^Plan: (.*?) \(/m) || [])[1] || '?';
+      out.push(`${live.replace(/^LIVE_pacing_|\.xlsx$/g, '')}: ${plan}, every plan figure identical`);
+    }
+    return out.join('; ');
   });
 
   check('Screens get every field they read, and the figures add up', () => {

@@ -27,7 +27,7 @@
   function cellRow(c) {
     const r = c.range;
     return {
-      region: c.region, live: true, spend: c.spend, predApps: c.apps,
+      region: c.region, live: true, spend: c.spend, mediaSpend: c.media, fee: c.fee, predApps: c.apps,
       cvr: c.applyRate || 0, hireCvr: c.hirePerApplication,
       predHires: c.hires,
       predHiresLow: r ? r.hires.low : 0, predHiresHigh: r ? r.hires.high : 0,
@@ -106,7 +106,7 @@
         const loc = plan.locations.find(l => l.region === region);
         if (loc) return cellRow(loc.cells[p]);
         const c = plan.idleCells[region][p];
-        return { ...cellRow(c), live: false, spend: 0, predApps: 0, predHires: 0, cph: null, cpa: 0 };
+        return { ...cellRow(c), live: false, spend: 0, mediaSpend: 0, fee: 0, predApps: 0, predHires: 0, cph: null, cpa: 0 };
       });
     });
     const t = plan.totals;
@@ -120,7 +120,7 @@
       unplaceable: 0,
       beyondProven: plan.aboveLargestSuccessful.total,
       role: plan.role, daysInMonth: plan.daysInMonth, coverageRate: plan.inputs.coveragePct > 0 ? plan.inputs.coveragePct / 100 : 0,
-      premiumHoldback: plan.holdbacks.premium, acHoldback: plan.holdbacks.combined, oneRacHoldback: plan.holdbacks.oneRac,
+      premiumHoldback: plan.holdbacks.premium, fees: plan.fees, acHoldback: plan.holdbacks.combined, oneRacHoldback: plan.holdbacks.oneRac,
       deployable: plan.deployable, coverageReserve: plan.coverageReserve, demandPool: plan.demandPool,
       locations, totalVac: plan.totalVac, totalCount: plan.liveCount, platformTotals,
       channelSummary, regionSummary, regionChannel,
