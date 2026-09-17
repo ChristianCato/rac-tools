@@ -50,7 +50,13 @@ export default function (check, { assert, near }) {
         const b = RAC.backtest.band(total, w);
         assert(w >= 1 && b.low <= total.low + 1e-12 && b.high >= total.high - 1e-12, `${role} row range narrower than the total (evidence ${n})`);
       }
-      out.push(`${role}: applications ${(total.low * 100).toFixed(1)}% to +${(total.high * 100).toFixed(1)}% over ${am.length} months`);
+      // Evidence for widening counts the blend's prior, so a row with no
+      // applications of its own is not treated as resting on one.
+      const ctx = RAC.cost.context(DATA[role].ds, A, role, WINDOW);
+      assert(RAC.backtest.widenEvidence(ctx, 0) === RAC.assumptions.get(A, 'cpa_prior_apps') && RAC.backtest.widenEvidence(ctx, 100) === 100 + ctx.K, 'widening evidence');
+      const wNone = RAC.backtest.widen(total, RAC.assumptions.get(A, 'row_widen_apps', role), RAC.backtest.widenEvidence(ctx, 0), 1000, 1000, 0);
+      assert(wNone < 10, `${role}: a row with no applications widens ${wNone.toFixed(1)} times`);
+      out.push(`${role}: applications ${(total.low * 100).toFixed(1)}% to +${(total.high * 100).toFixed(1)}% over ${am.length} months; a row with no applications of its own widens ${wNone.toFixed(1)} times`);
     }
     return out.join('; ');
   });

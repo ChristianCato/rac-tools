@@ -92,7 +92,7 @@
       cells.push({
         region: r, plat: p, spend: x.spend, actual: x.apps, predicted: f.apps,
         hirePerApplication: pc.rates.hirePerApplication,
-        evidence: pc.usual.apps, spendUsual: pc.spendUsual, se: d1[p].seUsed,
+        evidence: widenEvidence(ctx, pc.usual.apps), spendUsual: pc.spendUsual, se: d1[p].seUsed,
       });
     }));
     return cells;
@@ -279,10 +279,19 @@
     return { role, window, recent, testable, outer, final, stability, hires, appsRange, hireRange, rowWiden, cellMisses, fit };
   }
 
+  // The evidence behind a location and platform's cost per application, as
+  // the cost blend counts it: its own applications plus the cpa_prior_apps the
+  // blend gives the platform figure. A cell with no applications of its own
+  // rests on the platform figure alone (user decision, 17 September 2026:
+  // counting it as one application gave ranges of thousands of applications).
+  function widenEvidence(ctx, apps) {
+    return (apps || 0) + ctx.K;
+  }
+
   // How much wider a row's range is than the plan total's.
-  //   c: row widening strength (row_widen_apps); n: applications behind the
-  //   row's cost; S and Su: planned and usual spend; se: uncertainty of the
-  //   diminishing returns rate.
+  //   c: row widening strength (row_widen_apps); n: evidence behind the
+  //   row's cost (widenEvidence); S and Su: planned and usual media spend;
+  //   se: uncertainty of the diminishing returns rate.
   function widen(range, c, n, S, Su, se) {
     const thin = c / Math.max(n || 0, 1);
     const reach = (S > 0 && Su > 0 && se) ? (Math.log(S / Su) * se) / Math.max(range.sigma, 1e-6) : 0;
@@ -297,5 +306,5 @@
     return { low: Math.exp(mid - half * w) - 1, high: Math.exp(mid + half * w) - 1 };
   }
 
-  RAC.backtest = { B_GRID, K_GRID, C_GRID, RECENT_CHOICES, SHARED, deviance, makeCache, predictMonth, choose, errorRule, leaveOneOut, testableMonths, run, widen, band: band_ };
+  RAC.backtest = { B_GRID, K_GRID, C_GRID, RECENT_CHOICES, SHARED, deviance, makeCache, predictMonth, choose, errorRule, leaveOneOut, widenEvidence, testableMonths, run, widen, band: band_ };
 })(window.RAC = window.RAC || {});

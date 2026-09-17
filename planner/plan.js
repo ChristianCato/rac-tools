@@ -564,7 +564,7 @@
     const r = base.ranges;
     const u = pc.usual;
     const ws = RAC.cost.windowStats(base.ctx, pc.plat, pc.region);
-    const w = RAC.backtest.widen(r.apps, r.widen, u.apps, f.media, pc.spendUsual, base.d1[pc.plat].seUsed);
+    const w = RAC.backtest.widen(r.apps, r.widen, RAC.backtest.widenEvidence(base.ctx, u.apps), f.media, pc.spendUsual, base.d1[pc.plat].seUsed);
     const apps = RAC.backtest.band(r.apps, w);
     return {
       region: pc.region, platform: pc.plat, on, spend: S,
@@ -639,7 +639,7 @@
     const usual = U.sum(funded.map(c => c.spendUsual || 0));
     const se = U.sum(funded.map(c => c.spend * (base.d1[c.platform].seUsed || 0))) / spend;
     const media = U.sum(funded.map(c => c.media));
-    const w = RAC.backtest.widen(r.apps, r.widen, evidence, media, usual, se);
+    const w = RAC.backtest.widen(r.apps, r.widen, U.sum(funded.map(c => RAC.backtest.widenEvidence(base.ctx, c.historicApps))), media, usual, se);
     const a = RAC.backtest.band(r.apps, w);
     return {
       widen: w,

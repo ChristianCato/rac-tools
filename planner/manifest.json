@@ -16,6 +16,7 @@
     "planner/app.js",
     "exports/text.js",
     "exports/stamp.js",
-    "exports/checks.js"
+    "exports/checks.js",
+    "exports/pdf.js"
   ]
 }
