@@ -43,8 +43,9 @@ def fake_session(email='test.user@enhancemedia.co.uk'):
 
 
 class Guard:
-    def __init__(self, page, url, db=None, files=None, libs=None):
+    def __init__(self, page, url, db=None, files=None, libs=None, slow=None):
         self.url, self.db, self.files, self.libs = url, db or {}, files or {}, libs
+        self.slow = slow or {}   # key: seconds to wait before answering
         self.writes, self.reads, self.blocked, self.served, self.saved = [], [], [], [], []
         page.route('**/*', self.handle)
         if hasattr(page, 'route_web_socket'):
@@ -59,6 +60,9 @@ class Guard:
             path = rest.split('?')[0]
             if path == '':
                 return route.fulfill(path=os.path.join(ROOT, 'index.html'), content_type='text/html')
+            if path in ('archive/', 'archive/index.html'):
+                self.served.append('archive')
+                return route.fulfill(path=os.path.join(ROOT, 'archive', 'index.html'), content_type='text/html')
             if path == 'api/windsor-spend' and req.method == 'GET' and re.search(r'[?&]version=1(&|$)', rest):
                 self.served.append('version')
                 return route.fulfill(status=200, content_type='application/json',
@@ -89,9 +93,11 @@ class Guard:
                 except Exception:
                     pass
                 return route.fulfill(status=201, body='')
-            self.reads.append(u.split('?')[0])
             m = re.search(r'[?&]k=eq\.([^&]+)', u)
             key = m and unquote(m.group(1))
+            self.reads.append(key or u.split('?')[0])
+            if key and key in self.slow:
+                time.sleep(self.slow[key])   # a slow answer, to test what a page does meanwhile
             if key in self.db:
                 return route.fulfill(status=200, content_type='application/json', body=json.dumps([{'v': self.db[key]}]))
             return route.fulfill(status=200, content_type='application/json', body='[]')
@@ -112,12 +118,12 @@ class Guard:
         return got == ['blocked', 'blocked'] and len(probed) == 2
 
 
-def new_page(browser, url, db=None, files=None, libs=None, session=True):
+def new_page(browser, url, db=None, files=None, libs=None, session=True, slow=None):
     ctx = browser.new_context(viewport={'width': 1400, 'height': 900}, service_workers='block')
     page = ctx.new_page()
     errors = []
     page.on('pageerror', lambda e: errors.append(str(e)))
-    guard = Guard(page, url, db, files, libs)
+    guard = Guard(page, url, db, files, libs, slow)
     if session:
         page.add_init_script(f"localStorage.setItem('rac-session', {json.dumps(fake_session())});")
     return ctx, page, guard, errors

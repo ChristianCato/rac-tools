@@ -2587,6 +2587,27 @@ async function sbFetch(url, opts, retry) {
   return r;
 }
 
+// The archive app (archive/index.html) shows the plans made before this
+// release, worked out by the previous engine on the data as it stood. It reads
+// its own copy of the saved plans and data, taken once, on this release's first
+// load on the live address, before anything here can write over them. If the
+// copy already exists it is left alone: it is the record of what those plans
+// were made from.
+const ARCHIVE_COPY = { workspace: 'archive:workspace', benchmarks: 'archive:benchmarks', hire_rates: 'archive:hire_rates' };
+
+async function copyForArchive() {
+  if (!CAN_SAVE) return { taken: false, why: 'not the live address' };
+  const already = await sbGet(ARCHIVE_COPY.workspace);
+  if (already) return { taken: false, why: 'the archive copy was already taken' };
+  const keys = Object.keys(ARCHIVE_COPY);
+  const values = await Promise.all(keys.map(k => sbGet(k)));
+  if (!values[0]) return { taken: false, why: 'there is nothing saved to copy' };
+  for (let i = 0; i < keys.length; i++) {
+    if (values[i] !== null && values[i] !== undefined) await sbSet(ARCHIVE_COPY[keys[i]], values[i]);
+  }
+  return { taken: true, keys: keys.filter((k, i) => values[i] !== null && values[i] !== undefined).map(k => ARCHIVE_COPY[k]) };
+}
+
 // Read and write the shared state. Both go through sbFetch, so the session is
 // renewed before the request rather than after it has already been refused.
 async function sbGet(key) {
@@ -5600,6 +5621,7 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '18 Sep', items: [
+    'Plans made before this release stay exactly as they were, in an archive copy of the old app at /archive/. It is read-only, shows an amber banner, and reads its own copy of the plans and data, taken automatically the first time this release loads on the live address, before anything is written. It runs the previous engine on the data it had, in the same order, so it gives the figures those plans were made with. Reopening one of those plans in the live app will show different figures, because the calculations changed; the archive is where the originals are.',
     'Plans can now be marked as issued. A plan that has been sent to RAC is stored exactly as it was, under its own record, written once: from then on it shows the figures RAC was sent, whatever changes in the data or the assumptions since, and its PDF and workings are made from the stored copy rather than worked out again. An issued plan cannot be renamed, deleted or written over, and changing anything while it is open starts a new plan instead. The plan list marks issued plans, and a banner says when a plan was issued and by whom.',
     'OneRAC planning added, on its own tab. Pick the locations OneRAC runs in and the month each one starts; from that month they are planned there and left out of the SMR and Patrol plans, so nothing is planned twice. Open roles are the two roles’ open roles in those locations added together, and past performance is their spend and applications added together, which is what a combined campaign would have spent and received. Cost per application is then blended to the mix of open roles, and a self-competition setting (0% until it is measured) lowers it for the two roles no longer bidding against each other. Quality and hire rates, diminishing returns, spending caps, cost limits and ranges are the same as a role plan. The OneRAC budget comes off both role budgets, split by the open roles in those locations, unless that is switched off; each role plan shows it as a OneRAC hold-back. OneRAC has its own PDF and workings export. Campaign names with OneRAC in the role position are read by the Windsor pull and the pacing tool, and the Data tab takes OneRAC rows from the master file without changing SMR or Patrol.',
     'Workings export rebuilt from the new calculations. Ten sheets: the summary, every location and platform left to right from past performance to predicted hires, every value the plan used with its source, every monthly figure with where it came from and what it counts for, how the window figures are arrived at, the applicant tracking counts behind the quality and hire rates, how far the model missed on past months, which months counted towards each spending cap, every move the split made, and the method in full. Indeed, Meta and Google rows show media, fee and total. Nothing is a pasted answer: the spreadsheet works out every figure when it opens, and an automatic check recalculates the whole workbook and compares all 1,300 formulas with the plan.',
@@ -9655,10 +9677,18 @@ function App() {
   // True between a change and its push landing. A pull during that window
   // would fetch the older shared copy and wipe the change.
   const pendingRef = useRef(false);
+  // The archive copy is taken once per session, on the first pull.
+  const archiveCopied = useRef(false);
 
   const pull = React.useCallback(async () => {
     if (pendingRef.current) return;   // our own change has not gone up yet
     try {
+      // Before this release writes anything, keep a copy of the plans and data
+      // the previous app made, for the archive. Taken once and never again.
+      if (!archiveCopied.current) {
+        archiveCopied.current = true;
+        try { await copyForArchive(); } catch (e) { /* the release step covers it */ }
+      }
       const remote = await sbGet('workspace');
       if (remote && remote.months && remote.current) {
         // Never replace newer work with an older shared copy. Writes failed

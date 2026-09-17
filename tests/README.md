@@ -25,6 +25,7 @@ The browser checks are separate, because they need a browser:
     python tests/browser/app_checks.py
     python tests/browser/export_checks.py
     python tests/browser/issued_checks.py
+    python tests/browser/archive_checks.py
 
 Both use `browser/guard.py`, which answers or blocks every request the page
 makes (see below).
@@ -51,6 +52,8 @@ LibreOffice or openpyxl it says so and reports that part as skipped.
 | Browser: OneRAC | In the browser, with London on OneRAC from this month: the OneRAC tab shows the planner's own figures for its plan, London is out of the SMR plan, and the OneRAC hold-back on the SMR budget is the open-roles share of the OneRAC budget. |
 | Browser: export_checks.py | In a real browser at the test link address: the PDF button saves a document whose text (read with pypdf) holds the planner's figures, the title with the hire target and the version stamp on every page; "PDF, no notes" drops only the notes page; and the Workings button saves a workbook that carries no saved answers, so LibreOffice works out all of its formulas from scratch, and every one of them then gives the planner's own figure. |
 | Browser: issued_checks.py | On the live address, because issuing writes: "Mark as issued" stores a snapshot under its own key once, a second attempt writes nothing, opening the plan again shows the stored figures even after the data behind them changed (861 applications as issued against 1,354 from a fresh calculation), Rename and Delete are not offered, and editing drops back to the working plan without touching the stored copy. |
+| Browser: archive_checks.py | The archive app at /archive/: it opens, shows the read-only banner, reads only archive:workspace, archive:benchmarks and archive:hire_rates, never writes even when a setting is changed, and gives the same figures when the database answers three seconds late as when it answers at once. That last one is the point of the archive: the live app's figures depended on the month list being worked out before the answer arrived, and the archive replays that deliberately. |
+| Archive: built, not edited | archive/index.html is what tools/build_archive.py makes from tests/legacy/index_46aaae2.html, the app exactly as it was at commit 46aaae2. The checks confirm the frozen copy is that app, that the archive cannot write, that its reads are mapped to its own keys, and that this release takes the copy once before it writes anything. |
 | Browser: save_guard.py | In a real browser, the live address saves and a test link reads but never writes, shows the test version banner and shows Not saved. |
 | Browser: network guard | Every request the page makes is either handled by the check or blocked, so no browser check can reach a real server other than the listed library files. Probe requests confirm the block works; any other blocked request fails the check. |
 
