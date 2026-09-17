@@ -11,8 +11,8 @@
 //   3. Predict M at the spend each location and platform actually had.
 //   4. Miss = actual / predicted - 1.
 // Applications are tested on months from backtest_first_month. Hires are
-// tested on months whose Eploy outcomes have settled, against every hire
-// Eploy recorded in the month.
+// tested on months whose Eploy outcomes have settled, against the hires Eploy
+// credited to Indeed, Meta, Google and Appcast in the month.
 //
 // Ranges (D5, addendum 2.4): the plan total runs from the 10th to the 90th
 // percentile of the misses (Excel PERCENTILE.INC). Rows start from the same
@@ -137,17 +137,20 @@
         const inner = testable.filter(L => L < M);
         const p = choose(ds, A, role, inner, cache, recent);
         if (!p) return;
-        // Reconciliation learned from the same earlier months.
+        // Reconciliation to the hires Eploy credited to the four platforms,
+        // learned from the same earlier months. Hires from other sources are
+        // not tested here: the plan carries their own monthly spread.
         let model = 0;
         before.filter(mo => all.settled.includes(mo)).forEach(mo => ds.regions.forEach(r => RAC.PLATFORMS.forEach(pl => {
           const x = RAC.data.monthly(ds, pl, r, role)[mo];
           if (x) model += x.apps * RAC.rates.cell(hr, pl, r).hirePerApplication;
         })));
-        const recorded = (RAC.rates.tally(eploy, role, before.filter(mo => all.settled.includes(mo)), () => 'all').all || { hires: 0 }).hires;
+        const paidHires = (months) => (RAC.rates.tally(eploy, role, months, (reg, plat) => (plat === 'other' ? null : 'paid')).paid || { hires: 0 }).hires;
+        const recorded = paidHires(before.filter(mo => all.settled.includes(mo)));
         const recon = model > 0 ? recorded / model : 1;
         const cells = predictMonth(ds, A, role, M, p, cache, hr);
         const predicted = U.sum(cells.map(c => c.predicted / p.bias * c.hirePerApplication)) * recon;
-        const actual = (RAC.rates.tally(eploy, role, [M], () => 'all').all || { hires: 0 }).hires;
+        const actual = paidHires([M]);
         hires.push({ month: M, learnedFrom: `${before[0]} to ${before[before.length - 1]}`, recon, predicted, actual, miss: actual / predicted - 1 });
       });
     }

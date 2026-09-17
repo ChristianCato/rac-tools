@@ -7,16 +7,16 @@
 //   node tools/calibrate.mjs --only blend,recon
 //
 // Data used:
-//   SMR     the monthly data as the live app held it on 16 September 2026
-//           (tests/fixtures/smr_sept_live_2026-09-16.json), taken on that date
-//   Patrol  the repo data file (no newer Patrol export was available)
-//   Eploy   data/eploy_rates.json
+//   SMR and Patrol  the repo data file (rac_data.js), taken from the live app
+//                   with August on 17 September 2026
+//   Eploy           data/eploy_rates.json
 // Once the Assumptions tab exists, the same tests run there on the app's
 // current data, and show where this file is out of date.
 //
 // Steps, in the order they depend on each other:
 //   blend   blend strengths for the hire calculation
-//   recon   reconciliation of predicted hires to every hire Eploy recorded
+//   recon   reconciliation of predicted hires to the hires Eploy credited to
+//           the four platforms, and the hires it recorded from other sources
 //   backtest  diminishing returns, remaining-error adjustment, ranges, row widening
 import fs from 'node:fs';
 import path from 'node:path';
@@ -55,10 +55,19 @@ for (const role of RAC.ROLES) {
   }
   if (run('recon')) {
     const r = RAC.testing.reconciliation(DATA[role].ds, eploy, A, role);
-    const f = Math.round(r.factor * 1000) / 1000;
-    set('hire_reconciliation_factor', role, f,
-      `Tested ${today}: application months ${r.months[0]} to ${r.months[r.months.length - 1]}; the model gave ${r.modelHires.toFixed(1)} hires from ${Math.round(r.platformApps)} platform applications; ` +
-      `Eploy recorded ${r.eployHires} hires from all sources (${r.eployPaidHires} credited to Indeed, Meta, Google and Appcast; ${r.eployOtherHires} to other sources). ${DATA[role].label}.`);
+    const r4 = (x) => Math.round(x * 10000) / 10000;
+    const span = `application months ${r.months[0]} to ${r.months[r.months.length - 1]} (${r.months.length} months)`;
+    const model = `the model gave ${r.modelHires.toFixed(1)} hires from ${Math.round(r.platformApps)} platform applications (${DATA[role].label}; Eploy ${eploy.dataset.file_date})`;
+    set('paid_hire_reconciliation_factor', role, r4(r.paidFactor),
+      `Tested ${today}: ${span}; ${model}; Eploy credited ${r.eployPaidHires} hires to Indeed, Meta, Google and Appcast.`);
+    set('other_hires_credit_factor', role, r4(r.otherFactor),
+      `Tested ${today}: ${span}; Eploy recorded ${r.eployOtherHires} hires from other sources against ${r.modelHires.toFixed(1)} model hires. ` +
+      `With paid_hire_reconciliation_factor it adds up to ${r4(r.paidFactor + r.otherFactor)}, the earlier scaling to all ${r.eployHires} hires.`);
+    const byMonth = r.otherMonthly.map(x => `${x.month} ${x.hires}`).join(', ');
+    set('other_hires_monthly', role, r4(r.otherMean),
+      `Tested ${today}: average of the hires Eploy recorded outside the four platforms each month, all locations including no region: ${byMonth}`);
+    set('other_hires_low', role, r4(r.otherLow), `Tested ${today}: 10th percentile (PERCENTILE.INC) of the same monthly counts`);
+    set('other_hires_high', role, r4(r.otherHigh), `Tested ${today}: 90th percentile (PERCENTILE.INC) of the same monthly counts`);
   }
 }
 
@@ -94,7 +103,7 @@ if (run('backtest')) {
     set('range_apps_high', role, r4(bt.appsRange.high), `Tested ${today}: 90th percentile of the same misses (${bt.appsRange.months} test months)`);
     set('range_apps_sigma', role, r4(bt.appsRange.sigma), `Tested ${today}: standard deviation of log(1 + miss) over the same months`);
     const hm = bt.hires.map(o => `${o.month} ${pct(o.miss)}`).join(', ');
-    set('range_hires_low', role, r4(bt.hireRange.low), `Tested ${today}: 10th percentile of hire misses against every hire Eploy recorded, each month predicted from earlier months: ${hm}`);
+    set('range_hires_low', role, r4(bt.hireRange.low), `Tested ${today}: 10th percentile of paid-media hire misses against the hires Eploy credited to the four platforms, each month predicted from earlier months: ${hm}`);
     set('range_hires_high', role, r4(bt.hireRange.high), `Tested ${today}: 90th percentile of the same misses (${bt.hireRange.months} test months)`);
     set('range_hires_sigma', role, r4(bt.hireRange.sigma), `Tested ${today}: standard deviation of log(1 + miss) over the same months`);
     set('row_widen_apps', role, bt.rowWiden.c, `Tested ${today}: strength whose widened row ranges held the middle 80% of ${bt.rowWiden.cells} location and platform misses most closely (held ${(bt.rowWiden.coverage * 100).toFixed(0)}%); by strength ${bt.rowWiden.table.map(x => `${x.c}: ${(x.coverage * 100).toFixed(0)}%`).join(', ')}`);

@@ -18,7 +18,12 @@
 //
 // Applications = S / planned cost per application
 // Hires = applications x screening pass rate used x hire rate after screening
-//         x reconciliation factor (hire_reconciliation_factor)
+//         x reconciliation factor
+// The reconciliation factor is set by the plan (planner/plan.js):
+//   paid_hire_reconciliation_factor
+//   + share credited to paid media x other_hires_credit_factor
+// It is the same for every location and platform, so it moves total hires and
+// the budget but not the split between platforms.
 (function (RAC) {
   'use strict';
 

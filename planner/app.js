@@ -11,6 +11,11 @@
 // at commit 46aaae2), the same data, and the same load order, in which months
 // held only in the shared database arrived after the month list was first
 // worked out. Later plans pace against the new planner.
+//
+// The replay starts from the repo data file as it was at 46aaae2
+// (planner/legacy_rac_data_46aaae2.js), not from today's rac_data.js: the live
+// app opened on that file, and a newer file (with August in it) would change
+// the month list and so the pacing figures.
 (function (RAC) {
   'use strict';
   const W = typeof window !== 'undefined' ? window : {};
@@ -20,12 +25,17 @@
     eploy: 'data/eploy_rates.json',
     backtest: 'data/backtest_results.json',
     legacyEngine: 'planner/legacy_engine_46aaae2.js',
+    legacyData: 'planner/legacy_rac_data_46aaae2.js',
   };
-  // The repo data file as loaded, before any upload is laid over it: the
-  // previous engine's pacing replay starts from this.
-  const REPO_DATA = W.__AVP_DATA__ ? JSON.parse(JSON.stringify(W.__AVP_DATA__)) : null;
 
-  const state = { status: 'idle', error: null, A: null, eploy: null, backtest: null, legacySource: null, repoData: REPO_DATA };
+  const state = { status: 'idle', error: null, A: null, eploy: null, backtest: null, legacySource: null, legacyData: null };
+
+  // The data object a data file sets on window, without touching the app's own.
+  function readDataFile(text) {
+    const w = {};
+    new Function('window', text)(w);
+    return w.__AVP_DATA__ || null;
+  }
   let loading = null;
 
   function load() {
@@ -36,8 +46,8 @@
       if (!r.ok) throw new Error(`${file} could not be read (status ${r.status})`);
       return json ? r.json() : r.text();
     };
-    loading = Promise.all([get(FILES.assumptions), get(FILES.eploy, true), get(FILES.backtest, true), get(FILES.legacyEngine)])
-      .then(([csv, eploy, backtest, legacySource]) => use({ A: RAC.assumptions.parse(csv), eploy, backtest, legacySource }))
+    loading = Promise.all([get(FILES.assumptions), get(FILES.eploy, true), get(FILES.backtest, true), get(FILES.legacyEngine), get(FILES.legacyData)])
+      .then(([csv, eploy, backtest, legacySource, legacyDataText]) => use({ A: RAC.assumptions.parse(csv), eploy, backtest, legacySource, legacyDataText }))
       .catch(e => {
         state.status = 'error';
         state.error = { title: 'The planner files could not be loaded, so no plan can be shown.', lines: [e.message] };
@@ -47,10 +57,10 @@
   }
 
   // Also used by the checks, which read the files themselves.
-  function use({ A, eploy, backtest, legacySource, repoData }) {
+  function use({ A, eploy, backtest, legacySource, legacyDataText }) {
     state.A = A; state.eploy = eploy; state.backtest = backtest || null;
     state.legacySource = legacySource || null;
-    if (repoData) state.repoData = repoData;
+    state.legacyData = legacyDataText ? readDataFile(legacyDataText) : null;
     state.legacy = null;
     if (!A.ok) {
       state.status = 'error';
@@ -86,14 +96,14 @@
   }
 
   // One instance of the previous engine, replaying the live app's load order:
-  // plan once on the repo file (the month list is worked out then and never
+  // plan once on the repo file as it was at 46aaae2 (the month list is worked out then and never
   // again), fold in the shared database's months, then its hire rates.
   function legacyPlan(role, p) {
-    if (!state.legacySource || !state.repoData) throw new Error('The previous engine is not loaded, so this plan cannot be paced.');
+    if (!state.legacySource || !state.legacyData) throw new Error('The previous engine is not loaded, so this plan cannot be paced.');
     const b = W.__RAC_BENCH__, h = W.__RAC_HIRE__;
     const key = (b && b.months ? b.at + '|' + b.months.join(',') : 'none') + '|' + (h ? JSON.stringify(h.at || '') + (h.rates ? 'r' : '') : 'none');
     if (!state.legacy || state.legacy.key !== key) {
-      const data = JSON.parse(JSON.stringify(state.repoData));
+      const data = JSON.parse(JSON.stringify(state.legacyData));
       const E = new Function('window', state.legacySource +
         '\nreturn { buildFundingPlan, applyMonths, setHireOverride, benchWeight };')({ __AVP_DATA__: data, location: { hostname: 'legacy-pacing' } });
       E.buildFundingPlan(role, p);
@@ -113,7 +123,11 @@
   }
 
   function defaultCapMultiple() {
-    return state.status === 'ready' ? RAC.assumptions.get(state.A, 'cap_multiple_default') : 2;
+    return state.status === 'ready' ? RAC.assumptions.get(state.A, 'cap_multiple_default') : 1;
+  }
+
+  function defaultOtherHiresShare(role) {
+    return state.status === 'ready' ? RAC.assumptions.get(state.A, 'other_hires_credited_share', role) : 0;
   }
 
   function invalidate() {
@@ -124,7 +138,7 @@
   RAC.app = {
     LEGACY_PACING_LAST_MONTH, FILES, state,
     load, use, env, buildFundingPlan, legacyPlan, pacingPlan, usesPreviousEngine,
-    defaultCapMultiple, invalidate,
+    defaultCapMultiple, defaultOtherHiresShare, readDataFile, invalidate,
     status: () => state.status,
   };
 })(window.RAC = window.RAC || {});

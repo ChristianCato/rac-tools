@@ -12,6 +12,10 @@
 //                    one figure; predLow and predHigh carry the real range
 //   appSubTarget     the application target shared by predicted applications,
 //                    so it follows the budget (D8)
+//   predictedHires   paid-media hires plus expected hires from other sources,
+//                    the figure set against the hire target; location and
+//                    platform rows, and paidHires, are paid media only
+//   otherSourcesHires  the fixed line "Expected hires from other sources"
 (function (RAC) {
   'use strict';
   const U = RAC.util;
@@ -125,8 +129,11 @@
       predLow: t.range.apps.low, predHigh: t.range.apps.high,
       aggBandPct: Math.round(((t.range.apps.highPct - t.range.apps.lowPct) / 2) * 100),
       aggBandMonths: plan.ranges.months || 0,
-      predictedHires: t.hires,
-      predictedHiresLow: t.range.hires.low, predictedHiresHigh: t.range.hires.high,
+      predictedHires: t.allHires,
+      predictedHiresLow: t.range.allHires.low, predictedHiresHigh: t.range.allHires.high,
+      paidHires: t.paidHires, paidHiresLow: t.range.hires.low, paidHiresHigh: t.range.hires.high,
+      otherSourcesHires: t.otherHires, otherSourcesLow: t.range.otherHires.low, otherSourcesHigh: t.range.otherHires.high,
+      otherHiresShare: plan.otherHiresShare, otherSourcesMeetTarget: plan.otherSourcesMeetTarget,
       onTarget: appTarget > 0 && t.apps >= appTarget,
       pctOfTarget: appTarget > 0 ? t.apps / appTarget : (t.apps > 0 ? 1 : 0),
       budgetForTarget: plan.budgetForTarget, budgetPinned: plan.pinned,

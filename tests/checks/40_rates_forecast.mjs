@@ -57,17 +57,40 @@ export default function (check, { assert, near }) {
       `hires per application by platform ${perApp.map(v => (v * 100).toFixed(2) + '%').join(', ')}`;
   });
 
-  check('Reconciliation: past predicted hires times the factor equal every hire Eploy recorded', () => {
+  check('Reconciliation: platform hires, other-source hires and their monthly average match a direct count', () => {
     const out = [];
     for (const role of RAC.ROLES) {
       const rec = RAC.testing.reconciliation(DATA[role].ds, eploy, A, role);
-      const f = RAC.assumptions.get(A, 'hire_reconciliation_factor', role);
-      const direct = count(role, rec.months, () => true).hires;
-      assert(rec.eployHires === direct, `${role} Eploy hires ${rec.eployHires} against direct ${direct}`);
-      near(rec.modelHires * f, direct, 0.05, `${role} reconciled hires`);
-      out.push(`${role}: ${rec.modelHires.toFixed(1)} x ${f} = ${(rec.modelHires * f).toFixed(1)} against ${direct} recorded (${rec.eployPaidHires} credited to the four platforms)`);
+      const hr = RAC.rates.build(eploy, A, role);
+      assert(JSON.stringify(rec.months) === JSON.stringify(hr.hireMonths), `${role} months ${rec.months} differ from the hire rate months ${hr.hireMonths}`);
+      const all = count(role, rec.months, () => true).hires;
+      const paid = count(role, rec.months, c => c[2] !== 'other').hires;
+      const other = count(role, rec.months, c => c[2] === 'other').hires;
+      assert(rec.eployHires === all && paid + other === all, `${role} Eploy hires ${rec.eployHires} against direct ${all}`);
+      const pf = RAC.assumptions.get(A, 'paid_hire_reconciliation_factor', role);
+      const of = RAC.assumptions.get(A, 'other_hires_credit_factor', role);
+      near(rec.modelHires * pf, paid, 0.01, `${role} model hires x paid factor against platform hires`);
+      near(rec.modelHires * of, other, 0.01, `${role} model hires x credit factor against other-source hires`);
+      near(rec.modelHires * (pf + of), all, 0.02, `${role} both factors against every hire (the earlier scaling)`);
+      const monthly = rec.months.map(mo => count(role, [mo], c => c[2] === 'other').hires);
+      near(RAC.assumptions.get(A, 'other_hires_monthly', role), monthly.reduce((a, b) => a + b, 0) / monthly.length, 1e-4, `${role} other-source hires a month`);
+      const inc = (xs, q) => { const s = xs.slice().sort((a, b) => a - b); const k = (s.length - 1) * q, f = Math.floor(k); return s[f] + (s[Math.min(f + 1, s.length - 1)] - s[f]) * (k - f); };
+      near(RAC.assumptions.get(A, 'other_hires_low', role), inc(monthly, 0.1), 1e-4, `${role} other-source low month`);
+      near(RAC.assumptions.get(A, 'other_hires_high', role), inc(monthly, 0.9), 1e-4, `${role} other-source high month`);
+      assert(RAC.assumptions.get(A, 'other_hires_credited_share', role) === 0, `${role} credited share should start at 0%`);
+      out.push(`${role}: model ${rec.modelHires.toFixed(1)} hires; x ${pf} = ${paid} platform hires; other sources ${other} (${monthly.join(', ')} a month, average ${(other / monthly.length).toFixed(2)}); ${pf} + ${of} = ${(pf + of).toFixed(4)}, the earlier scaling to ${all}`);
     }
     return out.join('; ');
+  });
+
+  check('Google includes Paid Google and Paid Google Display', () => {
+    const csv = readRoot('data/eploy_mappings.csv');
+    for (const label of ['Paid Google Display', 'Paid Google', 'Paid Google Search', 'Google (Organic or Paid)']) {
+      assert(new RegExp(`^source,${label.replace(/[()]/g, '\\$&')},google,`, 'm').test(csv), `${label} does not map to google`);
+    }
+    assert(/^source,Paid Google Demand Gen,other,/m.test(csv), 'Paid Google Demand Gen should stay in other sources');
+    const g = count('SMR', ['2025-10', '2025-11', '2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06'], c => c[2] === 'google');
+    return `SMR Google, applications October to June: ${g.apps} applications, ${g.passed} passed screening, ${g.hires} hires`;
   });
 
   check('Blend-strength tests learn only from months before the ones they predict', () => {

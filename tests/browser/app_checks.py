@@ -6,8 +6,13 @@
 3. The Benchmarks tab shows the planner's figures. Changing Patrol's data
    window there, then going back to the SMR plan, leaves the SMR figures
    unchanged (settings do not leak between screens).
-4. A broken assumptions.csv stops the app, naming the row.
-5. Nothing is written to the database; every request is handled or blocked.
+4. The SMR and Patrol buttons in the header switch the role on every screen.
+5. The Setup share of other-source hires credited to paid media reaches the
+   plan (Plan tab hires equal the planner at 50%).
+6. A broken assumptions.csv stops the app, naming the row.
+7. "Use those counts instead" on Setup is clicked and the result recorded
+   (a known bug reported to the app author; recorded, not failed).
+8. Nothing is written to the database; every request is handled or blocked.
 
 Run from the repo folder:  python tests/browser/app_checks.py  [--libs DIR]
 Screenshots are written to tests/browser/out/."""
@@ -74,8 +79,10 @@ EXPECTED_JS = """(role) => {
     regionMin: w.regionMin[role], regionMax: w.regionMax[role],
     daysInMonth: window.__AVP_DATA__.days_in_month[month], capMultiple: w.capMultiple, bench: w.bench[role],
   };
+  p.otherHiresShare = (w.otherHiresShare || {})[role] ?? null;
   const plan = RAC.plan.build(role, p, RAC.app.env(window.__AVP_DATA__, 'browser-check'));
-  return { apps: plan.totals.apps, hires: plan.totals.hires, deployable: plan.deployable, settledTo: plan.stamps.data.settledTo };
+  return { apps: plan.totals.apps, hires: plan.totals.allHires, paid: plan.totals.hires, other: plan.totals.otherHires,
+    deployable: plan.deployable, settledTo: plan.stamps.data.settledTo };
 }""" % (json.dumps(working), json.dumps({'SMR': SMR_VAC, 'Patrol': PATROL_VAC}))
 
 
@@ -87,10 +94,20 @@ def kpis(page):
 
 
 def role_button(page, role):
-    # The role switch inside the tab. (The one in the header calls a function
-    # that does not exist on main; reported to the app author, not used here.)
+    # The role switch inside the tab.
     page.locator('.main .role-switch button', has_text=re.compile('^' + role + '$')).first.click()
     page.wait_for_timeout(400)
+
+
+def header_role(page, role):
+    # The role switch in the header, beside the export buttons.
+    page.locator('.app-header .role-switch button', has_text=re.compile('^' + role + '$')).first.click()
+    page.wait_for_timeout(400)
+
+
+def active_roles(page):
+    return (page.locator('.app-header .role-switch button.active').inner_text().strip(),
+            page.locator('.main .role-switch button.active').first.inner_text().strip())
 
 
 fails, notes = [], []
@@ -132,6 +149,35 @@ with sync_playwright() as pw:
     if patrol_shown != (round(patrol_want['apps']), round(patrol_want['hires'], 1)):
         fails.append(f"Patrol plan {patrol_shown} differs from the planner with its new window {patrol_want}")
     notes.append(f'after changing Patrol to the last 3 months: SMR {again} (unchanged), Patrol {patrol_shown} (planner agrees)')
+
+    # Header role switch: both buttons switch the role everywhere.
+    seen = []
+    for r in ('SMR', 'Patrol', 'SMR'):
+        header_role(page, r)
+        roles = active_roles(page)
+        seen.append(f'{r}: header {roles[0]}, Plan tab {roles[1]}, applications {kpis(page)[0]}')
+        if roles != (r, r):
+            fails.append(f'header {r} button: active roles {roles}')
+    if kpis(page) != again:
+        fails.append(f'SMR plan after header switching {kpis(page)} differs from {again}')
+    notes.append('header role switch: ' + '; '.join(seen))
+
+    # Setup: the credited share reaches the plan.
+    page.locator('.tab-btn', has_text='Setup').first.click()
+    box = page.locator('input[data-field="other-hires-share-SMR"]')
+    box.wait_for(timeout=30000)
+    before_share = box.input_value()
+    box.fill('50%')
+    page.wait_for_timeout(600)
+    page.locator('.tab-btn', has_text='Plan').first.click()
+    role_button(page, 'SMR')
+    half_shown = kpis(page)
+    half_want = page.evaluate(EXPECTED_JS.replace('p.otherHiresShare = (w.otherHiresShare || {})[role] ?? null;', 'p.otherHiresShare = role === "SMR" ? 0.5 : null;'), 'SMR')
+    notes.append(f"Setup share {before_share} to 50%: SMR hires {again[1]} to {half_shown[1]} (planner {half_want['hires']:.2f}: paid media {half_want['paid']:.2f}, other sources {half_want['other']:.2f})")
+    if before_share != '0%':
+        fails.append('Setup share did not start at 0%: ' + before_share)
+    if half_shown != (round(half_want['apps']), round(half_want['hires'], 1)) or half_shown == again:
+        fails.append(f'Plan tab after a 50% share {half_shown} differs from the planner {half_want}')
     for tab in ('Setup', 'Platforms', 'Method'):
         page.locator('.tab-btn', has_text=tab).first.click()
         page.wait_for_timeout(600)
@@ -146,7 +192,7 @@ with sync_playwright() as pw:
     ctx.close()
 
     bad = open(os.path.join(ROOT, 'assumptions.csv'), encoding='utf-8').read()
-    bad = re.sub(r'^(cap_multiple_default,[^,]*,)2,', r'\g<1>two,', bad, flags=re.M)
+    bad = re.sub(r'^(cap_multiple_default,[^,]*,)1,', r'\g<1>one,', bad, flags=re.M)
     ctx, page, guard, errors = new_page(browser, TEST, db=DB, files={'assumptions.csv': bad}, libs=LIBS)
     page.goto(TEST)
     try:
@@ -164,6 +210,37 @@ with sync_playwright() as pw:
         fails.append(f'page errors with broken assumptions: {errors[:3]}')
     if guard.blocked or guard.writes:
         fails.append(f'broken assumptions run: blocked {guard.blocked[:3]}, writes {guard.writes[:3]}')
+    ctx.close()
+
+    # "Use those counts instead" (Setup): shown when RAC's file for the month
+    # carried a plan column. Reported as a probable bug (role used outside its
+    # scope); the author could not reproduce it. Recorded, not failed.
+    import copy
+    db2 = copy.deepcopy(DB)
+    rows = lambda vac, k: [{'location': r + ' depot', 'region': r, 'plan': n * k, 'v': {'2026-09-15': n}} for r, n in vac.items()]
+    db2['workspace']['months']['2026-10']['priorities'] = {
+        'dates': ['2026-09-15'], 'budgets': {}, 'thresholds': {},
+        'roles': {'SMR': {'rows': rows(SMR_VAC, 2)}, 'Patrol': {'rows': rows(PATROL_VAC, 2)}}}
+    ctx, page, guard, errors = new_page(browser, TEST, db=db2, libs=LIBS)
+    page.goto(TEST + '#planner/setup')
+    page.wait_for_selector('.app-header', timeout=60000)
+    page.locator('.tab-btn', has_text='Setup').first.click()
+    link = page.locator('a', has_text='Use those counts instead')
+    try:
+        link.first.wait_for(timeout=30000)
+        n_links = link.count()
+        link.first.click()
+        page.wait_for_timeout(800)
+        pinned = page.locator('text=This plan is using its own open-role counts').count() > 0
+        counts_text = ' / '.join(page.locator('.loc-toggle .vac-input').evaluate_all('els => els.slice(0, 3).map(e => e.value)'))
+        use_counts = (f'"Use those counts instead" ({n_links} links): page errors {errors[:2] or "none"}; '
+                      f'plan pinned afterwards: {pinned}; first counts shown: {counts_text or "none"}')
+    except Exception as e:
+        use_counts = '"Use those counts instead" could not be tested: ' + str(e)[:160]
+    page.screenshot(path=os.path.join(OUT, 'use_those_counts.png'))
+    notes.append(use_counts)
+    if guard.blocked or guard.writes:
+        fails.append(f'use-counts run: blocked {guard.blocked[:3]}, writes {guard.writes[:3]}')
     ctx.close()
     browser.close()
 

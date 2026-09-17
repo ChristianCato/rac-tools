@@ -31,7 +31,12 @@
     meta_google_pull:         { unit: 'share', min: 0, max: 1 },
     location_screen_blend_n:  { unit: 'count', min: 0, max: 100000, perRole: true },
     region_hire_blend_n:      { unit: 'count', min: 0, max: 100000, perRole: true },
-    hire_reconciliation_factor:{ unit: 'multiple', min: 0.1, max: 10, perRole: true },
+    paid_hire_reconciliation_factor:{ unit: 'multiple', min: 0.1, max: 10, perRole: true },
+    other_hires_monthly:      { unit: 'hires', min: 0, max: 10000, perRole: true },
+    other_hires_low:          { unit: 'hires', min: 0, max: 10000, perRole: true },
+    other_hires_high:         { unit: 'hires', min: 0, max: 10000, perRole: true },
+    other_hires_credit_factor:{ unit: 'multiple', min: 0, max: 20, perRole: true },
+    other_hires_credited_share:{ unit: 'share', min: 0, max: 1, perRole: true },
     d1_role_rate:             { unit: 'exponent', min: 0.05, max: 1, perRole: true },
     d1_prior_strength:        { unit: 'count', min: 0, max: 100000, perRole: true },
     remaining_error_factor:   { unit: 'multiple', min: 0.5, max: 2, perRole: true },
@@ -106,6 +111,12 @@
         errors.push(`range_${kind}_low for ${role} must not be above range_${kind}_high`);
       }
     }));
+    RAC.ROLES.forEach(role => {
+      const lo = values.other_hires_low, hi = values.other_hires_high;
+      if (lo && hi && lo[role] !== undefined && hi[role] !== undefined && lo[role] > hi[role]) {
+        errors.push(`other_hires_low for ${role} must not be above other_hires_high`);
+      }
+    });
     if (values.range_low_percentile && values.range_high_percentile &&
         values.range_low_percentile.all >= values.range_high_percentile.all) {
       errors.push('range_low_percentile must be below range_high_percentile');

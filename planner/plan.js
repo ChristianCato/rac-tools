@@ -21,10 +21,24 @@
 //   5. The forecast for every location and platform, totals and ranges.
 //   6. Budget needed for the hire target, by running the plan at trial budgets.
 //
+// Hires from other sources (user decision, 17 September 2026). Eploy recorded
+// hires outside the four platforms (organic, job alerts, agencies and so on).
+//   - A share of them (otherHiresShare, Setup; default
+//     other_hires_credited_share) is credited to paid media. That part scales
+//     with paid spend: every location and platform's hires are multiplied by
+//     paid_hire_reconciliation_factor + share x other_hires_credit_factor.
+//   - The rest is a fixed line, "Expected hires from other sources":
+//     (1 - share) x other_hires_monthly. It counts towards the hire target but
+//     does not depend on the budget, so the budget solves for the remainder.
+//     Location and platform rows show paid-media hires only.
+// At a share of 100% the plan equals the earlier scaling to every hire Eploy
+// recorded (checked in tests/checks/60_plan.mjs).
+//
 // INPUTS (as the app's planParams builds them, plus the new settings):
 //   budget, hireTarget, appTarget, liveRegions, vacancies, coveragePct,
 //   premiumCampaigns, acReserve, platMin, platMax, coverage, comboMin,
 //   regionMin, regionMax (-1 means no spend), daysInMonth, capMultiple,
+//   otherHiresShare (0 to 1; blank uses the file default),
 //   bench (data window), limits: { cph: { region }, cpa: { region: { plat } } },
 //   oneRacHoldback, overrides (per-plan assumption values)
 (function (RAC) {
@@ -52,14 +66,27 @@
     const ctx = RAC.cost.context(ds, A, role, inputs.bench);
     const hireRates = RAC.rates.build(env.eploy, A, role, { regions: ds.regions });
     const d1 = RAC.forecast.rates(ds, A, role, ctx.settled);
-    const factors = { bias: get('remaining_error_factor'), recon: get('hire_reconciliation_factor') };
+    const s = inputs.otherHiresShare;
+    const share = (s !== null && s !== undefined && s !== '' && Number.isFinite(Number(s)) && Number(s) >= 0 && Number(s) <= 1)
+      ? Number(s) : get('other_hires_credited_share');
+    // Comparison switches, used only by tools/stage2_report.mjs to show the
+    // effect of each change against the previous version. No screen sets them.
+    const cmp = inputs.compare || {};
+    const paidFactor = get('paid_hire_reconciliation_factor'), creditFactor = get('other_hires_credit_factor');
+    const factors = { bias: get('remaining_error_factor'), recon: paidFactor + share * creditFactor, paid: paidFactor, credit: creditFactor, share };
+    const keep = cmp.noOtherSources ? 0 : 1 - share;
+    const baseline = {
+      share, keep,
+      hires: keep * get('other_hires_monthly'),
+      low: keep * get('other_hires_low'),
+      high: keep * get('other_hires_high'),
+      monthly: get('other_hires_monthly'),
+      basis: 'monthly average of hires Eploy recorded outside Indeed, Meta, Google and Appcast',
+    };
     const m = Number(inputs.capMultiple);
     const capMultiple = Number.isFinite(m) && m >= 1 && m <= 3 ? m : get('cap_multiple_default');
     const quality = RAC.ceilings.qualityByLocation(env.eploy, hireRates, role);
     const cpaLimits = (inputs.limits && inputs.limits.cpa) || {};
-    // Comparison switches, used only by tools/stage2_report.mjs to show the
-    // effect of each change against the previous version. No screen sets them.
-    const cmp = inputs.compare || {};
     const cells = {};
     ds.regions.forEach(region => {
       cells[region] = {};
@@ -92,7 +119,11 @@
       widen: get('row_widen_apps'),
       hireBlend: get('region_hire_blend_n'),
     };
-    return { role, A, ds, ctx, hireRates, d1, factors, capMultiple, cells, ranges, softCaps: !!cmp.previousCeilings,
+    // The months behind other_hires_monthly, for the workings and the PDF. The
+    // staleness check keeps the tested value in step with these counts.
+    const otherByMonth = RAC.rates.tally(env.eploy, role, hireRates.hireMonths, (reg, plat, mo) => (plat === 'other' ? mo : null));
+    const otherMonths = hireRates.hireMonths.map(mo => ({ month: mo, hires: (otherByMonth[mo] || {}).hires || 0 }));
+    return { role, A, ds, ctx, hireRates, d1, factors, baseline, otherMonths, capMultiple, cells, ranges, softCaps: !!cmp.previousCeilings,
       premiumRate: RAC.assumptions.get(A, 'indeed_premium_rate') };
   }
 
@@ -258,6 +289,17 @@
       apps: { low: totals.apps * (1 + r.apps.low), high: totals.apps * (1 + r.apps.high), lowPct: r.apps.low, highPct: r.apps.high },
       hires: { low: totals.hires * (1 + r.hires.low), high: totals.hires * (1 + r.hires.high), lowPct: r.hires.low, highPct: r.hires.high },
     };
+    // Paid-media hires plus expected hires from other sources. The two ranges
+    // are treated as independent, so their distances from the central figure
+    // add in quadrature.
+    const bl = base.baseline;
+    totals.paidHires = totals.hires;
+    totals.otherHires = bl.hires;
+    totals.allHires = totals.hires + bl.hires;
+    const dLow = Math.hypot(totals.hires - totals.range.hires.low, bl.hires - bl.low);
+    const dHigh = Math.hypot(totals.range.hires.high - totals.hires, bl.high - bl.hires);
+    totals.range.allHires = { low: Math.max(0, totals.allHires - dLow), high: totals.allHires + dHigh };
+    totals.range.otherHires = { low: bl.low, high: bl.high };
     // Locations not in the plan, at no spend, for tables that list every location.
     const liveSet = new Set(locations.map(l => l.region));
     const idleCells = {};
@@ -275,6 +317,7 @@
     return {
       role, budget, daysInMonth: days,
       holdbacks: { premium, combined, oneRac, total: premium + combined + oneRac },
+      otherSources: { ...bl, months: base.otherMonths },
       deployable, coverageReserve, demandPool, totalVac, liveCount: locations.length,
       locations, platforms, totals, idleCells, allRegions: base.ds.regions.slice(),
       placed,
@@ -308,6 +351,10 @@
       screenRate: pc.screen, platformScreen: pc.rates.platformScreen, screenBasis: pc.rates.platformBasis,
       screenAdjustment: pc.rates.screenAdjustment, hireAfterScreening: pc.hireAfterScreening,
       reconciliation: pc.recon, hirePerApplication: pc.hirePerApplication,
+      // Of the hires: reconciled to what Eploy credited to the platforms, and
+      // the share of other-source hires credited to paid media.
+      hiresPlatform: pc.recon > 0 ? f.hires * base.factors.paid / pc.recon : 0,
+      hiresCredited: pc.recon > 0 ? f.hires * (base.factors.share * base.factors.credit) / pc.recon : 0,
       // Spending limit.
       ceiling: c.ceiling.ceiling, ceilingBase: c.ceiling.base, ceilingBasis: c.ceiling.basis, ceilingFlagged: c.ceiling.flagged,
       largestSuccessful: c.ceiling.largestSuccessful, largestMonth: c.ceiling.largestMonth, ceilingMonths: c.ceiling.months,
@@ -378,15 +425,24 @@
     };
   }
 
-  // Step 6: budget for the hire target.
+  // Step 6: budget for the hire target. Expected hires from other sources
+  // count towards the target, so paid media solves for the remainder.
   function budgetForTarget(base, p, plan) {
     const target = p.hireTarget > 0 ? p.hireTarget : 0;
     const appTarget = p.appTarget > 0 ? p.appTarget : 0;
     const solveOnHires = target > 0;
-    const goal = solveOnHires ? target : appTarget;
-    const out = { goal, solveOnHires, budgetForTarget: 0, pinned: false, unreachable: false, maxAchievable: null };
-    if (!(goal > 0)) return out;
+    const other = base.baseline.hires;
+    const goal = solveOnHires ? target - other : appTarget;
+    const out = { goal: solveOnHires ? target : appTarget, paidGoal: solveOnHires ? Math.max(0, goal) : null, solveOnHires,
+      budgetForTarget: 0, pinned: false, unreachable: false, maxAchievable: null, otherSourcesMeetTarget: false };
+    if (!((solveOnHires ? target : appTarget) > 0)) return out;
     const holdbacks = plan.holdbacks.total;
+    if (solveOnHires && goal <= 0) {
+      // Other sources alone are expected to reach the target.
+      out.otherSourcesMeetTarget = true;
+      out.budgetForTarget = Math.ceil(holdbacks / 50) * 50;
+      return out;
+    }
     const minTotal = U.sum(plan.locations.map(l => l.floor || 0));
     if (plan.locations.length && minTotal >= plan.deployable - 1) {
       out.pinned = true;
@@ -399,7 +455,7 @@
     const most = at(hi);
     if (most < goal) {
       out.unreachable = true;
-      out.maxAchievable = most;
+      out.maxAchievable = solveOnHires ? most + other : most;
       return out;
     }
     for (let i = 0; i < 60 && hi - lo > 2; i++) {
@@ -416,7 +472,7 @@
     const key = role + '|' + U.stableKey(inputs) + '|' + envStamp(env);
     const hit = RAC.cache.get(key);
     if (hit) return hit;
-    const baseKey = 'base|' + role + '|' + U.stableKey({ bench: inputs.bench, capMultiple: inputs.capMultiple,
+    const baseKey = 'base|' + role + '|' + U.stableKey({ bench: inputs.bench, capMultiple: inputs.capMultiple, otherHiresShare: inputs.otherHiresShare,
       cpa: inputs.limits && inputs.limits.cpa, overrides: inputs.overrides, compare: inputs.compare }) + '|' + envStamp(env);
     let base = RAC.cache.get(baseKey);
     if (!base) base = RAC.cache.set(baseKey, prepare(role, inputs, env));
@@ -434,6 +490,7 @@
       windowMonths: base.ctx.windowMonths,
       weights: base.ctx.weights,
       factors: base.factors,
+      otherHiresShare: base.factors.share,
       diminishingReturns: base.d1,
       rates: base.hireRates,
       ranges: base.ranges,

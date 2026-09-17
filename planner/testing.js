@@ -61,9 +61,21 @@
     };
   }
 
-  // Reconciliation (HANDOVER 5.1): the model's hires on past months, from the
-  // applications the platforms recorded, against every hire Eploy recorded in
-  // those months (all sources, including Other and rows with no region).
+  // Reconciliation (user decision, 17 September 2026). The model's hires on
+  // past months, from the applications the platforms recorded, against the
+  // hires Eploy recorded in those months:
+  //   paidFactor    hires Eploy credited to Indeed, Meta, Google and Appcast
+  //                 / the model's hires (paid_hire_reconciliation_factor)
+  //   otherFactor   hires Eploy recorded under every other source (and rows
+  //                 with no source) / the model's hires
+  //                 (other_hires_credit_factor); a plan credits paid media
+  //                 with a share of these
+  //   otherMonthly  the other-source hires in each month; their average is the
+  //                 plan's "Expected hires from other sources"
+  // paidFactor + otherFactor is the earlier scaling to every hire Eploy
+  // recorded (factor), kept for the check that a 100% share equals it.
+  // Months: those whose hire outcomes have settled (the same rule as the hire
+  // rates) and whose platform data is settled.
   function reconciliation(ds, eploy, A, role) {
     const hr = RAC.rates.build(eploy, A, role);
     const status = RAC.data.monthStatus(ds, A);
@@ -82,10 +94,20 @@
     }));
     const eployHires = Object.values(RAC.rates.tally(eploy, role, months, () => 'all'))[0] || { hires: 0, apps: 0 };
     const paid = RAC.rates.tally(eploy, role, months, (reg, plat) => plat === 'other' ? 'other' : 'paid');
+    const eployPaidHires = (paid.paid || {}).hires || 0, eployOtherHires = (paid.other || {}).hires || 0;
+    const perMonth = RAC.rates.tally(eploy, role, months, (reg, plat, mo) => plat === 'other' ? mo : null);
+    const otherMonthly = months.map(mo => ({ month: mo, hires: (perMonth[mo] || {}).hires || 0 }));
+    const counts = otherMonthly.map(x => x.hires);
     return {
       months, platformApps: apps, modelHires: model, eployHires: eployHires.hires,
-      eployPaidHires: (paid.paid || {}).hires || 0, eployOtherHires: (paid.other || {}).hires || 0,
+      eployPaidHires, eployOtherHires,
       factor: model > 0 ? eployHires.hires / model : 1,
+      paidFactor: model > 0 ? eployPaidHires / model : 1,
+      otherFactor: model > 0 ? eployOtherHires / model : 0,
+      otherMonthly,
+      otherMean: counts.length ? U.sum(counts) / counts.length : 0,
+      otherLow: counts.length ? U.percentileInc(counts, RAC.assumptions.get(A, 'range_low_percentile')) : 0,
+      otherHigh: counts.length ? U.percentileInc(counts, RAC.assumptions.get(A, 'range_high_percentile')) : 0,
       byPlatform: byPlat,
     };
   }

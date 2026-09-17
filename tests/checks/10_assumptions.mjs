@@ -26,8 +26,8 @@ export default function (check, { assert }) {
     const good = readRoot('assumptions.csv');
     const firstRow = good.split(/\r?\n/)[1];
     const cases = [
-      ['value removed', good.replace(/^(cap_multiple_default,[^,]*,)2,/m, '$1,'), /row \d+ \(cap_multiple_default\): value should be a number/],
-      ['value out of range', good.replace(/^(cap_multiple_default,[^,]*,)2,/m, '$1' + '9,'), /cap_multiple_default\): value 9 is outside 1 to 3/],
+      ['value removed', good.replace(/^(cap_multiple_default,[^,]*,)1,/m, '$1,'), /row \d+ \(cap_multiple_default\): value should be a number/],
+      ['value out of range', good.replace(/^(cap_multiple_default,[^,]*,)1,/m, '$1' + '9,'), /cap_multiple_default\): value 9 is outside 1 to 3/],
       ['row deleted', good.replace(/^d1_role_rate,.*,Patrol,.*\r?\n/m, ''), /missing row: d1_role_rate for Patrol/],
       ['unknown key', good + 'made_up_value,Made up,1,count,all,agreed,2026-09-17,\n', /made_up_value\): unknown key/],
       ['bad source', good.replace(/^(indeed_premium_rate,.*?,all,)agreed,/m, '$1' + 'guess,'), /indeed_premium_rate\): source should be/],

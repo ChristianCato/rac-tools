@@ -28,8 +28,8 @@ source,Paid Google Search,google,Agreed platform group
 source,Google (Organic or Paid),google,Agreed platform group
 source,Appcast,appcast,Agreed platform group
 source,Paid Appcast,appcast,Agreed platform group
-source,Paid Google Display,other,Not in the agreed Google group; question for the user
-source,Paid Google,other,Not in the agreed Google group; question for the user
+source,Paid Google Display,google,"Agreed 17 Sep 2026: 385 of 391 rows came from the superseded source code paid-google-display (tracking before March 2026), while Paid Google Search rose from almost 0 to 40 to 83 a month"
+source,Paid Google,google,Agreed 17 Sep 2026
 source,Paid Google Demand Gen,other,Not in the agreed Google group
 source,Free Appcast,other,Not in the agreed Appcast group
 source,(blank),other,No source recorded

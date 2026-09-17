@@ -4,7 +4,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { loadPlannerContext, loadAssumptions, readRoot, manifest, ROOT } from '../lib/planner.mjs';
 import { loadEngine, readGzJson } from '../lib/engine.mjs';
-import { cellsFromRaw, septSmrSettings, compareCells, withRoleMonthly } from '../lib/fixtures.mjs';
+import { cellsFromRaw, septSmrSettings, compareCells, withRoleMonthly, PMAP } from '../lib/fixtures.mjs';
+import { readDataFile } from '../lib/calibration_data.mjs';
 
 const T = path.join(ROOT, 'tests');
 const BASE = readGzJson(path.join(T, 'fixtures/rac_data_46aaae2.json.gz'));
@@ -35,10 +36,12 @@ function fileHireRates() {
   return { at: '2026-08-18', note: 'as the repo file', rates };
 }
 
-function appWith({ bench = liveBench(), hire = fileHireRates(), csv } = {}) {
-  const { RAC, window } = loadPlannerContext({ __AVP_DATA__: structuredClone(BASE) });
+// The app as loaded on a given data file (by default the repo's rac_data.js).
+function appWith({ bench = liveBench(), hire = fileHireRates(), csv, data = readDataFile(readRoot('rac_data.js')) } = {}) {
+  const { RAC, window } = loadPlannerContext({ __AVP_DATA__: structuredClone(data) });
   const A = RAC.assumptions.parse(csv || readRoot('assumptions.csv'));
-  RAC.app.use({ A, eploy: JSON.parse(readRoot('data/eploy_rates.json')), backtest: JSON.parse(readRoot('data/backtest_results.json')), legacySource: readRoot('planner/legacy_engine_46aaae2.js') });
+  RAC.app.use({ A, eploy: JSON.parse(readRoot('data/eploy_rates.json')), backtest: JSON.parse(readRoot('data/backtest_results.json')),
+    legacySource: readRoot('planner/legacy_engine_46aaae2.js'), legacyDataText: readRoot('planner/legacy_rac_data_46aaae2.js') });
   window.__RAC_BENCH__ = bench;
   window.__RAC_HIRE__ = hire;
   return { RAC, window };
@@ -74,6 +77,27 @@ export default function (check, { assert, near }) {
     return 'one plan function, through the planner; legacy engine marked; caches cleared together; pacing, Benchmarks and labels connected';
   });
 
+  check('The SMR and Patrol buttons beside the export buttons call the shared role switch', () => {
+    assert(!/setExportRole/.test(html), 'setExportRole is still referenced');
+    const header = html.slice(html.indexOf("{tool === 'planner' && ("), html.indexOf('exportWorkings(plannerState, roleView)'));
+    assert(/onClick=\{\(\) => setRoleView\(r\)\}/.test(header), 'header buttons do not call setRoleView');
+    assert(/const \[roleView, setRoleView\] = useState\('SMR'\);/.test(html), 'roleView state missing');
+    return 'setRoleView(r); the browser check clicks both buttons';
+  });
+
+  check('Setup passes the credited share and the multiple to the planner; the file defaults are 0% and 1', () => {
+    assert(/otherHiresShare: \(s\.otherHiresShare && s\.otherHiresShare\[role\] != null\) \? s\.otherHiresShare\[role\] : null,/.test(html), 'planParams does not pass otherHiresShare');
+    assert(/data-field=\{'other-hires-share-' \+ role\}/.test(html), 'Setup share field missing');
+    const { RAC } = appWith();
+    assert(RAC.app.defaultCapMultiple() === 1, 'default multiple ' + RAC.app.defaultCapMultiple());
+    const a = RAC.app.buildFundingPlan('SMR', { ...septSmrSettings(-1), otherHiresShare: null }, BASE, 1);
+    const b = RAC.app.buildFundingPlan('SMR', { ...septSmrSettings(-1), otherHiresShare: 0.3 }, BASE, 1);
+    assert(a.otherHiresShare === 0 && b.otherHiresShare === 0.3, `shares ${a.otherHiresShare}, ${b.otherHiresShare}`);
+    near(a.predictedHires, a.paidHires + a.otherSourcesHires, 1e-9, 'headline hires are paid media plus other sources');
+    near(a.locations.reduce((x, l) => x + l.predHires, 0), a.paidHires, 1e-9, 'location rows are paid media only');
+    return `blank share uses 0%; 30% reaches the plan (other sources ${a.otherSourcesHires.toFixed(2)} to ${b.otherSourcesHires.toFixed(2)})`;
+  });
+
   check('The version source returns the deployed commit before any sign-in', () => {
     const api = readRoot('api/windsor-spend.mjs');
     const v = api.indexOf('if ((req.query || {}).version)');
@@ -82,9 +106,49 @@ export default function (check, { assert, near }) {
     return 'GET /api/windsor-spend?version=1 returns VERCEL_GIT_COMMIT_SHA (null until Vercel exposes system variables)';
   });
 
+  check('The pacing copy of the data file is the one the live app opened on (46aaae2)', () => {
+    const D = readDataFile(readRoot('planner/legacy_rac_data_46aaae2.js'));
+    assert(JSON.stringify(D) === JSON.stringify(BASE), 'planner/legacy_rac_data_46aaae2.js differs from the 46aaae2 data fixture');
+    return `generated ${D.generated_at}, months ${D.data_months[0]} to ${D.data_months[D.data_months.length - 1]}`;
+  });
+
+  check('rac_data.js holds the previous file\'s months plus August; SMR equals the 16 September export', () => {
+    const D = readDataFile(readRoot('rac_data.js'));
+    const P = Object.values(PMAP);
+    const months = (X) => [...new Set(P.flatMap(p => Object.values(X[p]).flatMap(c => Object.keys(c.monthly || {}))))].sort();
+    assert(JSON.stringify(months(D)) === JSON.stringify([...months(BASE), '2026-08']), 'months ' + months(D).join(', '));
+    for (const k of Object.keys(BASE)) {
+      if (P.includes(k) || ['generated_at', 'data_current_through', 'data_months'].includes(k)) continue;
+      assert(JSON.stringify(BASE[k]) === JSON.stringify(D[k]), `field ${k} changed`);
+    }
+    let same = 0;
+    for (const p of P) {
+      assert(JSON.stringify(Object.keys(D[p]).sort()) === JSON.stringify(Object.keys(BASE[p]).sort()), p + ' locations changed');
+      for (const [k, c] of Object.entries(BASE[p])) for (const [mo, v] of Object.entries(c.monthly || {})) {
+        if (mo >= '2026-01') continue;
+        assert(JSON.stringify(D[p][k].monthly[mo]) === JSON.stringify(v), `${p} ${k} ${mo} changed`);
+        same++;
+      }
+    }
+    let rows = 0;
+    for (const [mo, region, plat, spend, apps] of FLIVE.raw) {
+      const c = D[PMAP[plat]][region + '__SMR'].monthly[mo];
+      assert(c && Math.abs(c.spend - spend) < 0.005 && c.completes === apps, `SMR ${mo} ${region} ${plat} differs from the export`);
+      rows++;
+    }
+    return `generated ${D.generated_at}; months ${months(D)[0]} to 2026-08; ${same} location-months before 2026 unchanged; all ${rows} SMR rows of the 16 September export matched`;
+  });
+
   check('Pre-release plans pace exactly as the live app did: previous engine, same load order', () => {
-    const { RAC } = appWith();
     const P = septSmrSettings(-1);
+    // Whatever rac_data.js now holds, pacing starts from the file the live app opened on.
+    for (const data of [BASE, readDataFile(readRoot('rac_data.js'))]) {
+      const { RAC } = appWith({ data });
+      const p = RAC.app.pacingPlan('2026-09', 'SMR', P);
+      const c = compareCells(p, FLIVE.cells, RAC.PLATFORMS);
+      near(c.maxSpend, 0, 1, `starting from data generated ${data.generated_at}: largest spend gap (${c.worstSpend})`);
+    }
+    const { RAC } = appWith();
     const paced = RAC.app.pacingPlan('2026-09', 'SMR', P);
     // The replay that reproduced the live export (tests/run.mjs).
     const E = loadEngine(LEGACY, structuredClone(BASE));
@@ -133,7 +197,7 @@ export default function (check, { assert, near }) {
   });
 
   check('A broken assumptions file stops the app with the rows named', () => {
-    const bad = readRoot('assumptions.csv').replace(/^(cap_multiple_default,[^,]*,)2,/m, '$1' + 'two,');
+    const bad = readRoot('assumptions.csv').replace(/^(cap_multiple_default,[^,]*,)1,/m, '$1' + 'one,');
     const { RAC } = appWith({ csv: bad });
     assert(RAC.app.status() === 'error', 'status ' + RAC.app.status());
     assert(RAC.app.state.error.lines.some(l => /cap_multiple_default\): value should be a number/.test(l)), RAC.app.state.error.lines.join('; '));

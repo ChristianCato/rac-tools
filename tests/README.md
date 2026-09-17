@@ -42,14 +42,14 @@ Needs Python 3 and Playwright (`pip install playwright`, then
 | Only rac-tools.vercel.app can write to the database | The save function returns before writing on any other address, and nothing else writes to the database. |
 | September Patrol plan rebuild | Skipped until a Patrol workings export is available. |
 | Planner checks (`checks/`) | Assumptions file, Eploy import, part months and cost per application, hire rates and forecast, testing on past months and tested values, spending limits and allocation, and the connection to the app, including pacing for plans made before the release. Each check's note says what it compared. |
-| Browser: app_checks.py | In a real browser at the test link address: the Plan tab equals the planner, changing Patrol's window on Benchmarks leaves SMR unchanged, a broken assumptions.csv stops the app naming the row, and nothing is written. |
+| Browser: app_checks.py | In a real browser at the test link address: the Plan tab equals the planner, changing Patrol's window on Benchmarks leaves SMR unchanged, both header role buttons switch the role, the Setup share of other-source hires reaches the plan, a broken assumptions.csv stops the app naming the row, and nothing is written. It also clicks Use those counts instead on Setup and records the result (a known bug). |
 | Browser: save_guard.py | In a real browser, the live address saves and a test link reads but never writes, shows the test version banner and shows Not saved. |
 | Browser: network guard | Every request the page makes is either handled by the check or blocked, so no browser check can reach a real server other than the listed library files. Probe requests confirm the block works; any other blocked request fails the check. |
 
 ## Folders
 
 - `legacy/engine_46aaae2.js`: the engine extracted from index.html at GitHub commit 46aaae2. Never edit it.
-- `fixtures/`: `rac_data_46aaae2.json.gz` is the repo data file at that commit. The two `smr_sept_*.json` files hold the raw monthly rows and the per-row results from the plan 2a and 16 September workings exports.
+- `fixtures/`: `rac_data_46aaae2.json.gz` is the repo data file at that commit (the app keeps the same file as `planner/legacy_rac_data_46aaae2.js` for pacing September plans). Since 17 September 2026 `rac_data.js` holds the live app's data to August 2026, and tested values are set from it (`lib/calibration_data.mjs`). The two `smr_sept_*.json` files hold the raw monthly rows and the per-row results from the plan 2a and 16 September workings exports.
 - `tools/build_fixture_from_workings.py`: rebuilds a fixture from a workings export.
 - `lib/`: the code that extracts the engine and loads fixtures.
 

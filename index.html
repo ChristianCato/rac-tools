@@ -2279,6 +2279,7 @@ function planParams(role, s) {
     regionMax: (s.regionMax && s.regionMax[role]) || {},
     daysInMonth: (DATA.days_in_month && DATA.days_in_month[s.planMonth]) || 30,
     capMultiple: s.capMultiple || 1.0,
+    otherHiresShare: (s.otherHiresShare && s.otherHiresShare[role] != null) ? s.otherHiresShare[role] : null,
     bench: (s.bench && s.bench[role]) || null,
   };
 }
@@ -3031,7 +3032,7 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
               Each location's budget goes to the platforms where hires cost the least.
             </div>
             <div className="dial-row" style={{ marginBottom: 8 }}>
-              <label className="field-label" style={{ flex: 'none' }}>Spend ceiling</label>
+              <label className="field-label" style={{ flex: 'none' }}>Spending limit multiple</label>
               <input className="text-input" style={{ width: 90, flex: 'none' }}
                 value={((state.capMultiple || 1) * 100).toFixed(0) + '%'}
                 onChange={e => {
@@ -3039,9 +3040,32 @@ function SetupTab({ state, setState, onOpenPriorities, container }) {
                   update({ capMultiple: isFinite(n) ? Math.min(3, Math.max(1, n / 100)) : 1 });
                 }} />
               <span className="help-text" style={{ flex: 1 }}>
-                Of the biggest month each location and platform has already spent.
+                Of the largest successful month each location and platform has already run (100% to 300%). Applies to both roles.
               </span>
             </div>
+            {(() => {
+              const pl = buildFundingPlan(role, { ...planParams(role, state), appTarget: state.appTarget[role] || 0 });
+              const share = pl.otherHiresShare || 0;
+              const monthly = pl.v2.otherSources.monthly;
+              return (
+                <div className="dial-row" style={{ marginBottom: 8 }}>
+                  <label className="field-label" style={{ flex: 'none' }}>Other-source hires credited to paid media</label>
+                  <input className="text-input" style={{ width: 90, flex: 'none' }} data-field={'other-hires-share-' + role}
+                    value={Math.round(share * 100) + '%'}
+                    onChange={e => {
+                      const n = parseInt(e.target.value.replace(/[^0-9]/g, ''), 10);
+                      const v = isFinite(n) ? Math.min(100, Math.max(0, n)) / 100 : 0;
+                      update({ otherHiresShare: { ...(state.otherHiresShare || {}), [role]: v } });
+                    }} />
+                  <span className="help-text" style={{ flex: 1 }}>
+                    RAC&rsquo;s applicant tracking data recorded {monthly.toFixed(1)} {role} hires a month on average from
+                    other sources (organic, job alerts, agencies and others). The share set here (0% to 100%) grows with
+                    paid spend; the rest, {pl.otherSourcesHires.toFixed(1)} a month, is expected regardless of budget and
+                    counts towards the hire target.
+                  </span>
+                </div>
+              );
+            })()}
 
             {(container && container.demand && container.demand._carriedFrom && !pinned) && (
               <div className="banner banner-warn" style={{ marginBottom: 12 }}>
@@ -3270,8 +3294,8 @@ function PlanTab({ state, setState, role: roleView, setRole: setRoleView }) {
             <div className="kpi-value mono">{plan.predictedHires.toFixed(1)}</div>
             <div className="kpi-sub">
               likely {plan.predictedHiresLow.toFixed(1)}&ndash;{plan.predictedHiresHigh.toFixed(1)}
-              {plan.aggBandMonths ? ' \u00B7 from ' + plan.aggBandMonths + ' months' : ''}
-              {plan.predictedHires > 0 ? ' \u00B7 ' + fmtGBP(plan.deployable / plan.predictedHires) + ' per hire' : ''}
+              {' \u00B7 paid media ' + plan.paidHires.toFixed(1) + ', expected from other sources ' + plan.otherSourcesHires.toFixed(1)}
+              {plan.paidHires > 0 ? ' \u00B7 ' + fmtGBP(plan.deployable / plan.paidHires) + ' per paid-media hire' : ''}
             </div>
           </div>
           <div className="kpi kpi-accent-navy">
@@ -3400,7 +3424,15 @@ function PlanTab({ state, setState, role: roleView, setRole: setRoleView }) {
                   <td>{fmtInt(plan.appTarget)}</td>
                   <td>{fmtInt(plan.predictedApps)}</td>
                   <td className="band-text">{fmtInt(plan.predLow)}&ndash;{fmtInt(plan.predHigh)}</td>
-                  <td>{plan.predictedApps > 0 ? (plan.predictedHires / plan.predictedApps * 100).toFixed(2) + '%' : '\u2013'}</td>
+                  <td>{plan.predictedApps > 0 ? (plan.paidHires / plan.predictedApps * 100).toFixed(2) + '%' : '\u2013'}</td>
+                  <td style={{ fontWeight: 600 }}>{plan.paidHires.toFixed(1)}</td>
+                </tr>
+                <tr>
+                  <td colSpan={7}>Expected hires from other sources (not driven by budget)</td>
+                  <td>{plan.otherSourcesHires.toFixed(1)}</td>
+                </tr>
+                <tr className="total-row">
+                  <td colSpan={7}>All hires</td>
                   <td style={{ fontWeight: 600 }}>{plan.predictedHires.toFixed(1)}</td>
                 </tr>
               </tbody>
@@ -3534,8 +3566,8 @@ function PlatformsTab({ state, role: roleView, setRole: setRoleView }) {
                     ))}
                     <td>{fmtGBP(deployable)}</td>
                     <td>{fmtInt(plan.predictedApps)}</td>
-                    <td>{plan.predictedHires.toFixed(1)}</td>
-                    <td>{plan.predictedHires > 0 ? fmtGBP(deployable / plan.predictedHires) : 'n/a'}</td>
+                    <td>{plan.paidHires.toFixed(1)}</td>
+                    <td>{plan.paidHires > 0 ? fmtGBP(deployable / plan.paidHires) : 'n/a'}</td>
                   </tr>
                 </tbody>
               </table>
@@ -4861,7 +4893,7 @@ function exportPlanPDF(state, roleFilter, opts) {
       pdf.text(fmtGBP(rows.reduce((s, r) => s + r.spend, 0)), cx.total, y + 4.7);
       pdf.text(fmtInt(plan.predictedApps), cx.pred, y + 4.7);
       pdf.text(fmtInt(plan.predLow) + '\u2013' + fmtInt(plan.predHigh), cx.range, y + 4.7);
-      pdf.text(plan.predictedHires.toFixed(1), cx.hires, y + 4.7);
+      pdf.text(plan.paidHires.toFixed(1), cx.hires, y + 4.7);
       y += 7;
 
       // Helpful note under the table. If it won't fit above the footer,
@@ -4915,7 +4947,7 @@ function exportPlanPDF(state, roleFilter, opts) {
             ['Predicted hires', plan.predictedHires.toFixed(1) + '  (' +
               plan.predictedHiresLow.toFixed(1) + '\u2013' + plan.predictedHiresHigh.toFixed(1) + ')'],
             ['Cost per application', plan.predictedApps > 0 ? fmtGBP(plan.deployable / plan.predictedApps) : '-'],
-            ['Cost per hire', plan.predictedHires > 0 ? fmtGBP(plan.deployable / plan.predictedHires) : '-'],
+            ['Cost per hire', plan.paidHires > 0 ? fmtGBP(plan.deployable / plan.paidHires) : '-'],
           ];
           const tw = (pageW - margin * 2 - gap * (tiles.length - 1)) / tiles.length;
           tiles.forEach(([k, v], i) => {
@@ -5375,7 +5407,11 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '18 Sep', items: [
-    'New planning calculations, in their own files (planner folder), used by Setup, Plan, Platforms, Compare, Benchmarks and pacing for plans from October 2026. Cost per application is one method everywhere, on settled months only: a month counts once 24 days have passed after it ended. Cost per application rises with spend (diminishing returns), with a remaining-error adjustment set by testing on past months. Hires are worked out from RAC’s applicant tracking data: screening pass rate by platform, adjusted by location, times the hire rate after screening, scaled so past predictions match every hire RAC recorded. Each location and platform is capped at its largest successful month times the spending limit multiple; money that no location can take is shown as not placed. Ranges come from how far predictions missed in testing. Every value the model uses is in assumptions.csv.',
+    'New planning calculations, in their own files (planner folder), used by Setup, Plan, Platforms, Compare, Benchmarks and pacing for plans from October 2026. Cost per application is one method everywhere, on settled months only: a month counts once 24 days have passed after it ended. Cost per application rises with spend (diminishing returns), with a remaining-error adjustment set by testing on past months. Hires are worked out from RAC’s applicant tracking data: screening pass rate by platform, adjusted by location, times the hire rate after screening, scaled so past predictions match the hires RAC recorded against Indeed, Meta, Google and Appcast. Paid Google and Paid Google Display applications count as Google. Each location and platform is capped at its largest successful month times the spending limit multiple (100% by default, editable from 100% to 300%); money that no location can take is shown as not placed. Ranges come from how far predictions missed in testing. Every value the model uses is in assumptions.csv.',
+    'Hires RAC recorded from other sources (organic, job alerts, agencies and others) are now a separate line, Expected hires from other sources: the monthly average from RAC’s applicant tracking data. It counts towards the hire target but does not depend on the budget, so the budget solves for the rest. Setup has a new setting for each role, Other-source hires credited to paid media (0% by default). The share set there grows with paid spend and is spread across platforms in line with their predicted hires; at 100% the plan matches the earlier scaling to every hire. Location and platform rows show paid-media hires only.',
+    'For a month to count in a plan, its data must be uploaded on the Data tab after the settle period (24 days after the month ends). August 2026 counts only if its data is uploaded on or after 24 September.',
+    'The data file behind the app (rac_data.js) now holds the live app’s data to the end of August 2026. Pacing for September plans and earlier still starts from the previous file, so it is unchanged.',
+    'The SMR and Patrol buttons beside the export buttons now switch role. They called a function that did not exist, so clicking them did nothing.',
     'Plans for September 2026 and earlier pace exactly as before, on the previous engine, so pacing for the rest of September is unchanged. Pacing history and Location priorities still use the previous cost method and say so on screen.',
     'Test links no longer save. Vercel builds a test version of the app for every branch, and those versions used the same database as the live app, so trying a change on one could overwrite the plans and data everyone works from. Only rac-tools.vercel.app now saves. Test versions still read the live plans and data, show a banner saying nothing is saved, and show Not saved where the live app shows Saved.',
     'Months added after the app has opened now count in the plan. The app worked out its list of months once, when it first needed it, and never again. The shared database is read a moment after the app loads, so a month held only there could miss that list: the September SMR plan held August in its data but gave it no weight, and planned on May to July rather than June to August. The month list, the weighting and every stored figure built from them are now cleared whenever months are added, whether from the database or the Data tab.',
@@ -9655,7 +9691,7 @@ function App() {
             <div className="role-switch" style={{ marginRight: 10 }}>
               {ROLES.map(r => (
                 <button key={r} className={r === roleView ? 'active' : ''}
-                  onClick={() => setExportRole(r)}>{r}</button>
+                  onClick={() => setRoleView(r)}>{r}</button>
               ))}
             </div>
             <button className="btn btn-sm" style={{ marginRight: 8 }}

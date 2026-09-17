@@ -30,7 +30,12 @@
     const ctx = RAC.cost.context(ds, A, role, bench);
     const rates = RAC.rates.build(eploy, A, role, { regions: ds.regions });
     const bias = RAC.assumptions.get(A, 'remaining_error_factor', role);
-    const recon = RAC.assumptions.get(A, 'hire_reconciliation_factor', role);
+    // Hires scaled as the plan scales them: reconciled to the hires Eploy
+    // credited to the platforms, plus the plan's share of other-source hires.
+    const s = state.otherHiresShare && state.otherHiresShare[role];
+    const share = s != null && s >= 0 && s <= 1 ? s : RAC.assumptions.get(A, 'other_hires_credited_share', role);
+    const recon = RAC.assumptions.get(A, 'paid_hire_reconciliation_factor', role)
+      + share * RAC.assumptions.get(A, 'other_hires_credit_factor', role);
     const months = ctx.settled;
     const setBench = (b) => setState(st => ({ ...st, bench: { ...(st.bench || {}), [role]: b } }));
     const from = w.from || months[0];
@@ -124,7 +129,8 @@
             {excluded.length > 0 && <> Not yet counted: {excluded.map(mo => monthShort(mo) + ' (' + ctx.status[mo].reason + ')').join('; ')}.</>}
             {' '}Cost per application is the usual figure the plan starts from, before it is adjusted for the planned
             spend level. Cost per hire is at the usual spend, after the remaining-error adjustment
-            (x{bias.toFixed(3)}) and the reconciliation to all hires (x{recon.toFixed(3)}). Screening and hire rates came
+            (x{bias.toFixed(3)}) and the reconciliation to the hires RAC recorded against the four platforms, including
+            the {Math.round(share * 100)}% of other-source hires credited to paid media (x{recon.toFixed(3)}). Screening and hire rates came
             from {eploy.dataset.file} ({eploy.dataset.file_date}), applications {rates.screenMonths[0]} to {rates.screenMonths[rates.screenMonths.length - 1]}.
           </div>
         </div>

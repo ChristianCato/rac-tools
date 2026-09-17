@@ -75,10 +75,15 @@ export default function (check, { assert, near }) {
       cmp('row_widen_apps', role, bt.rowWiden.c);
       const t = RAC.testing.blendStrengths(eploy, A, role);
       ['screen_blend_n', 'location_screen_blend_n', 'region_hire_blend_n'].forEach(k => cmp(k, role, t[k].value));
-      cmp('hire_reconciliation_factor', role, RAC.testing.reconciliation(DATA[role].ds, eploy, A, role).factor, 6e-4);
+      const rec = RAC.testing.reconciliation(DATA[role].ds, eploy, A, role);
+      cmp('paid_hire_reconciliation_factor', role, rec.paidFactor, 6e-5);
+      cmp('other_hires_credit_factor', role, rec.otherFactor, 6e-5);
+      cmp('other_hires_monthly', role, rec.otherMean, 6e-5);
+      cmp('other_hires_low', role, rec.otherLow, 6e-5);
+      cmp('other_hires_high', role, rec.otherHigh, 6e-5);
     }
     assert(!stale.length, 'assumptions.csv is out of date; run node tools/calibrate.mjs --write and review:\n' + stale.join('\n'));
-    return 'blend strengths, reconciliation, diminishing returns, adjustment, ranges and row widening all match';
+    return 'blend strengths, reconciliation, other-source hires, diminishing returns, adjustment, ranges and row widening all match';
   });
 
   check('Back-test results file matches a fresh run', () => {

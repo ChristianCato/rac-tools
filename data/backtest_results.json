@@ -7,7 +7,7 @@
   },
   "roles": {
     "SMR": {
-      "data": "SMR data as the live app held it on 16 September 2026",
+      "data": "SMR data from rac_data.js (the live app's data, taken 2026-09-17)",
       "eploy": "Corrected RAC Eploy Data Oct 2025 - Aug 2026.xlsx (2026-09-15)",
       "adjustmentLearnedFrom": 3,
       "applications": [
@@ -16,22 +16,22 @@
           "learnedFrom": "2025-10 to 2026-02",
           "bRole": 0.5,
           "k": 100000,
-          "bias": 1.0597,
+          "bias": 1.0626,
           "spend": 46679.1,
-          "predicted": 641.1342,
+          "predicted": 639.3861,
           "actual": 536.377,
-          "miss": -0.1634
+          "miss": -0.1611
         },
         {
           "month": "2026-04",
           "learnedFrom": "2025-10 to 2026-03",
           "bRole": 0.6,
           "k": 100,
-          "bias": 1.059,
+          "bias": 1.0613,
           "spend": 47827.13,
-          "predicted": 597.9414,
+          "predicted": 596.6539,
           "actual": 695.115,
-          "miss": 0.1625
+          "miss": 0.165
         },
         {
           "month": "2026-05",
@@ -71,42 +71,42 @@
         {
           "month": "2026-01",
           "learnedFrom": "2025-10 to 2025-12",
-          "recon": 2.0859,
-          "predicted": 9.5116,
-          "actual": 24,
-          "miss": 1.5232
+          "recon": 0.8099,
+          "predicted": 3.5938,
+          "actual": 13,
+          "miss": 2.6173
         },
         {
           "month": "2026-02",
           "learnedFrom": "2025-10 to 2026-01",
-          "recon": 2.3246,
-          "predicted": 13.6211,
-          "actual": 13,
-          "miss": -0.0456
+          "recon": 1.0373,
+          "predicted": 5.9232,
+          "actual": 10,
+          "miss": 0.6883
         },
         {
           "month": "2026-03",
           "learnedFrom": "2025-10 to 2026-02",
-          "recon": 2.2456,
-          "predicted": 22.1767,
-          "actual": 32,
-          "miss": 0.443
+          "recon": 1.1228,
+          "predicted": 10.8871,
+          "actual": 16,
+          "miss": 0.4696
         },
         {
           "month": "2026-04",
           "learnedFrom": "2025-10 to 2026-03",
-          "recon": 2.3963,
-          "predicted": 22.4289,
-          "actual": 28,
-          "miss": 0.2484
+          "recon": 1.2002,
+          "predicted": 10.9758,
+          "actual": 12,
+          "miss": 0.0933
         },
         {
           "month": "2026-05",
           "learnedFrom": "2025-10 to 2026-04",
-          "recon": 2.3407,
-          "predicted": 25.3034,
-          "actual": 18,
-          "miss": -0.2886
+          "recon": 1.1445,
+          "predicted": 12.115,
+          "actual": 10,
+          "miss": -0.1746
         }
       ],
       "final": {
@@ -116,7 +116,7 @@
       }
     },
     "Patrol": {
-      "data": "Patrol data from the repo data file (generated 28 July 2026)",
+      "data": "Patrol data from rac_data.js (the live app's data, taken 2026-09-17)",
       "eploy": "Corrected RAC Eploy Data Oct 2025 - Aug 2026.xlsx (2026-09-15)",
       "adjustmentLearnedFrom": 3,
       "applications": [
@@ -125,92 +125,103 @@
           "learnedFrom": "2025-10 to 2026-02",
           "bRole": 0.8,
           "k": 20,
-          "bias": 1.1169,
-          "spend": 50576.33,
-          "predicted": 679.3173,
-          "actual": 792,
-          "miss": 0.1659
+          "bias": 1.1185,
+          "spend": 48068.37,
+          "predicted": 644.0239,
+          "actual": 747,
+          "miss": 0.1599
         },
         {
           "month": "2026-04",
           "learnedFrom": "2025-10 to 2026-03",
           "bRole": 0.8,
           "k": 20,
-          "bias": 1.0883,
-          "spend": 75635.06,
-          "predicted": 808.4413,
-          "actual": 957.723,
-          "miss": 0.1847
+          "bias": 1.0965,
+          "spend": 77086.63,
+          "predicted": 806.5024,
+          "actual": 951.31,
+          "miss": 0.1796
         },
         {
           "month": "2026-05",
           "learnedFrom": "2025-10 to 2026-04",
-          "bRole": 0.7,
-          "k": 100,
-          "bias": 1.015,
-          "spend": 70590.65,
-          "predicted": 816.0997,
-          "actual": 485.644,
-          "miss": -0.4049
+          "bRole": 0.8,
+          "k": 50,
+          "bias": 1.0495,
+          "spend": 68048.21,
+          "predicted": 764.4283,
+          "actual": 446.318,
+          "miss": -0.4161
         },
         {
           "month": "2026-06",
           "learnedFrom": "2025-10 to 2026-05",
           "bRole": 0.8,
+          "k": 50,
+          "bias": 1.1552,
+          "spend": 91748.32,
+          "predicted": 655.6324,
+          "actual": 809.954,
+          "miss": 0.2354
+        },
+        {
+          "month": "2026-07",
+          "learnedFrom": "2025-10 to 2026-06",
+          "bRole": 0.7,
           "k": 100,
-          "bias": 1.17,
-          "spend": 92421.74,
-          "predicted": 692.334,
-          "actual": 854.496,
-          "miss": 0.2342
+          "bias": 1.1374,
+          "spend": 82744.69,
+          "predicted": 648.5477,
+          "actual": 1083.179,
+          "miss": 0.6702
         }
       ],
       "hires": [
         {
           "month": "2026-01",
           "learnedFrom": "2025-10 to 2025-12",
-          "recon": 4.5021,
-          "predicted": 18.0838,
-          "actual": 41,
-          "miss": 1.2672
+          "recon": 1.3941,
+          "predicted": 5.3199,
+          "actual": 19,
+          "miss": 2.5715
         },
         {
           "month": "2026-02",
           "learnedFrom": "2025-10 to 2026-01",
-          "recon": 3.8406,
-          "predicted": 24.5732,
-          "actual": 24,
-          "miss": -0.0233
+          "recon": 1.4431,
+          "predicted": 9.0584,
+          "actual": 6,
+          "miss": -0.3376
         },
         {
           "month": "2026-03",
           "learnedFrom": "2025-10 to 2026-02",
-          "recon": 3.8071,
-          "predicted": 32.3521,
-          "actual": 18,
-          "miss": -0.4436
+          "recon": 1.3356,
+          "predicted": 10.649,
+          "actual": 11,
+          "miss": 0.033
         },
         {
           "month": "2026-04",
           "learnedFrom": "2025-10 to 2026-03",
-          "recon": 3.3749,
-          "predicted": 32.8555,
-          "actual": 24,
-          "miss": -0.2695
+          "recon": 1.3139,
+          "predicted": 12.6554,
+          "actual": 9,
+          "miss": -0.2888
         },
         {
           "month": "2026-05",
           "learnedFrom": "2025-10 to 2026-04",
-          "recon": 2.9644,
-          "predicted": 32.356,
-          "actual": 15,
-          "miss": -0.5364
+          "recon": 1.1575,
+          "predicted": 11.7625,
+          "actual": 4,
+          "miss": -0.6599
         }
       ],
       "final": {
         "roleRate": 0.6,
-        "strength": 100000,
-        "adjustment": 1.1363
+        "strength": 100,
+        "adjustment": 0.9665
       }
     }
   }
