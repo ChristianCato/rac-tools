@@ -73,10 +73,14 @@ export default function (check, { assert, near }) {
         if (d[3] < d[0] - 1e-9) moved++;
       }));
       // The plan's own cost per application (placed spend over applications)
-      // ranks the windows the same way as the role's window cost does.
+      // ranks the windows the same way as the role's window cost does, for the
+      // windows over the same 2026 months. All time is left out of the
+      // ranking: it also changes each row's usual spend level (the smaller 2025
+      // months pull it down), so the spend-level adjustment moves the planned
+      // cost as well as the window's cost does.
       const roleCpa = (k) => { let s = 0, a = 0; Object.values(build(role, k).blend.window).forEach(byR => Object.values(byR).forEach(b => { s += b.spend || 0; a += b.apps || 0; })); return s / a; };
       const planCpa = (k) => { const q = build(role, k); return q.placed / q.totals.apps; };
-      const keys = ['all', 'ytd', 'x2', 'x3', 'last3'];
+      const keys = ['ytd', 'x2', 'x3', 'last3'];
       const byRole = [...keys].sort((x, y) => roleCpa(x) - roleCpa(y)).join(',');
       const byPlan = [...keys].sort((x, y) => planCpa(x) - planCpa(y)).join(',');
       assert(byRole === byPlan, `${role}: windows by cost ${byRole}, by the plan's cost ${byPlan}`);
@@ -96,13 +100,14 @@ export default function (check, { assert, near }) {
         quality: p.rates.screenMonths, hires: p.rates.hireMonths, roleScreen: p.rates.roleScreen, roleHire: p.rates.roleHire,
         platform: RAC.PLATFORMS.map(x => p.rates.platform[x].used), recon: p.factors.recon, other: p.otherSources.months, otherMonthly: p.otherHiresMonthly,
         adjustment: p.remainingError, ranges: p.ranges, rate: RAC.PLATFORMS.map(x => p.diminishingReturns[x].b), capMonths: p.capMonths,
+        // Since 18 September 2026 the caps themselves are fixed: the success
+        // test uses a benchmark over every settled month, not the window.
+        caps: p.locations.map(l => RAC.PLATFORMS.map(x => [l.cells[x].ceiling.toFixed(6), l.cells[x].ceilingMonths.map(m => m.successful ? 1 : 0).join('')].join(':')).join('/')).join(';'),
         considered: p.locations.map(l => RAC.PLATFORMS.map(x => l.cells[x].ceilingMonths.map(m => m.month).join('|')).join('/')).join(';'),
       });
       for (const key of Object.keys(WINDOWS)) assert(fixed(build(role, key)) === fixed(ref), `${role}: a fixed part moved with the ${key} window`);
-      // The caps' months stay put; whether each month was successful is judged
-      // against the window's cost, so the caps themselves can move.
       const capSum = (k) => build(role, k).locations.reduce((t, l) => t + RAC.PLATFORMS.reduce((u, x) => u + l.cells[x].cap, 0), 0);
-      out.push(`${role}: quality ${RAC.text.fmt.span(ref.rates.screenMonths)}, hires ${RAC.text.fmt.span(ref.rates.hireMonths)}, caps ${RAC.text.fmt.span(ref.capMonths)}, adjustment, ranges and rate unchanged across ${Object.keys(WINDOWS).length} windows (caps total £${Math.round(capSum('all')).toLocaleString('en-GB')} to £${Math.round(capSum('last3')).toLocaleString('en-GB')})`);
+      out.push(`${role}: quality ${RAC.text.fmt.span(ref.rates.screenMonths)}, hires ${RAC.text.fmt.span(ref.rates.hireMonths)}, caps ${RAC.text.fmt.span(ref.capMonths)} (every cap and every successful month identical, total £${Math.round(capSum('all')).toLocaleString('en-GB')} under All time and £${Math.round(capSum('last3')).toLocaleString('en-GB')} under Last 3 months), adjustment, ranges and rate unchanged across ${Object.keys(WINDOWS).length} windows`);
     }
     return out.join('; ');
   });

@@ -7,7 +7,9 @@ Open the branch's test link,
 `https://rac-tools-git-c3-build-enhance-media-rac.vercel.app`, and sign in. You
 should see the amber banner "Test version. Nothing you change here is saved"
 and "Not saved" where the live app says "Saved". If you do not, stop: you are
-on the live app.
+on a live address. The live app is moving to `https://rac-tools-kappa.vercel.app`;
+the old `https://rac-tools.vercel.app` also saves until it is retired. Neither is
+the test link.
 
 ## 1. Does it open and does it add up (10 minutes)
 
@@ -36,10 +38,19 @@ plan to months that actually worked, and hires come from the applicant tracking
 data rather than a fixed rate. The comparison table in BUILD_PROGRESS.md (in
 the data folder) sets out how much each of those moved the September plan.
 
-Since the last version of this list, June 2026 applications count in the
-quality and hire rates. June's quality rate was lower than earlier months, so
-the quality test on the spending caps now sets aside more June months, and the
-budget not placed is higher (see BUILD_PROGRESS.md for the figures).
+Since the last version of this list, three things changed the figures (see
+BUILD_PROGRESS.md for the numbers):
+
+- June 2026 applications count in the quality and hire rates.
+- The spending caps' quality test now judges a location against what was
+  expected for it that month, taking account of that month's quality across all
+  locations. June's quality was lower everywhere, so June months are no longer
+  set aside for that alone.
+- A month counts towards a cap if its cost per application was at or below the
+  location and platform's own usual cost across every settled month, adjusted
+  for that month's spend. This does not depend on the data window, so the caps
+  are the same whichever window is chosen. For SMR the caps came out lower than
+  before, so more of the budget is not placed.
 
 ## 3. The PDF (15 minutes)
 
@@ -58,7 +69,13 @@ budget not placed is higher (see BUILD_PROGRESS.md for the figures).
    - There is now a "Months used" section: one line per part of the model,
      saying which months it used, how they were weighted, and whether that
      follows the data window set for the plan or a fixed rule. Check it
-     agrees with the summary page.
+     agrees with the summary page. The spending caps line should name the
+     months the caps looked at (January to July 2026) and the months behind
+     the cost benchmark (every settled month, July 2025 to July 2026).
+   - The "Spending caps" section should describe the benchmark (each location
+     and platform's own usual cost over every settled month, adjusted for that
+     month's spend) and the quality test (against what was expected for that
+     location that month, given quality across all locations).
    - The definition of a quality application should end "Repeat applications
      from the same candidate are not counted unless they had already passed
      screening."
@@ -86,12 +103,17 @@ budget not placed is higher (see BUILD_PROGRESS.md for the figures).
 6. On the Back-test sheet, the note above the table should read "Window: year
    to date, with the last three months counted x2". (It used to print
    "[object Object]".)
-7. On the Assumptions sheet, the heading note should read "Every value comes
+7. On the Successful months sheet, the column after cost per application is
+   "Benchmark at that spend", and the quality test reads, for example, "19.1%
+   against 17.4% expected (usual 22.3% x 0.78 for the month): passed". Pick one
+   row and check the month was counted only if its cost was at or below the
+   benchmark and the quality test passed.
+8. On the Assumptions sheet, the heading note should read "Every value comes
    from one agreed list of assumptions, held apart from the calculations", and
    the notes should name no files. The data source reads "RAC's monthly SMR
    spend and application data, to August 2026".
 
-## 5. The data window and upweighting (10 minutes)
+## 5. The data window and upweighting (15 minutes)
 
 1. On the Plan tab for SMR, write down predicted applications, hires and cost
    per application.
@@ -107,10 +129,14 @@ budget not placed is higher (see BUILD_PROGRESS.md for the figures).
    "May to July 2026 counted three times". Quality rates, hire rates, spending
    caps, other-source hires and testing should still name the same months as
    before: they follow fixed rules, not the window.
-5. On Benchmarks, choose "Last 3 months", then "All time", and watch the Plan
+5. Pick two location and platform rows in the PDF and note their spending
+   caps. The caps should be exactly the same under 2x, 3x and the windows in
+   the next step. Spend, applications and cost per application move with the
+   window; the caps do not.
+6. On Benchmarks, choose "Last 3 months", then "All time", and watch the Plan
    tab each time. On the data held, "Last 3 months" gave the highest cost per
    application and "All time" the lowest.
-6. Set it back to what it showed in step 2. The test link does not save, but
+7. Set it back to what it showed in step 2. The test link does not save, but
    leave it as you found it.
 
 ## 6. The OneRAC plan and its PDF (10 minutes)

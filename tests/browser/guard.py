@@ -20,7 +20,10 @@ from urllib.parse import unquote
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SB = 'https://xtyqmqjgvsynoeswtkpv.supabase.co'
-LIVE = 'https://rac-tools.vercel.app/'
+# The live address moved to the Enhance Vercel account (18 September 2026). The
+# old one still saves until it is retired; save_guard.py checks both.
+LIVE = 'https://rac-tools-kappa.vercel.app/'
+LIVE_OLD = 'https://rac-tools.vercel.app/'
 TEST = 'https://rac-tools-git-c3-build-enhance-media-rac.vercel.app/'
 PROBE_HOST = 'https://guard-probe.invalid/probe'
 CDN = {

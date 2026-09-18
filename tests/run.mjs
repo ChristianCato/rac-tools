@@ -128,9 +128,15 @@ check('Current engine: a month added after opening is weighted, and matches a cl
 });
 
 // ---- Test versions cannot save --------------------------------------------
-check('Only rac-tools.vercel.app can write to the database', () => {
-  assert(/const SAVE_HOST = 'rac-tools\.vercel\.app';/.test(html), 'SAVE_HOST is not rac-tools.vercel.app');
-  assert(/const CAN_SAVE = typeof window !== 'undefined' && window\.location\.hostname === SAVE_HOST;/.test(html), 'CAN_SAVE is not tied to SAVE_HOST');
+// The live address moved to rac-tools-kappa.vercel.app (18 September 2026);
+// the old one saves too until it is retired, and nothing else may.
+check('Only the live addresses can write to the database', () => {
+  const m = html.match(/const SAVE_HOSTS = (\[[^\]]*\]);/);
+  assert(m, 'SAVE_HOSTS list not found');
+  const hosts = JSON.parse(m[1].replace(/'/g, '"'));
+  assert(JSON.stringify(hosts) === JSON.stringify(['rac-tools-kappa.vercel.app', 'rac-tools.vercel.app']), 'SAVE_HOSTS is ' + JSON.stringify(hosts));
+  assert(/const CAN_SAVE = typeof window !== 'undefined' && SAVE_HOSTS\.includes\(window\.location\.hostname\);/.test(html), 'CAN_SAVE is not tied to SAVE_HOSTS');
+  assert(!/const SAVE_HOST = /.test(html), 'the old single SAVE_HOST is still defined');
   const body = html.slice(html.indexOf('async function sbSet('), html.indexOf('async function sbSet(') + 200);
   assert(/^async function sbSet\(key, value\) \{\s*\n\s*if \(!CAN_SAVE\) return false;/.test(body), 'sbSet does not start with the CAN_SAVE guard');
   // Every other request to the database must be a read. Writes carry a method.
@@ -142,7 +148,7 @@ check('Only rac-tools.vercel.app can write to the database', () => {
   const dbWrites = [...html.matchAll(/sbFetch\([^;]*?method:\s*'[A-Z]+'/gs)].filter(m => m.index < sbSetStart || m.index > sbSetEnd);
   assert(dbWrites.length === 0, 'database write outside sbSet: ' + dbWrites.map(m => m[0].slice(0, 80)).join(' | '));
   assert(!/rest\/v1\/(?!rac_state)/.test(html), 'a database table other than rac_state is addressed directly');
-  return 'sbSet is the only database write, and it returns before writing anywhere but the live address';
+  return `sbSet is the only database write, and it returns before writing anywhere but ${hosts.join(' and ')}`;
 });
 
 // ---- Saved September Patrol plan as the live app held it in September ------

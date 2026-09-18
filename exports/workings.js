@@ -556,8 +556,8 @@
       { w: 13 }, { w: 13 }, { w: 30 }, { w: 13 }, { w: 15, f: GBP2 },
     ] });
     s.title('Which past months counted towards the spending caps',
-      `Months from ${f.month(RAC.assumptions.get(plan.A, 'ceiling_first_month'))} with at least ${f.gbp(RAC.assumptions.get(plan.A, 'ceiling_min_spend'))} of spend and ${RAC.assumptions.get(plan.A, 'ceiling_min_apps')} applications. A month counted when its cost per application was at or below what the model expected at that spend, at or below any cost per application limit, and the location’s quality rate was not unusually weak.`);
-    s.head(['Location', 'Platform', 'Month', 'Spend', 'Applications', 'Cost per application', 'Model expected at that spend',
+      `Months from ${f.month(RAC.assumptions.get(plan.A, 'ceiling_first_month'))} with at least ${f.gbp(RAC.assumptions.get(plan.A, 'ceiling_min_spend'))} of spend and ${RAC.assumptions.get(plan.A, 'ceiling_min_apps')} applications. A month counted when its cost per application was at or below the benchmark (the location and platform’s own usual cost per application over every settled month, ${f.span(plan.capBenchmarkMonths || [])}, adjusted for that month’s spend), at or below any cost per application limit, and the location’s quality rate was no more than ${f.pct(RAC.assumptions.get(plan.A, 'quality_test_drop'))} below what was expected for it that month: its usual rate x that month’s rate across all locations over their usual rate.`);
+    s.head(['Location', 'Platform', 'Month', 'Spend', 'Applications', 'Cost per application', 'Benchmark at that spend',
       'At or below', 'Within the limit', 'Quality test', 'Counted', 'Cap this month sets']);
     plan.locations.forEach(loc => P().forEach(plat => {
       const c = loc.cells[plat];
@@ -567,7 +567,7 @@
       }
       c.ceilingMonths.forEach(m => {
         const qt = m.quality.applied
-          ? `${f.pct(m.quality.rate, 1)} against ${f.pct(m.quality.norm, 1)} usual: ${m.quality.pass ? 'passed' : 'set aside'}`
+          ? `${f.pct(m.quality.rate, 1)} against ${f.pct(m.quality.expectedRate !== undefined ? m.quality.expectedRate : m.quality.norm, 1)} expected (usual ${f.pct(m.quality.norm, 1)}${m.quality.factor !== undefined ? ` x ${m.quality.factor.toFixed(2)} for the month` : ''}): ${m.quality.pass ? 'passed' : 'set aside'}`
           : `not applied (${m.quality.reason})`;
         s.body([loc.region, L()[plat], m.month, m.spend, m.apps, m.cpa, m.expected,
           m.passCost ? 'yes' : 'no', m.passLimit ? 'yes' : 'no', qt, m.successful ? 'yes' : 'no',

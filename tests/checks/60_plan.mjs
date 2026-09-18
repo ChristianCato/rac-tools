@@ -95,32 +95,61 @@ export default function (check, { assert, near }) {
   check('Spending caps match a direct calculation from the data and Eploy', () => {
     const plan = RAC.plan.build('SMR', SEPT, env);
     const settledSM = ['2025-10', '2025-11', '2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06'];
-    let checked = 0, successful = 0, qualityOut = 0;
+    // The fixed cost benchmark (user decision, 18 September 2026), written out
+    // here: every settled month counted once, whatever the plan's window.
+    const allSettled = Object.keys(plan.months).filter(mo => plan.months[mo].settled).sort();
+    const N = allSettled.length, K = RAC.assumptions.get(A, 'cpa_prior_apps'), roleBench = RAC.assumptions.get(A, 'role_cpa_benchmark', 'SMR');
+    const stats = (p, r) => {
+      const m = RAC.data.monthly(env.ds, p, r, 'SMR');
+      let s = 0, a = 0, n = 0, ran = 0, ranN = 0;
+      allSettled.forEach(mo => { const x = m[mo]; if (!x) return; s += x.spend; a += x.apps; n++; if (x.spend > 0) { ran += x.spend; ranN++; } });
+      const scale = n > 0 ? N / n : 0;
+      return { spend: s * scale, apps: a * scale, raw: a > 0 ? s / a : null, avg: ranN ? ran / ranN : 0 };
+    };
+    const platformFig = {};
+    for (const p of P) {
+      let s = 0, a = 0;
+      env.ds.regions.forEach(r => { const t = stats(p, r); if (t.apps > 0) { s += t.spend; a += t.apps; } });
+      platformFig[p] = a > 0 ? (a * (s / a) + K * roleBench) / (a + K) : roleBench;
+    }
+    // The quality test: the location's usual rate x that month's rate across
+    // all locations over their usual rate.
+    const sumQ = (pred) => eploy.cells.filter(r => r[0] === 'SMR' && r[1] !== 'Unknown' && pred(r)).reduce((a, r) => [a[0] + r[4], a[1] + r[5]], [0, 0]);
+    const baseAll = sumQ(r => settledSM.includes(r[3]));
+    let checked = 0, successful = 0, qualityOut = 0, bench = 0;
     for (const l of plan.locations) for (const p of P) {
       const c = l.cells[p];
       const m = RAC.data.monthly(env.ds, p, l.region, 'SMR');
       const months = Object.keys(m).filter(mo => mo >= '2026-01' && plan.months[mo].settled && m[mo].spend >= 200 && m[mo].apps >= 5).sort();
       assert(JSON.stringify(months) === JSON.stringify(c.ceilingMonths.map(x => x.month)), `${l.region} ${p} months considered`);
+      const t0 = stats(p, l.region);
+      const usual = t0.apps > 0 ? (t0.apps * t0.raw + K * platformFig[p]) / (t0.apps + K) : platformFig[p];
+      near(c.capBenchmark.cpa, usual, 1e-9, `${l.region} ${p} benchmark cost per application`);
+      if (t0.avg > 0) near(c.capBenchmark.spend, t0.avg, 1e-9, `${l.region} ${p} benchmark spend`);
+      bench++;
       let best = 0;
       for (const mo of months) {
         const x = m[mo], cpa = x.spend / x.apps;
-        const expected = c.usualCpa * Math.pow(x.spend / c.spendUsual, 1 - c.diminishingRate) * c.remainingError;
-        const t = eploy.cells.filter(r => r[0] === 'SMR' && r[1] === l.region && r[3] === mo).reduce((a, r) => [a[0] + r[4], a[1] + r[5]], [0, 0]);
-        const normT = eploy.cells.filter(r => r[0] === 'SMR' && r[1] === l.region && settledSM.includes(r[3])).reduce((a, r) => [a[0] + r[4], a[1] + r[5]], [0, 0]);
+        const expected = usual * Math.pow(x.spend / c.capBenchmark.spend, 1 - c.diminishingRate);
+        const t = sumQ(r => r[1] === l.region && r[3] === mo);
+        const normT = sumQ(r => r[1] === l.region && settledSM.includes(r[3]));
         const norm = normT[1] / normT[0];
+        const monthAll = sumQ(r => r[3] === mo);
+        const factor = (monthAll[1] / monthAll[0]) / (baseAll[1] / baseAll[0]);
         const qualityApplies = settledSM.includes(mo) && t[0] * norm >= 10;
-        const qualityPass = !qualityApplies || t[1] / t[0] >= norm * 0.75 - 1e-12;
+        const qualityPass = !qualityApplies || t[1] / t[0] >= norm * factor * 0.75 - 1e-12;
         const ok = cpa <= expected + 1e-9 && qualityPass;
         const rec = c.ceilingMonths.find(x => x.month === mo);
+        near(rec.expected, expected, 1e-9, `${l.region} ${p} ${mo} benchmark at that spend`);
         assert(rec.successful === ok, `${l.region} ${p} ${mo}: planner ${rec.successful}, direct ${ok}`);
         if (ok) { best = Math.max(best, x.spend); successful++; }
         if (cpa <= expected + 1e-9 && !qualityPass) qualityOut++;
         checked++;
       }
-      const want = (best > 0 ? best : c.spendUsual) * plan.capMultiple;
+      const want = (best > 0 ? best : c.capBenchmark.spend) * plan.capMultiple;
       near(c.ceiling, want, 1e-6, `${l.region} ${p} limit`);
     }
-    return `${checked} location-months checked, ${successful} successful, ${qualityOut} set aside by the quality test; every limit matched`;
+    return `${checked} location-months checked against a benchmark over ${N} settled months (${bench} rows), ${successful} successful, ${qualityOut} set aside by the quality test; every limit matched`;
   });
 
   check('Cost per hire and cost per application limits hold, and the money moves', () => {
@@ -159,19 +188,19 @@ export default function (check, { assert, near }) {
   });
 
   check('Budget for the hire target: enough at the answer, not £50 less', () => {
-    // 25 hires: at the agreed defaults 30 SMR hires were out of reach within the spending caps.
-    const T = { ...SEPT, hireTarget: 25 };
+    // 22 hires: 30 SMR hires are out of reach within the spending caps on these settings (most 24.7 since the caps use a fixed benchmark).
+    const T = { ...SEPT, hireTarget: 22 };
     const plan = RAC.plan.build('SMR', T, env);
     assert(plan.budgetForTarget > 0 && !plan.unreachable, 'no answer');
     const at = RAC.plan.build('SMR', { ...T, budget: plan.budgetForTarget }, env).totals.allHires;
     const below = RAC.plan.build('SMR', { ...T, budget: plan.budgetForTarget - 50 }, env).totals.allHires;
-    assert(at >= 25 - 1e-9, `at £${plan.budgetForTarget}: ${at} hires`);
-    assert(below < 25, `at £${plan.budgetForTarget - 50}: ${below} hires`);
+    assert(at >= 22 - 1e-9, `at £${plan.budgetForTarget}: ${at} hires`);
+    assert(below < 22, `at £${plan.budgetForTarget - 50}: ${below} hires`);
     const at30 = RAC.plan.build('SMR', SEPT, env);
     assert(at30.unreachable && at30.maxAchievable < 30, '30 hires expected out of reach at a 0% share');
     const big = RAC.plan.build('SMR', { ...SEPT, hireTarget: 500 }, env);
     assert(big.unreachable && big.maxAchievable > 0, 'a 500-hire target should be out of reach within the limits');
-    return `25 hires: £${plan.budgetForTarget} gives ${at.toFixed(2)}, £50 less gives ${below.toFixed(2)}; 30 hires out of reach (most ${at30.maxAchievable.toFixed(1)} including other sources); 500 hires out of reach (most ${big.maxAchievable.toFixed(1)})`;
+    return `22 hires: £${plan.budgetForTarget} gives ${at.toFixed(2)}, £50 less gives ${below.toFixed(2)}; 30 hires out of reach (most ${at30.maxAchievable.toFixed(1)} including other sources); 500 hires out of reach (most ${big.maxAchievable.toFixed(1)})`;
   });
 
   check('Expected hires from other sources: a fixed line, counted towards the target, not in the rows', () => {
@@ -191,11 +220,11 @@ export default function (check, { assert, near }) {
       });
       assert(Math.abs(plans[0].totals.otherHires - plans[1].totals.otherHires) < 1e-12, 'expected hires from other sources moved with the budget');
       assert(plans[1].totals.hires > plans[0].totals.hires, 'paid-media hires did not rise with the budget');
-      const target = RAC.plan.build('SMR', { ...SEPT, hireTarget: 25, otherHiresShare: share }, env);
-      const at = RAC.plan.build('SMR', { ...SEPT, hireTarget: 25, otherHiresShare: share, budget: target.budgetForTarget }, env);
-      const below = RAC.plan.build('SMR', { ...SEPT, hireTarget: 25, otherHiresShare: share, budget: target.budgetForTarget - 50 }, env);
-      assert(at.totals.hires >= 25 - at.totals.otherHires - 1e-9 && below.totals.hires < 25 - at.totals.otherHires, `share ${share}: budget did not solve for the remainder (${at.totals.hires} paid-media hires)`);
-      out.push(`share ${share * 100}%: ${at.totals.otherHires.toFixed(2)} from other sources, £${target.budgetForTarget} for 25 hires (paid media ${at.totals.hires.toFixed(2)}); all-hires range ${at.totals.range.allHires.low.toFixed(1)} to ${at.totals.range.allHires.high.toFixed(1)}`);
+      const target = RAC.plan.build('SMR', { ...SEPT, hireTarget: 22, otherHiresShare: share }, env);
+      const at = RAC.plan.build('SMR', { ...SEPT, hireTarget: 22, otherHiresShare: share, budget: target.budgetForTarget }, env);
+      const below = RAC.plan.build('SMR', { ...SEPT, hireTarget: 22, otherHiresShare: share, budget: target.budgetForTarget - 50 }, env);
+      assert(at.totals.hires >= 22 - at.totals.otherHires - 1e-9 && below.totals.hires < 22 - at.totals.otherHires, `share ${share}: budget did not solve for the remainder (${at.totals.hires} paid-media hires)`);
+      out.push(`share ${share * 100}%: ${at.totals.otherHires.toFixed(2)} from other sources, £${target.budgetForTarget} for 22 hires (paid media ${at.totals.hires.toFixed(2)}); all-hires range ${at.totals.range.allHires.low.toFixed(1)} to ${at.totals.range.allHires.high.toFixed(1)}`);
     }
     const easy = RAC.plan.build('SMR', { ...SEPT, hireTarget: 5 }, env);
     assert(easy.otherSourcesMeetTarget && easy.budgetForTarget === Math.ceil(easy.holdbacks.total / 50) * 50, 'a target below the other-source hires should need only the hold-backs');
@@ -211,9 +240,9 @@ export default function (check, { assert, near }) {
       if (l.cells[p].hires > 0) near(h.hires / l.cells[p].hires, half.factors.recon / none.factors.recon, 1e-9, `${l.region} ${p} credited hires not in proportion to predicted hires`);
       near(h.hiresPlatform + h.hiresCredited, h.hires, 1e-9, `${l.region} ${p} hires split`);
     }
-    const n25 = RAC.plan.build('SMR', { ...SEPT, hireTarget: 25, otherHiresShare: 0 }, env).budgetForTarget;
-    const h25 = RAC.plan.build('SMR', { ...SEPT, hireTarget: 25, otherHiresShare: 0.5 }, env).budgetForTarget;
-    assert(h25 < n25, `crediting a share did not lower the budget for 25 hires (£${n25} to £${h25})`);
+    const n25 = RAC.plan.build('SMR', { ...SEPT, hireTarget: 22, otherHiresShare: 0 }, env).budgetForTarget;
+    const h25 = RAC.plan.build('SMR', { ...SEPT, hireTarget: 22, otherHiresShare: 0.5 }, env).budgetForTarget;
+    assert(h25 < n25, `crediting a share did not lower the budget for 22 hires (£${n25} to £${h25})`);
     assert(half.totals.allHires > none.totals.allHires, 'crediting a share did not raise total hires');
     // The earlier scaling: every hire Eploy recorded / the model's past hires,
     // worked out fresh, applied to paid media with no separate line.
@@ -232,7 +261,7 @@ export default function (check, { assert, near }) {
       assert(Math.abs(full.budgetForTarget - old.budgetForTarget) <= 50, `${name}: budget for 30 hires £${full.budgetForTarget} against £${old.budgetForTarget}`);
       out.push(`${name}: ${full.totals.hires.toFixed(2)} hires at 100% against ${old.totals.hires.toFixed(2)} under the earlier scaling (x${rec.factor.toFixed(4)}), £${full.budgetForTarget} against £${old.budgetForTarget}`);
     }
-    return `split unchanged by the share; 25 hires £${n25} at 0%, £${h25} at 50%; ` + out.join('; ');
+    return `split unchanged by the share; 22 hires £${n25} at 0%, £${h25} at 50%; ` + out.join('; ');
   });
 
   check('Core Setup fields reach the plan and are recorded with their defaults', () => {

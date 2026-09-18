@@ -1,11 +1,12 @@
 """Browser check: the live address saves, a test link does not.
 
-Opens index.html in headless Chromium twice, once as rac-tools.vercel.app and
-once as a Vercel test link address, with the database replaced by a stand-in
+Opens index.html in headless Chromium three times: as the live address
+(rac-tools-kappa.vercel.app), as the old live address still in use during the
+move (rac-tools.vercel.app), and as a Vercel test link address, with the database replaced by a stand-in
 that records every request. Signs in with a stand-in session, changes a
 setting, and waits for the save.
 
-Pass: the live address sends database writes and shows no banner; the test
+Pass: both live addresses send database writes and show no banner; the test
 link sends none, shows the test version banner and shows Not saved.
 
 Network guard (tests/browser/guard.py): every request is either handled
@@ -22,7 +23,7 @@ Screenshots are written to tests/browser/out/."""
 import os, sys
 from playwright.sync_api import sync_playwright
 sys.path.insert(0, os.path.dirname(__file__))
-from guard import LIVE, TEST, new_page, libs_arg
+from guard import LIVE, LIVE_OLD, TEST, new_page, libs_arg
 
 OUT = os.path.join(os.path.dirname(__file__), 'out'); os.makedirs(OUT, exist_ok=True)
 LIBS = libs_arg(sys.argv)
@@ -40,7 +41,7 @@ def run(browser, url):
     page.wait_for_timeout(2500)   # saves go 800ms after a change
     banner = page.locator('.test-banner').count()
     sync = page.locator('.sync').first.inner_text()
-    page.screenshot(path=os.path.join(OUT, ('live' if url == LIVE else 'test_link') + '.png'))
+    page.screenshot(path=os.path.join(OUT, {LIVE: 'live', LIVE_OLD: 'live_old'}.get(url, 'test_link') + '.png'))
     ctx.close()
     return {'writes': guard.writes, 'reads': len(guard.reads), 'banner': banner, 'sync': sync, 'errors': errors,
             'blocked': guard.blocked, 'probe': probe_ok}
@@ -48,19 +49,20 @@ def run(browser, url):
 
 with sync_playwright() as p:
     b = p.chromium.launch()
-    live, test = run(b, LIVE), run(b, TEST)
+    live, old, test = run(b, LIVE), run(b, LIVE_OLD), run(b, TEST)
     b.close()
 
 fails = []
-if not live['writes']: fails.append('live address sent no database writes')
-if live['banner']: fails.append('live address shows the test banner')
+for name, r in (('live address', live), ('old live address', old)):
+    if not r['writes']: fails.append(f'{name} sent no database writes')
+    if r['banner']: fails.append(f'{name} shows the test banner')
 if test['writes']: fails.append('test link sent database writes: %s' % test['writes'])
 if not test['banner']: fails.append('test link shows no banner')
 if test['sync'].strip() != 'Not saved': fails.append('test link save label reads %r' % test['sync'])
-for name, r in (('live', live), ('test link', test)):
+for name, r in (('live', live), ('old live', old), ('test link', test)):
     print(f"{name}: guard probe {'blocked' if r['probe'] else 'NOT BLOCKED'}, {len(r['blocked'])} other blocked, {len(r['writes'])} writes {sorted(set(w[2][:25] for w in r['writes']))}, {r['reads']} reads, banner {bool(r['banner'])}, label {r['sync']!r}, page errors {len(r['errors'])}")
     if r['errors']: fails.append(f"{name} page errors: {r['errors'][:2]}")
     if not r['probe']: fails.append(f"{name}: network guard probe was not blocked")
     if r['blocked']: fails.append(f"{name}: unhandled requests were blocked, add a handler or remove the call: {r['blocked'][:5]}")
-print('FAIL: ' + '; '.join(fails) if fails else 'PASS: live address saves; test link reads but never writes')
+print('FAIL: ' + '; '.join(fails) if fails else 'PASS: both live addresses save; test link reads but never writes')
 sys.exit(1 if fails else 0)

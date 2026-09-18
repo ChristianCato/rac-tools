@@ -70,12 +70,12 @@ Reading the South East Indeed row left to right:
 | Thin-data adjustment | 0.979 | £97.64 / £99.71: this row has plenty of evidence, so it barely moved |
 | Usual monthly spend | £5,793.19 | from Blend inputs |
 | Cost rises with spend (rate) | 0.65 | the agreed rate, shared across platforms |
-| Media spend | £5,440.97 | planned spend £5,536.19 / 1.0175, the Indeed fee taken off |
-| Spend-level adjustment | 0.978 | (£5,440.97 / £5,793.19) ^ (1 − 0.65) |
+| Media spend | £7,057.91 | planned spend £7,181.42 / 1.0175, the Indeed fee taken off |
+| Spend-level adjustment | 1.072 | (£7,057.91 / £5,793.19) ^ (1 − 0.65) |
 | Remaining-error adjustment | 1.096 | what testing on past months still missed for SMR |
-| **Planned cost per application (media)** | **£104.69** | £97.64 x 0.978 x 1.096 |
-| Planned cost per application (total) | £106.53 | £104.69 x 1.0175, with the fee |
-| **Applications** | **52.0** | £5,440.97 / £104.69 |
+| **Planned cost per application (media)** | **£114.68** | £97.64 x 1.072 x 1.096 |
+| Planned cost per application (total) | £116.68 | £114.68 x 1.0175, with the fee |
+| **Applications** | **61.5** | £7,057.91 / £114.68 |
 
 ## 4. From applications to hires. Sheets: **Rate build-up**, then **Workings**
 
@@ -87,18 +87,30 @@ Reading the South East Indeed row left to right:
 | Location quality adjustment | 1.00 | location differences are not applied this release |
 | **Hire rate after quality** | **11.7%** | the role average (187 hires from 1,598 quality applications): 41 hires from 311 quality applications in the South East is its own figure, but regional differences did not carry forward in testing |
 | Matching factor | 0.954 | so past predictions match the hires Eploy credited to the four platforms |
-| Quality applications | 8.71 | 52.0 x 16.8% |
-| **Hires** | **0.97** | 52.0 x 16.8% x 11.7% x 0.954 |
+| Quality applications | 10.32 | 61.5 x 16.8% |
+| **Hires** | **1.15** | 61.5 x 16.8% x 11.7% x 0.954 |
 
 ## 5. What limited the spend. Sheet: **Successful months**
 
 Every month from January 2026 with at least £200 of spend and 5 applications is
-tested: was its cost per application at or below what the model expected at that
-spend, was it within any cost per application limit, and was the location's
-quality rate not unusually weak that month. June 2026 was the largest month that
-passed, at £7,192.78, so the cap is £7,192.78 x 2 (the spending cap multiple)
-plus the Indeed fee: **£14,637.31**. This row was funded at £5,536.19, well
-inside it.
+tested, the same way whatever data window the plan uses:
+
+- **Cost:** was its cost per application at or below the benchmark at that
+  month's spend? The benchmark is this row's own usual cost per application over
+  every settled month, each counted once (£93.31 on £4,524.93 a month), adjusted
+  for the month's spend at the rate of 0.65. In June 2026, at £7,192.78, the
+  benchmark was £109.74 and the month cost £83.64, so it passed. March (£187.60
+  against £109.40) and July (£161.87 against £109.36) did not.
+- **Limit:** was it within any cost per application limit? None was set.
+- **Quality:** was the South East's quality rate that month no more than 25%
+  below what was expected for it that month? The expected rate is its usual
+  rate scaled by how that month's rate across all locations compared with usual.
+  In June it was 19.1% against 17.4% expected, so it passed; in January it was
+  15.0% against 21.7%, so January was set aside.
+
+June 2026 was the largest month that passed, at £7,192.78, so the cap is
+£7,192.78 x 2 (the spending cap multiple) plus the Indeed fee: **£14,637.31**.
+This row was funded at £7,181.42, inside it.
 
 ## 6. The range. Sheet: **Back-test**
 
@@ -106,8 +118,8 @@ The plan's own range comes from how far it missed on past months, each
 predicted from the months before it: for SMR, −19.3% to +20.5%. A row's range
 starts there and widens where fewer applications sit behind its cost per
 application, and where planned spend sits further from past spend. South East
-Indeed, with 406.7 applications behind it, came out at **37 to 72
-applications**, and **0 to 2 hires** once the uncertainty in the rates and the
+Indeed, with 406.7 applications behind it, came out at **43 to 85
+applications**, and **0 to 3 hires** once the uncertainty in the rates and the
 chance variation in a small number of hires are added.
 
 ## 7. Where it appears

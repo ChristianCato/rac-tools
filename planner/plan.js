@@ -145,6 +145,10 @@
       { key: 'includeSettling', name: 'Include months still settling', value: !!inputs.includeSettling, default: false, source: 'agreed', unit: 'yes/no' },
     ].map(x => ({ ...x, tested: x.key === 'remainingError' ? entry('remaining_error_factor').testedValue : null, changed: x.value !== x.default }));
     const quality = RAC.ceilings.qualityByLocation(env.eploy, hireRates, role);
+    // The spending caps judge a successful month against a fixed benchmark:
+    // each location and platform over every settled month, each counted once,
+    // whatever the plan's data window (user decision, 18 September 2026).
+    const ctxCaps = RAC.cost.context(ds, A, role, { mode: 'all' }, { includeSettling: !!inputs.includeSettling });
     const cpaLimits = (inputs.limits && inputs.limits.cpa) || {};
     const cells = {};
     ds.regions.forEach(region => {
@@ -159,7 +163,8 @@
             rates: { platformScreen: null, platformBasis: 'previous static hire rate', screenAdjustment: 1, screen: 1, hireAfterScreening: rate, hirePerApplication: rate } });
         }
         const cpaLimit = (cpaLimits[region] || {})[plat] || null;
-        let ceiling = RAC.ceilings.cell(ctx, pc, quality, { capMultiple, cpaLimit });
+        const benchmark = RAC.forecast.prepare(ctxCaps, null, d1, factors, plat, region);
+        let ceiling = RAC.ceilings.cell(ctx, pc, quality, { capMultiple, cpaLimit, benchmark });
         if (cmp.previousCeilings) {
           // The previous version: the biggest month on record x the multiple, and
           // money above it spread anyway rather than moved or left unplaced.
@@ -628,7 +633,7 @@
       // Spending cap: past media spend x multiple (ceiling), and the same
       // with the fee added (ceilingTotal, what planned spend is held to).
       ceiling: c.ceiling.ceiling, ceilingTotal: c.ceiling.ceiling * (1 + pc.fee), ceilingBase: c.ceiling.base, ceilingBasis: c.ceiling.basis, ceilingFlagged: c.ceiling.flagged,
-      largestSuccessful: c.ceiling.largestSuccessful, largestMonth: c.ceiling.largestMonth, ceilingMonths: c.ceiling.months,
+      largestSuccessful: c.ceiling.largestSuccessful, largestMonth: c.ceiling.largestMonth, ceilingMonths: c.ceiling.months, capBenchmark: c.ceiling.benchmark,
       cpaLimit: c.cpaLimit, cpaLimitSpend: Number.isFinite(c.cpaCap) ? c.cpaCap : null, cap: c.cap,
       aboveLimitByInstruction: aboveByInstruction,
       aboveLargestSuccessful: Math.max(0, f.media - c.ceiling.base),
@@ -826,6 +831,8 @@
       weights: base.ctx.weights,
       // Months the spending caps looked at (C3): settled months from ceiling_first_month.
       capMonths: base.ctx.settled.filter(mo => mo >= RAC.assumptions.get(A, 'ceiling_first_month')),
+      // Months behind the caps' fixed benchmark: every settled month.
+      capBenchmarkMonths: base.ctx.settled.slice(),
       factors: base.factors,
       otherHiresShare: base.factors.share,
       otherHiresMonthly: base.baseline.monthly,

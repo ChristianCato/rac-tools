@@ -102,8 +102,10 @@ export default function (check, { assert, near }) {
     const doc = readRoot('docs/release.md');
     ['node tests/run.mjs', 'tests/browser/save_guard.py', 'tests/browser/app_checks.py', 'tests/browser/export_checks.py',
       'tests/browser/issued_checks.py', 'tests/browser/archive_checks.py', 'RAC_EPLOY_WORKBOOK', 'RAC_PACING_DIR',
-      'archive:workspace', 'Back up', 'python tools/build_archive.py', 'https://rac-tools.vercel.app/archive/', 'https://rac-tools.vercel.app/**']
+      'archive:workspace', 'Back up', 'python tools/build_archive.py', 'https://rac-tools-kappa.vercel.app/archive/', 'https://rac-tools-kappa.vercel.app/**',
+      'SAVE_HOSTS', 'Retire the old address', 'Tell the team the link has changed', 'Check the version stamp', 'api/windsor-spend?version=1']
       .forEach(t => assert(doc.includes(t), 'docs/release.md does not mention ' + t));
+    assert(!doc.includes('https://rac-tools.vercel.app/archive'), 'docs/release.md still sends people to the archive on the old address');
     assert(!internalText(doc).length, 'the release document fails the output checks: ' + internalText(doc).join('; '));
     return 'every check to run, the back-up, the archive copy and the match against the live exports are all in docs/release.md';
   });
