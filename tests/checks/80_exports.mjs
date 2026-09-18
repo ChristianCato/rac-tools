@@ -74,9 +74,12 @@ export default function (check, { assert }) {
       ['Values live in the repository', 'names the repository'], ['Kept on GitHub', 'names the repository'], ['the git history', 'names the repository'],
       ['Hosted on Vercel', 'names the repository'], ['saved to Supabase', 'names the repository'], ['the data file is public', 'names the repository'],
       ['publicly downloadable', 'names the repository'], ['Repo data file', 'names the repository'],
+      ["SMR data from rac_data.js (the live app's data)", 'refers to the app'], ['Set on Setup', 'refers to the app'],
+      ['written by tools/calibrate.mjs', 'refers to the app'], ['Values live in assumptions.csv', 'refers to the app'],
+      ['the Method tab in the app', 'refers to the app'], ['Window: [object Object].', 'refers to the app'],
     ];
     // Ordinary words that must not trip it.
-    ['Published plans', 'the reporting period', 'digital', 'Report data file'].forEach(t =>
+    ['Published plans', 'the reporting period', 'digital', 'Report data file', 'set for this plan', 'Corrected RAC Eploy Data Oct 2025 - Aug 2026 v2.xlsx', 'applications', 'a plan can set it'].forEach(t =>
       assert(!RAC.outputChecks.text(t).length, `false alarm on "${t}": ${RAC.outputChecks.text(t).join('; ')}`));
     cases.forEach(([t, why]) => assert(RAC.outputChecks.text(t).some(p => p.startsWith(why)), `not caught: ${why}`));
     assert(RAC.outputChecks.pdfRows([{ label: 'London Indeed', spend: 0, cph: '£11,535' }]).length === 1, '£0 row with cost per hire not caught');

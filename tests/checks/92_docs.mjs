@@ -11,10 +11,11 @@ export default function (check, { assert, near }) {
   const A = loadAssumptions(RAC);
   const eploy = JSON.parse(readRoot('data/eploy_rates.json'));
   const D = calibrationData(RAC);
-  // The check list and the release steps are for the team and the app author,
-  // never RAC, so they may name GitHub, Vercel and Supabase. Every other output
-  // rule still applies to them.
-  const internalText = (t) => RAC.outputChecks.text(t).filter(p => !p.startsWith('names the repository'));
+  // The check list, the release steps and the trace guide are for the team,
+  // never RAC, so they may name GitHub, Vercel and Supabase, the app's screens
+  // and its files. Every other output rule still applies to them.
+  const internalText = (t) => RAC.outputChecks.text(t)
+    .filter(p => !p.startsWith('names the repository') && !p.startsWith('refers to the app'));
 
   check('Trace guide: every figure it quotes is the one the planner gives', () => {
     const guide = readRoot('docs/trace_guide.md');
@@ -56,7 +57,7 @@ export default function (check, { assert, near }) {
     // It has to name the sheets, in the order the workbook holds them.
     ['Data sources', 'Blend inputs', 'Workings', 'Rate build-up', 'Successful months', 'Back-test']
       .forEach(sheet => assert(guide.includes('**' + sheet + '**') || guide.includes(sheet + '**'), 'the guide does not name the ' + sheet + ' sheet'));
-    assert(!RAC.outputChecks.text(guide).length, 'the guide fails the output checks: ' + RAC.outputChecks.text(guide).join('; '));
+    assert(!internalText(guide).length, 'the guide fails the output checks: ' + internalText(guide).join('; '));
     return `${want.length} figures in docs/trace_guide.md match the planner, from the monthly rows to ${c.hires.toFixed(2)} hires`;
   });
 

@@ -97,7 +97,7 @@
     add('What the plan does',
       `The plan starts from the monthly budget${v.feesOn === false ? '' : ', which includes platform fees'}. Indeed Premium (campaigns x days in the month x ${f.gbp(v.premiumRate)} a day, plus the Indeed fee where fees apply) and the Combined Activity reserve come off the top${v.includesDisplay ? ', and the Google Display remarketing campaign is part of Combined Activity, so its spend sits in that reserve rather than in the planned Google spend' : ''}. What remains is the deployable budget.`,
       `The deployable budget is split between live locations by their share of open roles${plan && plan.efficiency && plan.efficiency.weight > 0 ? `, moved ${f.pct(plan.efficiency.weight)} of the way towards where a hire is predicted to cost least (the efficiency setting)` : ''}, within any location minimums and maximums, the spending caps and any cost limits. Money a location cannot take moves to locations with room, again by open roles. Anything no location can take is shown as budget the plan could not place efficiently.`,
-      'Within each location, money goes to whichever platform delivers the next hire most cheaply, until the platforms cost the same per extra hire or reach their spending caps. Minimums and floors set on Setup are then applied, but never above a spending cap; where a cap stops a minimum being met, the plan says by how much.',
+      'Within each location, money goes to whichever platform delivers the next hire most cheaply, until the platforms cost the same per extra hire or reach their spending caps. Minimums and floors set for the plan are then applied, but never above a spending cap; where a cap stops a minimum being met, the plan says by how much.',
       'Predicted applications, quality applications and hires come from one forecast, used by the screens, this document and the workings export alike.');
 
     add('Data used',
@@ -106,7 +106,7 @@
       ATTRIBUTION);
 
     add('Cost per application',
-      `The usual cost per application for a location and platform was its spend over applications in the months used, with recent months weighted as set on Setup. Where a location had few applications, its figure was pulled towards the platform’s figure for the role, and the platform’s figure towards the role benchmark (${f.gbp(v.benchmark, 2)}): a figure with ${v.cpaPrior} applications behind it carried half the weight.`,
+      `The usual cost per application for a location and platform was its spend over applications in the months used, with recent months weighted as set for the plan. Where a location had few applications, its figure was pulled towards the platform’s figure for the role, and the platform’s figure towards the role benchmark (${f.gbp(v.benchmark, 2)}): a figure with ${v.cpaPrior} applications behind it carried half the weight.`,
       `Cost per application rises as spend rises. The plan uses a rate of ${v.d1Rate}${v.d1Strength >= OFF ? ', shared across platforms' : ''}: doubling spend on a platform raises its cost per application by ${f.pct(Math.pow(2, 1 - v.d1Rate) - 1)} and delivers ${f.pct(Math.pow(2, v.d1Rate) - 1)} more applications. This was an agreed setting informed by testing on past months${tested(v.d1RateTested)}.`,
       `A remaining-error adjustment of ${v.bias.toFixed(3)} multiplies every planned cost per application. Testing on past months, with each month predicted from the months before it, found predictions still missed by ${v.biasTested !== null && v.biasTested !== undefined ? v.biasTested.toFixed(3) : 'n/a'} overall. That figure is used only when it stays on the same side of 1 with any one test month left out; otherwise the adjustment is 1.00.${v.biasDefault === 1 && v.biasTested !== 1 ? ` For ${role} it did not hold, so the default is 1.00.` : ''}${plan && v.bias !== v.biasDefault ? ` This plan set it to ${v.bias.toFixed(3)} (default ${v.biasDefault.toFixed(3)}).` : ''}`,
       'Planned cost per application = usual cost per application x spend-level adjustment x remaining-error adjustment. Predicted applications = media spend / planned cost per application.');
@@ -123,7 +123,7 @@
       'Where a location and platform had no successful month, its usual monthly spend (or the platform’s typical month) was used instead, and the row is flagged. The plan never spends above a cap, including to meet a minimum. Caps were set on past media spend, so where fees apply the cap on planned spend includes the fee.');
 
     add('Cost limits',
-      'Setup can set a maximum cost per hire for a location and a maximum cost per application for a location and platform. The plan stops adding spend where a limit would be passed, moves the money to locations within their limits, and shows what could not be placed. Cost per hire limits apply to locations only, because the data did not support cost per hire by platform.');
+      'A plan can set a maximum cost per hire for a location and a maximum cost per application for a location and platform. The plan stops adding spend where a limit would be passed, moves the money to locations within their limits, and shows what could not be placed. Cost per hire limits apply to locations only, because the data did not support cost per hire by platform.');
 
     add('Platform fees',
       `Plans from ${f.month(v.feesFrom)} include platform fees: Indeed ${f.pct(v.feeIndeed, 2)}, Meta ${f.pct(v.feeMeta, 2)} and Google ${f.pct(v.feeGoogle, 2)} of media spend, including the Indeed Premium hold-back; Appcast has none, and the Combined Activity reserve is a flat amount with no fee added. RAC’s budget includes the fees, so planned Indeed, Meta and Google spend is media plus fee, and media = planned spend / (1 + fee rate). Forecasts use the media spend; cost per application and cost per hire are shown on the total including the fee.${v.feesOn === false ? ' This plan is for an earlier month, so it includes no fees.' : ''}`);
@@ -189,7 +189,7 @@
       plan.settings.forEach(s => {
         const r = rows.find(x => x.key === byKey[s.key]);
         if (r) r.plan = s.value;
-        else rows.push({ key: s.key, name: s.name, value: s.default, tested: null, unit: s.unit, source: s.source, date: '', notes: 'Setup setting', plan: s.value });
+        else rows.push({ key: s.key, name: s.name, value: s.default, tested: null, unit: s.unit, source: s.source, date: '', notes: 'Set for each plan', plan: s.value });
       });
       const o = (plan.stamps && plan.stamps.assumptions && plan.stamps.assumptions.overrides) || {};
       Object.keys(o).forEach(k => {

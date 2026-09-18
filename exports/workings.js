@@ -96,6 +96,14 @@
     const base = names[w.mode] || w.mode;
     return plan.windowMonths.length ? `${base}: ${f.month(plan.windowMonths[0])} to ${f.month(plan.windowMonths[plan.windowMonths.length - 1])}` : base;
   }
+  // The window the testing used, in words (the test results hold it as
+  // { mode, mult }).
+  function windowName(w) {
+    if (!w) return 'not recorded';
+    if (typeof w === 'string') return w;
+    const names = { all: 'every month held', ytd: 'year to date', last3: 'the last three months', last3up: `year to date, last three months x${w.mult || 3}`, custom: 'a chosen period' };
+    return names[w.mode] || 'not recorded';
+  }
 
   // Window figures per location and platform, and each platform's figure for
   // the role, as formulas over Data sources.
@@ -242,7 +250,7 @@
     const F1 = plan.factors;
     const paidRow = s.body(['Matching factor to platform hires', F1.paid, 'Hires Eploy credited to the four platforms over the model’s hires on those months'], [null, N4]);
     const creditRow = s.body(['Other-source hires per model hire', F1.credit, 'Hires Eploy recorded outside the four platforms over the model’s hires on those months'], [null, N4]);
-    const shareRow = s.body(['Share credited to paid media', F1.share, 'Setup setting for this plan'], [null, PCT1]);
+    const shareRow = s.body(['Share credited to paid media', F1.share, 'Set for this plan'], [null, PCT1]);
     const reconRow = s.body(['Factor used on every row', F(`$B$${paidRow}+$B$${shareRow}*$B$${creditRow}`, F1.recon), 'Matching factor plus the credited share'], [null, N4]);
     return { sheet: s, roleRow, platRow, locRow, reconRow, col: { used: 6, adjustment: 5, hireUsed: 10, factor: 2 } };
   }
@@ -385,15 +393,15 @@
     const W = (k, row) => at(w.sheet.name, w.C[k], row || w.totalRow);
     s.add('title', ['The budget']);
     s.head(['', 'Amount', 'What it is', '', '', '']);
-    const bRow = s.body(['Monthly budget', plan.budget, plan.fees.on ? 'Set on Setup. It includes platform fees.' : 'Set on Setup.']);
+    const bRow = s.body(['Monthly budget', plan.budget, plan.fees.on ? 'Set for this plan. It includes platform fees.' : 'Set for this plan.']);
     const pmRow = s.body(['Indeed Premium, media', plan.holdbacks.premiumMedia,
       `${plan.inputs.premiumCampaigns || 0} campaigns x ${plan.daysInMonth} days x ${f.gbp(RAC.assumptions.get(plan.A, 'indeed_premium_rate'))} a day`]);
     const pfRow = s.body(['Indeed Premium, platform fee', plan.holdbacks.premiumFee,
       plan.fees.on ? `${f.pct(plan.fees.rates.indeed, 2)} of the media above` : 'No fees on this plan']);
     const pRow = s.body(['Indeed Premium hold-back', F(`$B$${pmRow}+$B$${pfRow}`, plan.holdbacks.premium), 'Media and fee together']);
     const cRow = s.body(['Combined Activity reserve', plan.holdbacks.combined,
-      `Set on Setup${plan.combinedActivityIncludesDisplay ? '. It covers the Google Display remarketing campaign, whose spend is not in the planned Google spend.' : '.'}`]);
-    const oRow = s.body(['OneRAC hold-back', plan.holdbacks.oneRac, 'Set on Setup']);
+      `Set for this plan${plan.combinedActivityIncludesDisplay ? '. It covers the Google Display remarketing campaign, whose spend is not in the planned Google spend.' : '.'}`]);
+    const oRow = s.body(['OneRAC hold-back', plan.holdbacks.oneRac, 'Set for this plan']);
     const dRow = s.body(['Deployable budget', F(`$B$${bRow}-$B$${pRow}-$B$${cRow}-$B$${oRow}`, plan.deployable), 'What is left for the locations']);
     const placedRow = s.body(['Placed in the plan', F(W('spend'), plan.placed), 'Workings sheet, plan total']);
     s.body(['Budget the plan could not place efficiently', F(`$B$${dRow}-$B$${placedRow}`, plan.unplaced.total),
@@ -439,9 +447,9 @@
     }
     const lim = (plan.inputs && plan.inputs.limits) || {};
     const limitRows = [];
-    Object.keys(lim.cph || {}).forEach(r => { if (lim.cph[r] > 0) limitRows.push([`Most a hire may cost: ${r}`, lim.cph[r], 'Set on Setup for this plan']); });
+    Object.keys(lim.cph || {}).forEach(r => { if (lim.cph[r] > 0) limitRows.push([`Most a hire may cost: ${r}`, lim.cph[r], 'Set for this plan']); });
     Object.keys(lim.cpa || {}).forEach(r => P().forEach(q => {
-      if ((lim.cpa[r] || {})[q] > 0) limitRows.push([`Most an application may cost: ${r} ${L()[q]}`, lim.cpa[r][q], 'Set on Setup for this plan']);
+      if ((lim.cpa[r] || {})[q] > 0) limitRows.push([`Most an application may cost: ${r} ${L()[q]}`, lim.cpa[r][q], 'Set for this plan']);
     }));
     s.blank();
     s.add('title', ['Cost limits']);
@@ -469,7 +477,7 @@
     const s = makeSheet('Assumptions', { freeze: 1, columns: [
       { w: 30 }, { w: 52 }, { w: 14 }, { w: 14 }, { w: 14 }, { w: 12 }, { w: 22 }, { w: 12 }, { w: 90 },
     ] });
-    s.title('Every value this plan used', 'Values live in assumptions.csv, not in the calculations. A plan can set the fields marked as a plan value; the rest change only by editing the file.');
+    s.title('Every value this plan used', 'Every value comes from one agreed list of assumptions, held apart from the calculations. A plan can set the fields marked as a plan value; the rest are the same for every plan until the list is changed.');
     s.head(['Key', 'What it is', 'Value used', 'This plan', 'Testing gave', 'Unit', 'Source', 'Date', 'Notes']);
     RAC.text.assumptionRows(plan.A, doc.role, plan).forEach(row => {
       s.body([row.key, row.name,
@@ -491,10 +499,10 @@
       'Each month was predicted from the months before it only, at that month’s actual spend and mix. The miss is actual over predicted, less one.');
     const bt = backtest && backtest.roles && backtest.roles[doc.role];
     if (!bt) {
-      s.note('The test results file was not loaded, so this sheet is empty. It is written by tools/calibrate.mjs into data/backtest_results.json.');
+      s.note('The test results were not available when this plan was built, so this sheet is empty.');
       return s;
     }
-    s.note(`${bt.data}; ${bt.eploy}. Window: ${backtest.window || 'as set on Setup'}. Rate in use ${bt.used.roleRate}, remaining-error adjustment ${bt.used.adjustment}.`);
+    s.note(`${bt.data}; ${bt.eploy}. Window: ${windowName(backtest.window)}. Rate in use ${bt.used.roleRate}, remaining-error adjustment ${bt.used.adjustment}.`);
     s.blank();
     s.add('title', ['Applications']);
     const head = s.head(['Test month', 'Learned from', 'Spend', 'Predicted applications', 'Actual applications', 'Miss', '', '', '']);
@@ -524,7 +532,7 @@
       F(`SQRT((SUMPRODUCT(LN(1+${misses})^2)-SUMPRODUCT(LN(1+${misses}))^2/${n})/${n - 1})`, sigma),
       'Standard deviation of log(1 + miss), written with SUMPRODUCT so it works without being entered as an array formula', plan.ranges.apps.sigma], [null, N4, null, N4]);
     s.body(['Row widening strength', plan.ranges.widen, 'Applications of evidence at which a row’s range is half as wide again as the plan’s'], [null, N0]);
-    s.note('The values used come from assumptions.csv, where tools/calibrate.mjs wrote them to four decimal places. The figures worked out here start from the rounded predictions above, so they can differ in the fourth decimal place.');
+    s.note('The values used were recorded to four decimal places. The figures worked out here start from the rounded predictions above, so they can differ in the fourth decimal place.');
     s.blank();
     s.add('title', ['Cost misses before the remaining-error adjustment']);
     s.note(`The adjustment applies only where the misses sit on the same side of 1 with any one test month left out. For ${doc.role} they ${bt.sameDirection ? 'did, so the tested figure of ' + bt.tested.adjustment + ' is used' : 'did not, so the adjustment is 1.00'}.`);
@@ -582,7 +590,7 @@
 
   function methodSheet(plan, doc, backtest) {
     const s = makeSheet('Method', { columns: [{ w: 34 }, { w: 120 }] });
-    s.title('How the plan was worked out', 'The same words as the Method tab in the app and the method pages of the PDF.');
+    s.title('How the plan was worked out', 'The same words as the method pages of the PDF.');
     RAC.text.method(plan.A, doc.role, plan, backtest).forEach(sec => {
       s.add('title', [sec.heading]);
       sec.paras.forEach(p => s.body(['', p]));

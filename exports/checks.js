@@ -17,6 +17,9 @@
     // Nothing RAC sees may name where the app is kept or hosted, or say that
     // any of its data or code is public (user, 18 September 2026).
     { re: /\b(repositor(y|ies)|repo|github|git|vercel|supabase|public(ly)?)\b/i, why: 'names the repository, hosting or database, or says something is public' },
+    // Nor refer to the app, its screens or its internal files (user, 18
+    // September 2026). The Eploy dataset's own file name is RAC's, and stays.
+    { re: /\bSetup\b|\bthe app\b|\bapp['’]s\b|\b(Method|Data|Assumptions|OneRAC|Plan|Benchmarks) tab\b|\b[\w-]+\.(js|mjs|jsx|csv|json|py|html)\b|\brac_data\b|\[object Object\]/i, why: 'refers to the app or an internal file' },
     { re: /\bapp(lication)?s? target\b/i, why: 'location application target' },
     { re: /\bNaN\b|\bundefined\b|\bInfinity\b/, why: 'broken figure' },
   ];

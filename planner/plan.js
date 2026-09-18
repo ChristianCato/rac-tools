@@ -409,7 +409,7 @@
       for (let i = 0; i < 5; i++) {
         const low = Object.keys(floors).filter(plat => (s.spend[plat] || 0) < floors[plat] - 0.005 && l.fixed[plat] === undefined);
         if (!low.length) break;
-        low.forEach(plat => { l.fixed[plat] = floors[plat]; steps.push({ step: 'within location', region: l.region, platform: plat, amount: floors[plat] - (s.spend[plat] || 0), reason: 'floor set on Setup' }); });
+        low.forEach(plat => { l.fixed[plat] = floors[plat]; steps.push({ step: 'within location', region: l.region, platform: plat, amount: floors[plat] - (s.spend[plat] || 0), reason: 'floor set for this plan' }); });
         s = RAC.allocate.splitLocation(l.cells, l.spend, l.fixed);
       }
       l.split = s.spend;

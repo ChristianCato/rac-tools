@@ -58,7 +58,7 @@ const AGREED_NOTE = {
   region_hire_blend_n: 'Agreed 17 Sep 2026 for this release: role average for both roles (100000).',
   d1_role_rate: 'Agreed 17 Sep 2026 for this release: 0.65 for both roles.',
   d1_prior_strength: 'Agreed 17 Sep 2026 for this release: shared across platforms (100000) for both roles.',
-  remaining_error_factor: 'Agreed 17 Sep 2026: the tested figure applies only if it stays on the same side of 1 with any one test month left out; otherwise 1.00. Default for the Setup field.',
+  remaining_error_factor: 'Agreed 17 Sep 2026: the tested figure applies only if it stays on the same side of 1 with any one test month left out; otherwise 1.00. It is the default for each plan, which a plan can change.',
   row_widen_apps: 'Agreed 17 Sep 2026: one strength for both roles, the one whose widened row ranges held closest to 80% of both roles\' location and platform misses together, used when SMR and Patrol each hold at least 70% at it; otherwise 800.',
 };
 const switchText = (months, unstable) => (months >= switchMin && !unstable
@@ -106,7 +106,7 @@ for (const role of RAC.ROLES) {
       `With paid_hire_reconciliation_factor it adds up to ${r4(r.paidFactor + r.otherFactor)}, the earlier scaling to all ${r.eployHires} hires.`);
     const byMonth = r.otherMonthly.map(x => `${x.month} ${x.hires}`).join(', ');
     set('other_hires_monthly', role, r4(r.otherMean),
-      `Tested ${today}: starting value for Setup (editable per plan); average of the hires Eploy recorded outside the four platforms each month, all locations including no region: ${byMonth}`);
+      `Tested ${today}: starting value for each plan (a plan can change it); average of the hires Eploy recorded outside the four platforms each month, all locations including no region: ${byMonth}`);
   }
 }
 

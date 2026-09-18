@@ -1,13 +1,13 @@
 {
   "note": "Written by tools/calibrate.mjs. Each month was predicted from earlier months only.",
-  "tested": "2026-09-17",
+  "tested": "2026-09-18",
   "window": {
     "mode": "last3up",
     "mult": 2
   },
   "roles": {
     "SMR": {
-      "data": "SMR data from rac_data.js (the live app's data, taken 2026-09-17)",
+      "data": "RAC's monthly SMR spend and application data, to August 2026",
       "eploy": "Corrected RAC Eploy Data Oct 2025 - Aug 2026 v2.xlsx (2026-09-17)",
       "adjustmentLearnedFrom": 0,
       "applications": [
@@ -315,7 +315,7 @@
       }
     },
     "Patrol": {
-      "data": "Patrol data from rac_data.js (the live app's data, taken 2026-09-17)",
+      "data": "RAC's monthly Patrol spend and application data, to August 2026",
       "eploy": "Corrected RAC Eploy Data Oct 2025 - Aug 2026 v2.xlsx (2026-09-17)",
       "adjustmentLearnedFrom": 0,
       "applications": [
