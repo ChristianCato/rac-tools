@@ -140,8 +140,11 @@ in Excel, Find All with "Within: Workbook" and "Look in: Values") for:
 - repository, GitHub, Vercel, Supabase, public, database, branch
 - [object
 
-Find also matches inside longer words, so ignore "applicant" and
-"applications" (for app) and "screening" (for screen). Apart from those,
+Find also matches inside longer words, so ignore any match that is part of a
+longer word: "applicant", "application", "apply", "applied", "Appcast",
+"capped" and "happened" (for app), and "screening" (for screen). On the
+workings Assumptions sheet, the Key column holds setting names such as
+"cpa_prior_apps" and "screen_blend_n"; ignore those too. Apart from those,
 nothing should be found. The Eploy dataset's own file name appears in the stamp
 and notes, which is expected: it is RAC's own file. The exports run a
 whole-word version of this search themselves and refuse to save a document
