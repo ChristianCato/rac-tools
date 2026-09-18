@@ -180,8 +180,25 @@
       selfCompetition: opts.selfCompetition || 0,
     };
     delete inputs.regions;
-    const plan = RAC.plan.build(ROLE, inputs, { ds, A: A0, eploy: file });
-    return { ...plan, oneRac: { regions, mix: m, adjustment: adj, roleVacancies: opts.vacancies || {} } };
+    const env2 = { ds, A: A0, eploy: file };
+    const plan = RAC.plan.build(ROLE, inputs, env2);
+    // An optional second scenario: the same plan with a different
+    // self-competition figure, to show what it would be worth. It is a
+    // comparison only; the plan itself is the first figure.
+    let second = null;
+    const other = Number(opts.secondScenario);
+    if (Number.isFinite(other) && other > 0 && other <= 0.9 && other !== inputs.selfCompetition) {
+      const q = RAC.plan.build(ROLE, { ...inputs, selfCompetition: other }, env2);
+      second = {
+        selfCompetition: other,
+        apps: q.totals.apps, hires: q.totals.allHires, paidHires: q.totals.hires,
+        cpa: q.totals.cpa, cph: q.totals.cph,
+        budgetForTarget: q.unreachable ? null : q.budgetForTarget,
+        mostHires: q.unreachable ? q.maxAchievable : null,
+        extraHires: q.totals.allHires - plan.totals.allHires,
+      };
+    }
+    return { ...plan, oneRac: { regions, mix: m, adjustment: adj, second, roleVacancies: opts.vacancies || {} } };
   }
 
   RAC.onerac = { ROLE, live, mix, holdback, data, eploy, roleMixAdjustment, assumptionsFor, build };

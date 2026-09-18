@@ -119,6 +119,14 @@
             parse={t => { const n = num(t); return n === null ? null : Math.min(90, Math.max(0, n)) / 100; }}
             onCommit={v => set({ selfCompetition: v })} />
         </Row>
+        <Row label="Second scenario: self-competition"
+          note={<>Optional. Shows what the same budget would be expected to deliver at a second self-competition figure,
+            beside the plan. It is a comparison, not the plan, and it is printed in the PDF as one. Leave it empty for none.</>}>
+          <NumberField field="onerac-second" value={one.secondScenario != null ? one.secondScenario : 0}
+            format={v => (v > 0 ? Math.round(v * 100) + '%' : '')}
+            parse={t => { const n = num(t); return n === null ? 0 : Math.min(90, Math.max(0, n)) / 100; }}
+            onCommit={v => set({ secondScenario: v })} />
+        </Row>
         <Row label="Indeed Premium campaigns"
           note="Campaigns x days in the month x the Indeed Premium day rate comes off the OneRAC budget, as in a role plan.">
           <NumberField field="onerac-premium" value={one.premiumCampaigns || 0}
@@ -166,6 +174,22 @@
             <div className="kpi-sub">{plan.unreachable ? `reached at ${fmtGBP(plan.saturationBudget)}` : `for ${plan.hireTarget} hires`}</div>
           </div>
         </div>
+
+        {o.second && (
+          <div className="banner banner-warn" data-panel="onerac-second" style={{ marginBottom: 18 }}>
+            <div className="banner-icon">?</div>
+            <div>
+              <strong>Second scenario, for comparison only.</strong> At a self-competition improvement
+              of {Math.round(o.second.selfCompetition * 100)}%, the same budget would be expected to
+              deliver {o.second.hires.toFixed(1)} hires against {t.allHires.toFixed(1)}
+              {' '}({o.second.extraHires >= 0 ? '+' : ''}{o.second.extraHires.toFixed(1)}),
+              at {fmtGBP(o.second.cpa)} an application against {fmtGBP(t.cpa)}.
+              {o.second.budgetForTarget ? <> The hire target would be reached at {fmtGBP(o.second.budgetForTarget)}.</>
+                : o.second.mostHires ? <> The target would still be out of reach, at most {o.second.mostHires.toFixed(1)} hires.</> : null}
+              {' '}The plan itself is the figure above; this is what the improvement would be worth if it turned out to be real.
+            </div>
+          </div>
+        )}
 
         <div className="banner banner-info" style={{ marginBottom: 18 }}>
           <div className="banner-icon">i</div>

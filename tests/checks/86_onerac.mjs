@@ -96,6 +96,30 @@ export default function (check, { assert, near }) {
     return `0% gives ${plain.totals.apps.toFixed(0)} applications and ${plain.totals.allHires.toFixed(1)} hires; 10% gives ${cheaper.totals.apps.toFixed(0)} and ${cheaper.totals.allHires.toFixed(1)}`;
   });
 
+  check('OneRAC: a second scenario is shown beside the plan, and named as a comparison', () => {
+    const plan = RAC.onerac.build(oneRacInputs(['London'], { secondScenario: 0.15 }), env);
+    const second = plan.oneRac.second;
+    assert(second && second.selfCompetition === 0.15, 'no second scenario on the plan');
+    // The plan itself is unchanged: the scenario is a comparison only.
+    const plain = RAC.onerac.build(oneRacInputs(['London']), env);
+    near(plan.totals.apps, plain.totals.apps, 1e-9, 'the plan moved when a second scenario was added');
+    assert(second.apps > plain.totals.apps, 'a cheaper scenario should show more applications');
+    assert(Math.abs(second.extraHires - (second.hires - plan.totals.allHires)) < 1e-9, 'the difference in hires');
+    const doc = { role: 'OneRAC', roleName: 'OneRAC (SMR and Patrol)', plan, commentary: { legacy: [], plan: [] } };
+    const o = { monthLabel: 'October 2026', planName: 'OneRAC October', backtest: null, code: { commit: 'feedface00' }, notes: false };
+    const out = RAC.pdf.build(FakePDF, [doc], o);
+    assert(!out.problems.length, out.problems.join('; '));
+    // The PDF wraps each line, so a phrase can be split across the strings it draws.
+    const flat = out.texts.join(' ').replace(/\s+/g, ' ');
+    assert(flat.includes('Second scenario: at a self-competition improvement of 15%'), 'the PDF does not print the second scenario');
+    assert(flat.includes('It is a comparison, not the plan.'), 'the PDF does not say it is a comparison');
+    const text = RAC.text.method(plan.A, 'OneRAC', plan, null).flatMap(x => x.paras).join(' ');
+    assert(/A second scenario is shown beside the plan/.test(text), 'the method text does not mention it');
+    // Nothing set means nothing shown.
+    assert(RAC.onerac.build(oneRacInputs(['London'], { secondScenario: 0 }), env).oneRac.second === null, 'a second scenario appeared without one being set');
+    return `at 15% the same budget shows ${second.hires.toFixed(1)} hires against ${plan.totals.allHires.toFixed(1)}, printed as a comparison; the plan is unchanged`;
+  });
+
   check('OneRAC: its PDF and workings build from the plan, with the OneRAC method section', () => {
     const plan = RAC.onerac.build(oneRacInputs(['London', 'West Midlands']), env);
     const doc = { role: 'OneRAC', roleName: 'OneRAC (SMR and Patrol)', plan, commentary: { legacy: [], plan: [] } };

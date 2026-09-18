@@ -235,6 +235,9 @@
         fees && fees.on ? `Platform fees: Indeed ${F.pct(fees.rates.indeed, 2)}, Meta ${F.pct(fees.rates.meta, 2)} and Google ${F.pct(fees.rates.google, 2)} of media spend (Appcast none), inside the budget (${F.gbp(fees.total, 2)} in this plan). Forecasts use media spend.`
           : 'Platform fees: none in this plan (fees apply to plans from ' + F.month(fees ? fees.firstMonth : '') + ').',
         'Attribution: quality and hire rates came from RAC’s applicant tracking data, which credited each application to the last source used; Meta and Google rates were moved towards the role average (see Method).',
+        ...(p.oneRac && p.oneRac.second
+          ? [`Second scenario: at a self-competition improvement of ${F.pct(p.oneRac.second.selfCompetition)}, the same budget would be expected to deliver ${F.num(p.oneRac.second.hires)} hires against ${F.num(p.totals.allHires)}, at ${F.gbp(p.oneRac.second.cpa, 2)} an application. It is a comparison, not the plan.`]
+          : []),
         ...limitLines(p, F),
         ...p.minimumShortfalls.map(x => x.text + '.'),
       ];

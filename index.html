@@ -2369,6 +2369,7 @@ function oneRacParams(s) {
     includeSettling: !!s.includeSettling,
     bench: (s.bench && s.bench.SMR) || null,
     planMonth: s.planMonth || null,
+    secondScenario: one.setup.secondScenario || 0,
     selfCompetition: one.setup.selfCompetition != null ? one.setup.selfCompetition
       : assumptionOr('onerac_self_competition', 0),
   };
@@ -5714,6 +5715,7 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '18 Sep', items: [
+    'The OneRAC set-up can now show a second scenario: what the same budget would be expected to deliver at a different self-competition figure, beside the plan. It is a comparison, not the plan, and the PDF says so where it prints it. Leave it empty for none.',
     'Cost limits can now be set. Setup has a table for the most a hire may cost in each location and the most an application may cost there on each platform. The plan stops adding spend where a limit would be passed, moves that money to locations still within theirs, and shows anything it could not place. Cost per hire is by location only, because the data does not support a cost per hire by platform. Each box shows what that location or platform is costing in the plan now, so a limit can be set against something real. Limits are saved with the plan and printed in the PDF assumptions and the workings. The calculations already allowed for them; there was no way to set them.',
     'Setup now shows what the market was doing each month, beside the remaining-error adjustment: how the cost of a click and of a thousand impressions moved on Google and Meta, and how many people were searching for these jobs. It is a guide, not part of the plan, and none of it goes into the PDF or the workings. Cost is shown as an index against each platform’s own average, so 100 is an average month.',
     'The Changelog screen now also shows what has been changed in the plans: the budget, the hire target and the five planning settings, and months folded in on the Data tab, with who changed each one, when, what it was and what it became. Each change is written down on its own, so nothing here can be overwritten. Changes to the model itself are changes to assumptions.csv, and the screen links to that file’s history.',
