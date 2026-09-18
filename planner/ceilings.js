@@ -7,10 +7,12 @@
 //      a fixed benchmark at that month's spend, and at or below the location
 //      and platform's cost per application limit where one is set. The
 //      benchmark is the location and platform's usual cost per application
-//      over every settled month, each counted once, with the spend-level
-//      adjustment for that month's spend and no plan adjustment (user
-//      decision, 18 September 2026), so the caps do not move when the plan's
-//      data window or its remaining-error adjustment changes.
+//      over the same settled months from ceiling_first_month, each counted
+//      once, with the spend-level adjustment for that month's spend and no
+//      plan adjustment (user decisions, 18 September 2026), so the caps do
+//      not move when the plan's data window or its remaining-error
+//      adjustment changes. 2025 months were built differently and are not
+//      comparable, so they are left out of the benchmark as well.
 //   C2 A successful month is set aside when the location's quality rate that
 //      month (every source, Eploy) was more than quality_test_drop below what
 //      was expected: its usual rate x that month's rate across all locations
@@ -20,8 +22,8 @@
 //      only where at least quality_test_min_expected applications would
 //      normally have been quality.
 //   C4 Cap = largest successful month x the spending cap multiple. With
-//      no successful month, the cell's usual monthly spend over every settled
-//      month (or the platform's typical month) x the multiple, flagged.
+//      no successful month, the cell's usual monthly spend over those months
+//      (or the platform's typical month) x the multiple, flagged.
 //   C5 The plan never spends above the cap (applied in allocate.js).
 (function (RAC) {
   'use strict';

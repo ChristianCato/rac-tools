@@ -47,10 +47,13 @@ BUILD_PROGRESS.md for the numbers):
   locations. June's quality was lower everywhere, so June months are no longer
   set aside for that alone.
 - A month counts towards a cap if its cost per application was at or below the
-  location and platform's own usual cost across every settled month, adjusted
-  for that month's spend. This does not depend on the data window, so the caps
-  are the same whichever window is chosen. For SMR the caps came out lower than
-  before, so more of the budget is not placed.
+  location and platform's own usual cost across the settled 2026 months,
+  adjusted for that month's spend, with no remaining-error adjustment. 2025
+  months are left out because that data was put together differently and does
+  not compare (the same reason they are left out of the months the caps look
+  at). This does not depend on the data window, so the caps are the same
+  whichever window is chosen. Budget the plan cannot place is a real result,
+  not something to tune away.
 
 ## 3. The PDF (15 minutes)
 
@@ -70,11 +73,12 @@ BUILD_PROGRESS.md for the numbers):
      saying which months it used, how they were weighted, and whether that
      follows the data window set for the plan or a fixed rule. Check it
      agrees with the summary page. The spending caps line should name the
-     months the caps looked at (January to July 2026) and the months behind
-     the cost benchmark (every settled month, July 2025 to July 2026).
+     months the caps looked at (January to July 2026) and say the cost
+     benchmark used the same months. No 2025 month should appear on it.
    - The "Spending caps" section should describe the benchmark (each location
-     and platform's own usual cost over every settled month, adjusted for that
-     month's spend) and the quality test (against what was expected for that
+     and platform's own usual cost over the settled months since January 2026,
+     adjusted for that month's spend, with the reason earlier months were left
+     out) and the quality test (against what was expected for that
      location that month, given quality across all locations).
    - The definition of a quality application should end "Repeat applications
      from the same candidate are not counted unless they had already passed

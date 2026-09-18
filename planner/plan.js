@@ -146,9 +146,12 @@
     ].map(x => ({ ...x, tested: x.key === 'remainingError' ? entry('remaining_error_factor').testedValue : null, changed: x.value !== x.default }));
     const quality = RAC.ceilings.qualityByLocation(env.eploy, hireRates, role);
     // The spending caps judge a successful month against a fixed benchmark:
-    // each location and platform over every settled month, each counted once,
-    // whatever the plan's data window (user decision, 18 September 2026).
-    const ctxCaps = RAC.cost.context(ds, A, role, { mode: 'all' }, { includeSettling: !!inputs.includeSettling });
+    // each location and platform over the settled months from
+    // ceiling_first_month (2026), each counted once, whatever the plan's data
+    // window. 2025 months were built differently and are not comparable, the
+    // same reason C3 leaves them out of the months considered (user decisions,
+    // 18 September 2026).
+    const ctxCaps = RAC.cost.context(ds, A, role, { mode: 'custom', from: get('ceiling_first_month') }, { includeSettling: !!inputs.includeSettling });
     const cpaLimits = (inputs.limits && inputs.limits.cpa) || {};
     const cells = {};
     ds.regions.forEach(region => {
@@ -831,8 +834,8 @@
       weights: base.ctx.weights,
       // Months the spending caps looked at (C3): settled months from ceiling_first_month.
       capMonths: base.ctx.settled.filter(mo => mo >= RAC.assumptions.get(A, 'ceiling_first_month')),
-      // Months behind the caps' fixed benchmark: every settled month.
-      capBenchmarkMonths: base.ctx.settled.slice(),
+      // Months behind the caps' fixed benchmark: the same settled 2026 months.
+      capBenchmarkMonths: base.ctx.settled.filter(mo => mo >= RAC.assumptions.get(A, 'ceiling_first_month')),
       factors: base.factors,
       otherHiresShare: base.factors.share,
       otherHiresMonthly: base.baseline.monthly,

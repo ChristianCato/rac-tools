@@ -95,9 +95,11 @@ export default function (check, { assert, near }) {
   check('Spending caps match a direct calculation from the data and Eploy', () => {
     const plan = RAC.plan.build('SMR', SEPT, env);
     const settledSM = ['2025-10', '2025-11', '2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06'];
-    // The fixed cost benchmark (user decision, 18 September 2026), written out
-    // here: every settled month counted once, whatever the plan's window.
-    const allSettled = Object.keys(plan.months).filter(mo => plan.months[mo].settled).sort();
+    // The fixed cost benchmark (user decisions, 18 September 2026), written out
+    // here: settled months from January 2026 counted once, whatever the plan's
+    // window; 2025 months are left out as they are from the months considered.
+    const allSettled = Object.keys(plan.months).filter(mo => plan.months[mo].settled && mo >= '2026-01').sort();
+    assert(JSON.stringify(allSettled) === JSON.stringify(plan.capBenchmarkMonths), 'benchmark months ' + plan.capBenchmarkMonths.join());
     const N = allSettled.length, K = RAC.assumptions.get(A, 'cpa_prior_apps'), roleBench = RAC.assumptions.get(A, 'role_cpa_benchmark', 'SMR');
     const stats = (p, r) => {
       const m = RAC.data.monthly(env.ds, p, r, 'SMR');
