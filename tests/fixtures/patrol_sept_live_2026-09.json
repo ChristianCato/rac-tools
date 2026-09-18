@@ -1,0 +1,5003 @@
+{
+"source": "RAC_September_2026_Patrol_workings.xlsx, exported from the live app in September 2026 (values recalculated in LibreOffice)",
+"role": "Patrol",
+"raw": [
+[
+"2025-10",
+"London",
+"Indeed",
+7245.61,
+0,
+null,
+0
+],
+[
+"2025-11",
+"London",
+"Indeed",
+1495.27,
+0,
+null,
+0
+],
+[
+"2025-12",
+"London",
+"Indeed",
+3393.04,
+0,
+null,
+0
+],
+[
+"2026-01",
+"London",
+"Indeed",
+4114.06,
+89,
+6487,
+1
+],
+[
+"2026-02",
+"London",
+"Indeed",
+5359.83,
+67,
+5751,
+1
+],
+[
+"2026-03",
+"London",
+"Indeed",
+8145.58,
+154,
+10790,
+1
+],
+[
+"2026-04",
+"London",
+"Indeed",
+11035.94,
+140,
+12154,
+1
+],
+[
+"2026-05",
+"London",
+"Indeed",
+14293.66,
+82,
+10269,
+2
+],
+[
+"2026-06",
+"London",
+"Indeed",
+15624.81,
+152,
+13979,
+2
+],
+[
+"2026-07",
+"London",
+"Indeed",
+9439.68,
+158,
+15639,
+2
+],
+[
+"2026-08",
+"London",
+"Indeed",
+14698.34,
+98,
+16834,
+0
+],
+[
+"2025-07",
+"London",
+"Meta",
+988.6,
+22.374,
+null,
+0
+],
+[
+"2025-08",
+"London",
+"Meta",
+612.41,
+37.757,
+null,
+0
+],
+[
+"2025-09",
+"London",
+"Meta",
+793.47,
+41.393,
+null,
+0
+],
+[
+"2025-10",
+"London",
+"Meta",
+999.24,
+42.791,
+null,
+0
+],
+[
+"2025-11",
+"London",
+"Meta",
+3391.24,
+33.002,
+null,
+0
+],
+[
+"2025-12",
+"London",
+"Meta",
+3813.5,
+42.578,
+null,
+0
+],
+[
+"2026-01",
+"London",
+"Meta",
+2094.09,
+22,
+1148,
+1
+],
+[
+"2026-02",
+"London",
+"Meta",
+4126.41,
+47,
+2582,
+1
+],
+[
+"2026-03",
+"London",
+"Meta",
+7070.22,
+45,
+3632,
+1
+],
+[
+"2026-04",
+"London",
+"Meta",
+6870.32,
+39,
+3664,
+1
+],
+[
+"2026-05",
+"London",
+"Meta",
+1787.03,
+13,
+909,
+2
+],
+[
+"2026-06",
+"London",
+"Meta",
+11106.36,
+55,
+5923,
+2
+],
+[
+"2026-07",
+"London",
+"Meta",
+7621.88,
+51,
+4915,
+2
+],
+[
+"2026-08",
+"London",
+"Meta",
+6214.65,
+33,
+4890,
+0
+],
+[
+"2025-07",
+"London",
+"Google",
+760.98,
+69.789,
+null,
+0
+],
+[
+"2025-08",
+"London",
+"Google",
+446.64,
+70.844,
+null,
+0
+],
+[
+"2025-09",
+"London",
+"Google",
+1072.82,
+75.95,
+null,
+0
+],
+[
+"2025-10",
+"London",
+"Google",
+1468.7,
+43.418,
+null,
+0
+],
+[
+"2025-11",
+"London",
+"Google",
+3220.72,
+25.733,
+null,
+0
+],
+[
+"2025-12",
+"London",
+"Google",
+917.4,
+20.28,
+null,
+0
+],
+[
+"2026-01",
+"London",
+"Google",
+561.56,
+4.5,
+414,
+1
+],
+[
+"2026-02",
+"London",
+"Google",
+59.59,
+0,
+30,
+1
+],
+[
+"2026-04",
+"London",
+"Google",
+6564.78,
+31.018,
+2485,
+1
+],
+[
+"2026-05",
+"London",
+"Google",
+2339.3,
+12.454,
+1089,
+2
+],
+[
+"2026-06",
+"London",
+"Google",
+6307.89,
+27,
+1826,
+2
+],
+[
+"2026-07",
+"London",
+"Google",
+3942.7,
+38.974,
+2110,
+2
+],
+[
+"2026-08",
+"London",
+"Google",
+3854.01,
+21.5,
+1894,
+0
+],
+[
+"2025-07",
+"London",
+"Appcast",
+13.79,
+1.149,
+null,
+0
+],
+[
+"2025-08",
+"London",
+"Appcast",
+599.24,
+24.723,
+null,
+0
+],
+[
+"2025-09",
+"London",
+"Appcast",
+826.8,
+44.011,
+null,
+0
+],
+[
+"2025-10",
+"London",
+"Appcast",
+1677,
+49,
+null,
+0
+],
+[
+"2025-11",
+"London",
+"Appcast",
+205,
+13,
+null,
+0
+],
+[
+"2025-12",
+"London",
+"Appcast",
+755,
+27,
+null,
+0
+],
+[
+"2026-01",
+"London",
+"Appcast",
+312,
+27,
+3163,
+1
+],
+[
+"2026-02",
+"London",
+"Appcast",
+505,
+21,
+1879,
+1
+],
+[
+"2026-03",
+"London",
+"Appcast",
+670,
+30,
+2425,
+1
+],
+[
+"2026-04",
+"London",
+"Appcast",
+1300,
+38,
+2305,
+1
+],
+[
+"2026-06",
+"London",
+"Appcast",
+180,
+12,
+3044,
+2
+],
+[
+"2026-07",
+"London",
+"Appcast",
+166.5,
+11,
+1573,
+2
+],
+[
+"2026-08",
+"London",
+"Appcast",
+355,
+10,
+1585,
+0
+],
+[
+"2025-10",
+"South East",
+"Indeed",
+1744.4,
+0,
+null,
+0
+],
+[
+"2025-11",
+"South East",
+"Indeed",
+494.54,
+0,
+null,
+0
+],
+[
+"2025-12",
+"South East",
+"Indeed",
+2132.76,
+0,
+null,
+0
+],
+[
+"2026-01",
+"South East",
+"Indeed",
+3021.01,
+53,
+4029,
+1
+],
+[
+"2026-02",
+"South East",
+"Indeed",
+2391.72,
+32,
+1323,
+1
+],
+[
+"2026-03",
+"South East",
+"Indeed",
+5279.02,
+54,
+3217,
+1
+],
+[
+"2026-04",
+"South East",
+"Indeed",
+6852.56,
+82,
+6659,
+1
+],
+[
+"2026-05",
+"South East",
+"Indeed",
+6612.44,
+38,
+3523,
+2
+],
+[
+"2026-06",
+"South East",
+"Indeed",
+7756.16,
+46,
+4569,
+2
+],
+[
+"2026-07",
+"South East",
+"Indeed",
+8346,
+108,
+8353,
+2
+],
+[
+"2026-08",
+"South East",
+"Indeed",
+10173.45,
+77,
+10023,
+0
+],
+[
+"2025-07",
+"South East",
+"Meta",
+664.96,
+15.05,
+null,
+0
+],
+[
+"2025-08",
+"South East",
+"Meta",
+411.92,
+25.396,
+null,
+0
+],
+[
+"2025-09",
+"South East",
+"Meta",
+533.71,
+27.842,
+null,
+0
+],
+[
+"2025-10",
+"South East",
+"Meta",
+672.11,
+28.782,
+null,
+0
+],
+[
+"2025-11",
+"South East",
+"Meta",
+2281.03,
+22.198,
+null,
+0
+],
+[
+"2025-12",
+"South East",
+"Meta",
+1571.88,
+23.168,
+null,
+0
+],
+[
+"2026-01",
+"South East",
+"Meta",
+1097.88,
+10,
+751,
+1
+],
+[
+"2026-02",
+"South East",
+"Meta",
+1989.64,
+22,
+1186,
+1
+],
+[
+"2026-03",
+"South East",
+"Meta",
+3063.74,
+22,
+1423,
+1
+],
+[
+"2026-04",
+"South East",
+"Meta",
+3790.08,
+49,
+1978,
+1
+],
+[
+"2026-05",
+"South East",
+"Meta",
+5767.46,
+29,
+2587,
+2
+],
+[
+"2026-06",
+"South East",
+"Meta",
+3887.55,
+17,
+1730,
+2
+],
+[
+"2026-07",
+"South East",
+"Meta",
+5624.06,
+41,
+3384,
+2
+],
+[
+"2026-08",
+"South East",
+"Meta",
+6071.95,
+24,
+3850,
+0
+],
+[
+"2025-07",
+"South East",
+"Google",
+292.54,
+26.828,
+null,
+0
+],
+[
+"2025-08",
+"South East",
+"Google",
+171.7,
+27.234,
+null,
+0
+],
+[
+"2025-09",
+"South East",
+"Google",
+412.41,
+29.197,
+null,
+0
+],
+[
+"2025-10",
+"South East",
+"Google",
+564.6,
+16.691,
+null,
+0
+],
+[
+"2025-11",
+"South East",
+"Google",
+1238.11,
+9.892,
+null,
+0
+],
+[
+"2025-12",
+"South East",
+"Google",
+306.62,
+8.468,
+null,
+0
+],
+[
+"2026-01",
+"South East",
+"Google",
+225.29,
+8.073,
+106,
+1
+],
+[
+"2026-02",
+"South East",
+"Google",
+30.72,
+0,
+8,
+1
+],
+[
+"2026-04",
+"South East",
+"Google",
+3033.97,
+8.911,
+551,
+1
+],
+[
+"2026-05",
+"South East",
+"Google",
+351.91,
+1,
+42,
+2
+],
+[
+"2026-06",
+"South East",
+"Google",
+3568.82,
+17.247,
+1076,
+2
+],
+[
+"2026-07",
+"South East",
+"Google",
+1921.41,
+30.822,
+1153,
+2
+],
+[
+"2026-08",
+"South East",
+"Google",
+4079.62,
+34.209,
+1925,
+0
+],
+[
+"2025-07",
+"South East",
+"Appcast",
+6.2,
+0.516,
+null,
+0
+],
+[
+"2025-08",
+"South East",
+"Appcast",
+44.88,
+2.775,
+null,
+0
+],
+[
+"2025-09",
+"South East",
+"Appcast",
+461.23,
+27.904,
+null,
+0
+],
+[
+"2025-10",
+"South East",
+"Appcast",
+199,
+9,
+null,
+0
+],
+[
+"2025-11",
+"South East",
+"Appcast",
+46,
+5,
+null,
+0
+],
+[
+"2025-12",
+"South East",
+"Appcast",
+160,
+9,
+null,
+0
+],
+[
+"2026-01",
+"South East",
+"Appcast",
+260,
+9,
+2331,
+1
+],
+[
+"2026-02",
+"South East",
+"Appcast",
+180,
+7,
+1579,
+1
+],
+[
+"2026-03",
+"South East",
+"Appcast",
+100,
+4,
+1061,
+1
+],
+[
+"2026-04",
+"South East",
+"Appcast",
+1435,
+36,
+1759,
+1
+],
+[
+"2026-05",
+"South East",
+"Appcast",
+0,
+0,
+3,
+2
+],
+[
+"2026-06",
+"South East",
+"Appcast",
+150,
+10,
+1629,
+2
+],
+[
+"2026-07",
+"South East",
+"Appcast",
+240,
+16,
+2187,
+2
+],
+[
+"2026-08",
+"South East",
+"Appcast",
+436,
+10,
+2653,
+0
+],
+[
+"2025-10",
+"East of England",
+"Indeed",
+2356.23,
+0,
+null,
+0
+],
+[
+"2025-11",
+"East of England",
+"Indeed",
+675.32,
+0,
+null,
+0
+],
+[
+"2025-12",
+"East of England",
+"Indeed",
+1173.08,
+0,
+null,
+0
+],
+[
+"2026-01",
+"East of England",
+"Indeed",
+1072.92,
+25,
+886,
+1
+],
+[
+"2026-02",
+"East of England",
+"Indeed",
+1587.45,
+9,
+538,
+1
+],
+[
+"2026-03",
+"East of England",
+"Indeed",
+2009.53,
+43,
+2065,
+1
+],
+[
+"2026-04",
+"East of England",
+"Indeed",
+2520.43,
+40,
+1987,
+1
+],
+[
+"2026-05",
+"East of England",
+"Indeed",
+1555.24,
+12,
+970,
+2
+],
+[
+"2026-06",
+"East of England",
+"Indeed",
+1787.55,
+33,
+1459,
+2
+],
+[
+"2026-07",
+"East of England",
+"Indeed",
+2051,
+32,
+1843,
+2
+],
+[
+"2026-08",
+"East of England",
+"Indeed",
+396.02,
+2,
+367,
+0
+],
+[
+"2025-07",
+"East of England",
+"Meta",
+283.22,
+6.41,
+null,
+0
+],
+[
+"2025-08",
+"East of England",
+"Meta",
+175.45,
+10.817,
+null,
+0
+],
+[
+"2025-09",
+"East of England",
+"Meta",
+227.31,
+11.858,
+null,
+0
+],
+[
+"2025-10",
+"East of England",
+"Meta",
+286.26,
+12.259,
+null,
+0
+],
+[
+"2025-11",
+"East of England",
+"Meta",
+971.53,
+9.455,
+null,
+0
+],
+[
+"2025-12",
+"East of England",
+"Meta",
+1458.98,
+15.609,
+null,
+0
+],
+[
+"2026-01",
+"East of England",
+"Meta",
+785.24,
+15,
+500,
+1
+],
+[
+"2026-02",
+"East of England",
+"Meta",
+1096.14,
+21,
+729,
+1
+],
+[
+"2026-03",
+"East of England",
+"Meta",
+912.83,
+16,
+454,
+1
+],
+[
+"2026-04",
+"East of England",
+"Meta",
+902.42,
+10,
+528,
+1
+],
+[
+"2026-05",
+"East of England",
+"Meta",
+3237.19,
+19,
+1572,
+2
+],
+[
+"2026-06",
+"East of England",
+"Meta",
+1847.4,
+17,
+940,
+2
+],
+[
+"2026-07",
+"East of England",
+"Meta",
+1714.84,
+12,
+999,
+2
+],
+[
+"2026-08",
+"East of England",
+"Meta",
+673.78,
+4,
+463,
+0
+],
+[
+"2025-07",
+"East of England",
+"Google",
+133.89,
+12.279,
+null,
+0
+],
+[
+"2025-08",
+"East of England",
+"Google",
+78.58,
+12.465,
+null,
+0
+],
+[
+"2025-09",
+"East of England",
+"Google",
+188.76,
+13.363,
+null,
+0
+],
+[
+"2025-10",
+"East of England",
+"Google",
+258.41,
+7.639,
+null,
+0
+],
+[
+"2025-11",
+"East of England",
+"Google",
+566.66,
+4.528,
+null,
+0
+],
+[
+"2025-12",
+"East of England",
+"Google",
+405.55,
+15.113,
+null,
+0
+],
+[
+"2026-01",
+"East of England",
+"Google",
+265.47,
+5.036,
+146,
+1
+],
+[
+"2026-02",
+"East of England",
+"Google",
+114.25,
+4,
+26,
+1
+],
+[
+"2026-04",
+"East of England",
+"Google",
+881.17,
+6.963,
+393,
+1
+],
+[
+"2026-05",
+"East of England",
+"Google",
+91.27,
+0,
+52,
+2
+],
+[
+"2026-06",
+"East of England",
+"Google",
+1173.11,
+3,
+286,
+2
+],
+[
+"2026-07",
+"East of England",
+"Google",
+788.83,
+4.284,
+389,
+2
+],
+[
+"2026-08",
+"East of England",
+"Google",
+168.62,
+1,
+72,
+0
+],
+[
+"2025-07",
+"East of England",
+"Appcast",
+5.72,
+0.477,
+null,
+0
+],
+[
+"2025-08",
+"East of England",
+"Appcast",
+466.35,
+17.715,
+null,
+0
+],
+[
+"2025-09",
+"East of England",
+"Appcast",
+418.76,
+24.834,
+null,
+0
+],
+[
+"2025-10",
+"East of England",
+"Appcast",
+886,
+33,
+null,
+0
+],
+[
+"2025-11",
+"East of England",
+"Appcast",
+104,
+6,
+null,
+0
+],
+[
+"2025-12",
+"East of England",
+"Appcast",
+120,
+5,
+null,
+0
+],
+[
+"2026-01",
+"East of England",
+"Appcast",
+175,
+11,
+584,
+1
+],
+[
+"2026-02",
+"East of England",
+"Appcast",
+60,
+2,
+130,
+1
+],
+[
+"2026-03",
+"East of England",
+"Appcast",
+0,
+0,
+0,
+1
+],
+[
+"2026-04",
+"East of England",
+"Appcast",
+480,
+12,
+1075,
+1
+],
+[
+"2026-05",
+"East of England",
+"Appcast",
+0,
+0,
+1,
+2
+],
+[
+"2026-06",
+"East of England",
+"Appcast",
+30,
+2,
+2598,
+2
+],
+[
+"2026-07",
+"East of England",
+"Appcast",
+105,
+7,
+741,
+2
+],
+[
+"2026-08",
+"East of England",
+"Appcast",
+15,
+1,
+341,
+0
+],
+[
+"2025-10",
+"South West",
+"Indeed",
+1203.04,
+0,
+null,
+0
+],
+[
+"2025-11",
+"South West",
+"Indeed",
+587.99,
+0,
+null,
+0
+],
+[
+"2025-12",
+"South West",
+"Indeed",
+1635.56,
+0,
+null,
+0
+],
+[
+"2026-01",
+"South West",
+"Indeed",
+1243.09,
+27,
+1104,
+1
+],
+[
+"2026-02",
+"South West",
+"Indeed",
+1851.65,
+23,
+1754,
+1
+],
+[
+"2026-03",
+"South West",
+"Indeed",
+4051.28,
+51,
+2402,
+1
+],
+[
+"2026-04",
+"South West",
+"Indeed",
+5806.54,
+26,
+3458,
+1
+],
+[
+"2026-05",
+"South West",
+"Indeed",
+5223,
+21,
+2408,
+2
+],
+[
+"2026-06",
+"South West",
+"Indeed",
+6385.27,
+55,
+3130,
+2
+],
+[
+"2026-07",
+"South West",
+"Indeed",
+5114,
+48,
+4585,
+2
+],
+[
+"2026-08",
+"South West",
+"Indeed",
+6868.42,
+35,
+4245,
+0
+],
+[
+"2025-07",
+"South West",
+"Meta",
+527.55,
+11.94,
+null,
+0
+],
+[
+"2025-08",
+"South West",
+"Meta",
+326.8,
+20.148,
+null,
+0
+],
+[
+"2025-09",
+"South West",
+"Meta",
+423.42,
+22.088,
+null,
+0
+],
+[
+"2025-10",
+"South West",
+"Meta",
+533.22,
+22.835,
+null,
+0
+],
+[
+"2025-11",
+"South West",
+"Meta",
+1809.66,
+17.611,
+null,
+0
+],
+[
+"2025-12",
+"South West",
+"Meta",
+2154.42,
+32.447,
+null,
+0
+],
+[
+"2026-01",
+"South West",
+"Meta",
+1029.74,
+30,
+751,
+1
+],
+[
+"2026-02",
+"South West",
+"Meta",
+1663.73,
+26,
+1503,
+1
+],
+[
+"2026-03",
+"South West",
+"Meta",
+2976.18,
+43,
+1614,
+1
+],
+[
+"2026-04",
+"South West",
+"Meta",
+3498.51,
+34,
+2148,
+1
+],
+[
+"2026-05",
+"South West",
+"Meta",
+2151.65,
+12,
+1235,
+2
+],
+[
+"2026-06",
+"South West",
+"Meta",
+5135.28,
+25,
+2581,
+2
+],
+[
+"2026-07",
+"South West",
+"Meta",
+5495.75,
+27,
+3370,
+2
+],
+[
+"2026-08",
+"South West",
+"Meta",
+4791.85,
+20,
+2973,
+0
+],
+[
+"2025-07",
+"South West",
+"Google",
+362.55,
+33.249,
+null,
+0
+],
+[
+"2025-08",
+"South West",
+"Google",
+212.79,
+33.752,
+null,
+0
+],
+[
+"2025-09",
+"South West",
+"Google",
+511.12,
+36.185,
+null,
+0
+],
+[
+"2025-10",
+"South West",
+"Google",
+699.73,
+20.686,
+null,
+0
+],
+[
+"2025-11",
+"South West",
+"Google",
+1534.43,
+12.26,
+null,
+0
+],
+[
+"2025-12",
+"South West",
+"Google",
+550.58,
+17.602,
+null,
+0
+],
+[
+"2026-01",
+"South West",
+"Google",
+345.3,
+14.5,
+184,
+1
+],
+[
+"2026-02",
+"South West",
+"Google",
+142.66,
+0,
+31,
+1
+],
+[
+"2026-04",
+"South West",
+"Google",
+3353.01,
+7.288,
+376,
+1
+],
+[
+"2026-05",
+"South West",
+"Google",
+383.56,
+1,
+105,
+2
+],
+[
+"2026-06",
+"South West",
+"Google",
+3825.03,
+10,
+900,
+2
+],
+[
+"2026-07",
+"South West",
+"Google",
+2663.95,
+13.995,
+1353,
+2
+],
+[
+"2026-08",
+"South West",
+"Google",
+731.41,
+6.373,
+388,
+0
+],
+[
+"2025-07",
+"South West",
+"Appcast",
+3.08,
+0.257,
+null,
+0
+],
+[
+"2025-08",
+"South West",
+"Appcast",
+24.89,
+2.385,
+null,
+0
+],
+[
+"2025-09",
+"South West",
+"Appcast",
+60.56,
+3.449,
+null,
+0
+],
+[
+"2025-10",
+"South West",
+"Appcast",
+237,
+9,
+null,
+0
+],
+[
+"2025-11",
+"South West",
+"Appcast",
+68,
+7,
+null,
+0
+],
+[
+"2025-12",
+"South West",
+"Appcast",
+211.5,
+12,
+null,
+0
+],
+[
+"2026-01",
+"South West",
+"Appcast",
+200,
+9,
+1714,
+1
+],
+[
+"2026-02",
+"South West",
+"Appcast",
+230,
+7,
+600,
+1
+],
+[
+"2026-03",
+"South West",
+"Appcast",
+110,
+4,
+894,
+1
+],
+[
+"2026-04",
+"South West",
+"Appcast",
+350,
+9,
+1210,
+1
+],
+[
+"2026-06",
+"South West",
+"Appcast",
+150,
+10,
+1985,
+2
+],
+[
+"2026-07",
+"South West",
+"Appcast",
+135,
+9,
+1736,
+2
+],
+[
+"2026-08",
+"South West",
+"Appcast",
+380,
+11,
+2348,
+0
+],
+[
+"2025-10",
+"East Midlands",
+"Indeed",
+1163.39,
+0,
+null,
+0
+],
+[
+"2025-11",
+"East Midlands",
+"Indeed",
+52.31,
+0,
+null,
+0
+],
+[
+"2025-12",
+"East Midlands",
+"Indeed",
+643.63,
+0,
+null,
+0
+],
+[
+"2026-01",
+"East Midlands",
+"Indeed",
+3.36,
+0,
+17,
+1
+],
+[
+"2026-02",
+"East Midlands",
+"Indeed",
+976.8,
+10,
+560,
+1
+],
+[
+"2026-03",
+"East Midlands",
+"Indeed",
+1781.84,
+25,
+1543,
+1
+],
+[
+"2026-04",
+"East Midlands",
+"Indeed",
+2015.78,
+22,
+1913,
+1
+],
+[
+"2026-05",
+"East Midlands",
+"Indeed",
+1886,
+7,
+1265,
+2
+],
+[
+"2026-06",
+"East Midlands",
+"Indeed",
+2720.26,
+37,
+2644,
+2
+],
+[
+"2026-07",
+"East Midlands",
+"Indeed",
+3122,
+25,
+2906,
+2
+],
+[
+"2026-08",
+"East Midlands",
+"Indeed",
+1906.09,
+32,
+3168,
+0
+],
+[
+"2025-07",
+"East Midlands",
+"Meta",
+128.85,
+2.916,
+null,
+0
+],
+[
+"2025-08",
+"East Midlands",
+"Meta",
+79.82,
+4.921,
+null,
+0
+],
+[
+"2025-09",
+"East Midlands",
+"Meta",
+103.41,
+5.395,
+null,
+0
+],
+[
+"2025-10",
+"East Midlands",
+"Meta",
+130.23,
+5.577,
+null,
+0
+],
+[
+"2025-11",
+"East Midlands",
+"Meta",
+441.98,
+4.301,
+null,
+0
+],
+[
+"2025-12",
+"East Midlands",
+"Meta",
+496.18,
+4.552,
+null,
+0
+],
+[
+"2026-01",
+"East Midlands",
+"Meta",
+0,
+1,
+0,
+1
+],
+[
+"2026-02",
+"East Midlands",
+"Meta",
+561.83,
+3,
+392,
+1
+],
+[
+"2026-03",
+"East Midlands",
+"Meta",
+1468.29,
+17,
+985,
+1
+],
+[
+"2026-04",
+"East Midlands",
+"Meta",
+598.32,
+9,
+511,
+1
+],
+[
+"2026-05",
+"East Midlands",
+"Meta",
+288.86,
+0,
+201,
+2
+],
+[
+"2026-06",
+"East Midlands",
+"Meta",
+1920.32,
+22,
+1173,
+2
+],
+[
+"2026-07",
+"East Midlands",
+"Meta",
+1958.72,
+14,
+1805,
+2
+],
+[
+"2026-08",
+"East Midlands",
+"Meta",
+2212.96,
+16,
+1946,
+0
+],
+[
+"2025-07",
+"East Midlands",
+"Google",
+60.68,
+5.565,
+null,
+0
+],
+[
+"2025-08",
+"East Midlands",
+"Google",
+35.61,
+5.649,
+null,
+0
+],
+[
+"2025-09",
+"East Midlands",
+"Google",
+85.54,
+6.056,
+null,
+0
+],
+[
+"2025-10",
+"East Midlands",
+"Google",
+117.11,
+3.462,
+null,
+0
+],
+[
+"2025-11",
+"East Midlands",
+"Google",
+256.81,
+2.052,
+null,
+0
+],
+[
+"2025-12",
+"East Midlands",
+"Google",
+116.32,
+0.529,
+null,
+0
+],
+[
+"2026-04",
+"East Midlands",
+"Google",
+585.86,
+3,
+295,
+1
+],
+[
+"2026-05",
+"East Midlands",
+"Google",
+109.43,
+0,
+70,
+2
+],
+[
+"2026-06",
+"East Midlands",
+"Google",
+1698.54,
+13.323,
+560,
+2
+],
+[
+"2026-07",
+"East Midlands",
+"Google",
+891.94,
+6.5,
+522,
+2
+],
+[
+"2026-08",
+"East Midlands",
+"Google",
+1474.63,
+7,
+749,
+0
+],
+[
+"2025-07",
+"East Midlands",
+"Appcast",
+1.49,
+0.124,
+null,
+0
+],
+[
+"2025-08",
+"East Midlands",
+"Appcast",
+53.77,
+3.186,
+null,
+0
+],
+[
+"2025-09",
+"East Midlands",
+"Appcast",
+91.61,
+5.217,
+null,
+0
+],
+[
+"2025-10",
+"East Midlands",
+"Appcast",
+246,
+8,
+null,
+0
+],
+[
+"2025-11",
+"East Midlands",
+"Appcast",
+73,
+3,
+null,
+0
+],
+[
+"2025-12",
+"East Midlands",
+"Appcast",
+85,
+4,
+null,
+0
+],
+[
+"2026-02",
+"East Midlands",
+"Appcast",
+30,
+2,
+62,
+1
+],
+[
+"2026-04",
+"East Midlands",
+"Appcast",
+100,
+6,
+235,
+1
+],
+[
+"2026-06",
+"East Midlands",
+"Appcast",
+90,
+6,
+541,
+2
+],
+[
+"2026-07",
+"East Midlands",
+"Appcast",
+90,
+6,
+160,
+2
+],
+[
+"2026-08",
+"East Midlands",
+"Appcast",
+305,
+6,
+1116,
+0
+],
+[
+"2025-10",
+"West Midlands",
+"Indeed",
+1587.33,
+0,
+null,
+0
+],
+[
+"2025-11",
+"West Midlands",
+"Indeed",
+530.24,
+0,
+null,
+0
+],
+[
+"2025-12",
+"West Midlands",
+"Indeed",
+1381.54,
+0,
+null,
+0
+],
+[
+"2026-01",
+"West Midlands",
+"Indeed",
+2357.49,
+44,
+2397,
+1
+],
+[
+"2026-02",
+"West Midlands",
+"Indeed",
+355.43,
+25,
+726,
+1
+],
+[
+"2026-03",
+"West Midlands",
+"Indeed",
+1013.39,
+30,
+1344,
+1
+],
+[
+"2026-04",
+"West Midlands",
+"Indeed",
+2492.69,
+56,
+2556,
+1
+],
+[
+"2026-05",
+"West Midlands",
+"Indeed",
+2260,
+14,
+1245,
+2
+],
+[
+"2026-06",
+"West Midlands",
+"Indeed",
+2411.15,
+50,
+2045,
+2
+],
+[
+"2026-07",
+"West Midlands",
+"Indeed",
+918,
+21,
+1522,
+2
+],
+[
+"2026-08",
+"West Midlands",
+"Indeed",
+1264.92,
+36,
+3980,
+0
+],
+[
+"2025-07",
+"West Midlands",
+"Meta",
+205.24,
+4.645,
+null,
+0
+],
+[
+"2025-08",
+"West Midlands",
+"Meta",
+127.14,
+7.838,
+null,
+0
+],
+[
+"2025-09",
+"West Midlands",
+"Meta",
+164.73,
+8.593,
+null,
+0
+],
+[
+"2025-10",
+"West Midlands",
+"Meta",
+207.44,
+8.884,
+null,
+0
+],
+[
+"2025-11",
+"West Midlands",
+"Meta",
+704.03,
+6.851,
+null,
+0
+],
+[
+"2025-12",
+"West Midlands",
+"Meta",
+1936.07,
+36.064,
+null,
+0
+],
+[
+"2026-01",
+"West Midlands",
+"Meta",
+988.66,
+18,
+643,
+1
+],
+[
+"2026-02",
+"West Midlands",
+"Meta",
+456.24,
+18,
+340,
+1
+],
+[
+"2026-03",
+"West Midlands",
+"Meta",
+366.02,
+19,
+273,
+1
+],
+[
+"2026-04",
+"West Midlands",
+"Meta",
+1230.2,
+59,
+801,
+1
+],
+[
+"2026-05",
+"West Midlands",
+"Meta",
+460.99,
+12,
+237,
+2
+],
+[
+"2026-06",
+"West Midlands",
+"Meta",
+1454.58,
+50,
+748,
+2
+],
+[
+"2026-07",
+"West Midlands",
+"Meta",
+779.01,
+9,
+737,
+2
+],
+[
+"2026-08",
+"West Midlands",
+"Meta",
+1225.41,
+26,
+1473,
+0
+],
+[
+"2025-07",
+"West Midlands",
+"Google",
+178.6,
+16.379,
+null,
+0
+],
+[
+"2025-08",
+"West Midlands",
+"Google",
+104.82,
+16.627,
+null,
+0
+],
+[
+"2025-09",
+"West Midlands",
+"Google",
+251.79,
+17.825,
+null,
+0
+],
+[
+"2025-10",
+"West Midlands",
+"Google",
+344.7,
+10.19,
+null,
+0
+],
+[
+"2025-11",
+"West Midlands",
+"Google",
+755.88,
+6.039,
+null,
+0
+],
+[
+"2025-12",
+"West Midlands",
+"Google",
+602.55,
+25.535,
+null,
+0
+],
+[
+"2026-01",
+"West Midlands",
+"Google",
+299.69,
+13.5,
+202,
+1
+],
+[
+"2026-02",
+"West Midlands",
+"Google",
+77.46,
+0,
+25,
+1
+],
+[
+"2026-04",
+"West Midlands",
+"Google",
+1190.15,
+38.593,
+624,
+1
+],
+[
+"2026-05",
+"West Midlands",
+"Google",
+211.69,
+7.004,
+113,
+2
+],
+[
+"2026-06",
+"West Midlands",
+"Google",
+128.72,
+0,
+12,
+2
+],
+[
+"2026-07",
+"West Midlands",
+"Google",
+276.5,
+11.495,
+122,
+2
+],
+[
+"2026-08",
+"West Midlands",
+"Google",
+708.74,
+22.352,
+507,
+0
+],
+[
+"2025-07",
+"West Midlands",
+"Appcast",
+4.81,
+0.401,
+null,
+0
+],
+[
+"2025-08",
+"West Midlands",
+"Appcast",
+15.43,
+0.601,
+null,
+0
+],
+[
+"2025-09",
+"West Midlands",
+"Appcast",
+271.93,
+15.701,
+null,
+0
+],
+[
+"2025-10",
+"West Midlands",
+"Appcast",
+804,
+27,
+null,
+0
+],
+[
+"2025-11",
+"West Midlands",
+"Appcast",
+170,
+8,
+null,
+0
+],
+[
+"2025-12",
+"West Midlands",
+"Appcast",
+205,
+14,
+null,
+0
+],
+[
+"2026-01",
+"West Midlands",
+"Appcast",
+332,
+19,
+2247,
+1
+],
+[
+"2026-02",
+"West Midlands",
+"Appcast",
+305,
+15,
+1374,
+1
+],
+[
+"2026-03",
+"West Midlands",
+"Appcast",
+0,
+0,
+0,
+1
+],
+[
+"2026-04",
+"West Midlands",
+"Appcast",
+200,
+7,
+232,
+1
+],
+[
+"2026-05",
+"West Midlands",
+"Appcast",
+65,
+2,
+298,
+2
+],
+[
+"2026-06",
+"West Midlands",
+"Appcast",
+400,
+8,
+913,
+2
+],
+[
+"2026-07",
+"West Midlands",
+"Appcast",
+0,
+0,
+49,
+2
+],
+[
+"2026-08",
+"West Midlands",
+"Appcast",
+200,
+2,
+367,
+0
+],
+[
+"2025-10",
+"North West",
+"Indeed",
+1221.22,
+0,
+null,
+0
+],
+[
+"2025-11",
+"North West",
+"Indeed",
+769.47,
+0,
+null,
+0
+],
+[
+"2025-12",
+"North West",
+"Indeed",
+1243.43,
+0,
+null,
+0
+],
+[
+"2026-01",
+"North West",
+"Indeed",
+882.57,
+56,
+1772,
+1
+],
+[
+"2026-02",
+"North West",
+"Indeed",
+854.11,
+25,
+1062,
+1
+],
+[
+"2026-03",
+"North West",
+"Indeed",
+2902.98,
+53,
+2232,
+1
+],
+[
+"2026-04",
+"North West",
+"Indeed",
+1464.29,
+31,
+1136,
+1
+],
+[
+"2026-05",
+"North West",
+"Indeed",
+1834.96,
+22,
+1346,
+2
+],
+[
+"2026-06",
+"North West",
+"Indeed",
+1678.48,
+36,
+2611,
+2
+],
+[
+"2026-07",
+"North West",
+"Indeed",
+1455.97,
+68,
+3715,
+2
+],
+[
+"2026-08",
+"North West",
+"Indeed",
+1684.42,
+40,
+3374,
+0
+],
+[
+"2025-07",
+"North West",
+"Meta",
+413.2,
+9.352,
+null,
+0
+],
+[
+"2025-08",
+"North West",
+"Meta",
+255.97,
+15.781,
+null,
+0
+],
+[
+"2025-09",
+"North West",
+"Meta",
+331.64,
+17.301,
+null,
+0
+],
+[
+"2025-10",
+"North West",
+"Meta",
+417.65,
+17.885,
+null,
+0
+],
+[
+"2025-11",
+"North West",
+"Meta",
+1417.42,
+13.794,
+null,
+0
+],
+[
+"2025-12",
+"North West",
+"Meta",
+1593.44,
+27.183,
+null,
+0
+],
+[
+"2026-01",
+"North West",
+"Meta",
+592.78,
+15,
+511,
+1
+],
+[
+"2026-02",
+"North West",
+"Meta",
+1212.95,
+18,
+886,
+1
+],
+[
+"2026-03",
+"North West",
+"Meta",
+2506.21,
+18,
+1323,
+1
+],
+[
+"2026-04",
+"North West",
+"Meta",
+1653.25,
+30,
+1157,
+1
+],
+[
+"2026-05",
+"North West",
+"Meta",
+5884.56,
+40,
+2753,
+2
+],
+[
+"2026-06",
+"North West",
+"Meta",
+2283.83,
+14,
+1293,
+2
+],
+[
+"2026-07",
+"North West",
+"Meta",
+2145.2,
+26,
+2081,
+2
+],
+[
+"2026-08",
+"North West",
+"Meta",
+464.45,
+2,
+427,
+0
+],
+[
+"2025-07",
+"North West",
+"Google",
+186.11,
+17.068,
+null,
+0
+],
+[
+"2025-08",
+"North West",
+"Google",
+109.23,
+17.326,
+null,
+0
+],
+[
+"2025-09",
+"North West",
+"Google",
+262.38,
+18.575,
+null,
+0
+],
+[
+"2025-10",
+"North West",
+"Google",
+359.2,
+10.619,
+null,
+0
+],
+[
+"2025-11",
+"North West",
+"Google",
+787.68,
+6.294,
+null,
+0
+],
+[
+"2025-12",
+"North West",
+"Google",
+409.01,
+9.838,
+null,
+0
+],
+[
+"2026-01",
+"North West",
+"Google",
+248.24,
+5.5,
+165,
+1
+],
+[
+"2026-02",
+"North West",
+"Google",
+55.18,
+0,
+19,
+1
+],
+[
+"2026-04",
+"North West",
+"Google",
+1600.62,
+12.537,
+528,
+1
+],
+[
+"2026-05",
+"North West",
+"Google",
+173.61,
+2.527,
+92,
+2
+],
+[
+"2026-06",
+"North West",
+"Google",
+1942.77,
+14.384,
+612,
+2
+],
+[
+"2026-07",
+"North West",
+"Google",
+961.61,
+10.667,
+636,
+2
+],
+[
+"2026-08",
+"North West",
+"Google",
+190.27,
+3,
+118,
+0
+],
+[
+"2025-07",
+"North West",
+"Appcast",
+22,
+1.583,
+null,
+0
+],
+[
+"2025-08",
+"North West",
+"Appcast",
+1000.46,
+41.875,
+null,
+0
+],
+[
+"2025-09",
+"North West",
+"Appcast",
+165.73,
+10.021,
+null,
+0
+],
+[
+"2025-10",
+"North West",
+"Appcast",
+345,
+14,
+null,
+0
+],
+[
+"2025-11",
+"North West",
+"Appcast",
+261,
+14,
+null,
+0
+],
+[
+"2025-12",
+"North West",
+"Appcast",
+245,
+14,
+null,
+0
+],
+[
+"2026-01",
+"North West",
+"Appcast",
+228,
+14,
+1909,
+1
+],
+[
+"2026-02",
+"North West",
+"Appcast",
+80,
+3,
+863,
+1
+],
+[
+"2026-03",
+"North West",
+"Appcast",
+225,
+8,
+1062,
+1
+],
+[
+"2026-04",
+"North West",
+"Appcast",
+825,
+22,
+858,
+1
+],
+[
+"2026-05",
+"North West",
+"Appcast",
+0,
+0,
+0,
+2
+],
+[
+"2026-06",
+"North West",
+"Appcast",
+195,
+13,
+945,
+2
+],
+[
+"2026-07",
+"North West",
+"Appcast",
+90,
+6,
+1091,
+2
+],
+[
+"2026-08",
+"North West",
+"Appcast",
+30,
+3,
+314,
+0
+],
+[
+"2026-07",
+"North East",
+"Indeed",
+1482.47,
+60,
+4527,
+2
+],
+[
+"2026-08",
+"North East",
+"Indeed",
+1769,
+44,
+3954,
+0
+],
+[
+"2026-07",
+"North East",
+"Meta",
+1361.45,
+14,
+1566,
+2
+],
+[
+"2026-08",
+"North East",
+"Meta",
+927.16,
+21,
+980,
+0
+],
+[
+"2026-07",
+"North East",
+"Google",
+819.99,
+1,
+446,
+2
+],
+[
+"2026-08",
+"North East",
+"Google",
+709.71,
+14.373,
+371,
+0
+],
+[
+"2025-07",
+"North East",
+"Appcast",
+0.07,
+0.006,
+null,
+0
+],
+[
+"2025-08",
+"North East",
+"Appcast",
+35.23,
+1.009,
+null,
+0
+],
+[
+"2025-09",
+"North East",
+"Appcast",
+0.23,
+0.011,
+null,
+0
+],
+[
+"2026-07",
+"North East",
+"Appcast",
+0,
+0,
+7,
+2
+],
+[
+"2026-08",
+"North East",
+"Appcast",
+23,
+1,
+282,
+0
+],
+[
+"2025-10",
+"Yorkshire & Humber",
+"Indeed",
+2583.56,
+0,
+null,
+0
+],
+[
+"2025-11",
+"Yorkshire & Humber",
+"Indeed",
+1012.95,
+0,
+null,
+0
+],
+[
+"2025-12",
+"Yorkshire & Humber",
+"Indeed",
+538.53,
+0,
+null,
+0
+],
+[
+"2026-01",
+"Yorkshire & Humber",
+"Indeed",
+500,
+46,
+1922,
+1
+],
+[
+"2026-02",
+"Yorkshire & Humber",
+"Indeed",
+846.65,
+26,
+1636,
+1
+],
+[
+"2026-03",
+"Yorkshire & Humber",
+"Indeed",
+671.8,
+7,
+597,
+1
+],
+[
+"2026-04",
+"Yorkshire & Humber",
+"Indeed",
+736.97,
+23,
+809,
+1
+],
+[
+"2026-05",
+"Yorkshire & Humber",
+"Indeed",
+5208,
+30,
+2077,
+2
+],
+[
+"2026-06",
+"Yorkshire & Humber",
+"Indeed",
+1952.98,
+13,
+824,
+2
+],
+[
+"2026-07",
+"Yorkshire & Humber",
+"Indeed",
+1788.49,
+52,
+4190,
+2
+],
+[
+"2026-08",
+"Yorkshire & Humber",
+"Indeed",
+1021,
+15,
+1274,
+0
+],
+[
+"2025-07",
+"Yorkshire & Humber",
+"Meta",
+106.78,
+2.417,
+null,
+0
+],
+[
+"2025-08",
+"Yorkshire & Humber",
+"Meta",
+66.15,
+4.078,
+null,
+0
+],
+[
+"2025-09",
+"Yorkshire & Humber",
+"Meta",
+85.7,
+4.471,
+null,
+0
+],
+[
+"2025-10",
+"Yorkshire & Humber",
+"Meta",
+107.93,
+4.622,
+null,
+0
+],
+[
+"2025-11",
+"Yorkshire & Humber",
+"Meta",
+366.29,
+3.565,
+null,
+0
+],
+[
+"2025-12",
+"Yorkshire & Humber",
+"Meta",
+699.64,
+6.115,
+null,
+0
+],
+[
+"2026-01",
+"Yorkshire & Humber",
+"Meta",
+493.29,
+14,
+418,
+1
+],
+[
+"2026-02",
+"Yorkshire & Humber",
+"Meta",
+736.11,
+21,
+693,
+1
+],
+[
+"2026-03",
+"Yorkshire & Humber",
+"Meta",
+413.12,
+11,
+299,
+1
+],
+[
+"2026-04",
+"Yorkshire & Humber",
+"Meta",
+247.32,
+4,
+183,
+1
+],
+[
+"2026-05",
+"Yorkshire & Humber",
+"Meta",
+157.99,
+2,
+123,
+2
+],
+[
+"2026-06",
+"Yorkshire & Humber",
+"Meta",
+869.5,
+12,
+603,
+2
+],
+[
+"2026-07",
+"Yorkshire & Humber",
+"Meta",
+932.32,
+13,
+809,
+2
+],
+[
+"2026-08",
+"Yorkshire & Humber",
+"Meta",
+494.23,
+4,
+501,
+0
+],
+[
+"2025-07",
+"Yorkshire & Humber",
+"Google",
+51.02,
+4.679,
+null,
+0
+],
+[
+"2025-08",
+"Yorkshire & Humber",
+"Google",
+29.94,
+4.749,
+null,
+0
+],
+[
+"2025-09",
+"Yorkshire & Humber",
+"Google",
+71.92,
+5.092,
+null,
+0
+],
+[
+"2025-10",
+"Yorkshire & Humber",
+"Google",
+98.46,
+2.911,
+null,
+0
+],
+[
+"2025-11",
+"Yorkshire & Humber",
+"Google",
+215.91,
+1.725,
+null,
+0
+],
+[
+"2025-12",
+"Yorkshire & Humber",
+"Google",
+97.52,
+3.524,
+null,
+0
+],
+[
+"2026-01",
+"Yorkshire & Humber",
+"Google",
+188.86,
+5.507,
+123,
+1
+],
+[
+"2026-02",
+"Yorkshire & Humber",
+"Google",
+71.76,
+0,
+22,
+1
+],
+[
+"2026-04",
+"Yorkshire & Humber",
+"Google",
+240.63,
+3,
+125,
+1
+],
+[
+"2026-05",
+"Yorkshire & Humber",
+"Google",
+104.8,
+5.333,
+50,
+2
+],
+[
+"2026-06",
+"Yorkshire & Humber",
+"Google",
+1581.95,
+3,
+463,
+2
+],
+[
+"2026-07",
+"Yorkshire & Humber",
+"Google",
+638.47,
+3.942,
+385,
+2
+],
+[
+"2026-08",
+"Yorkshire & Humber",
+"Google",
+161.39,
+1,
+107,
+0
+],
+[
+"2025-07",
+"Yorkshire & Humber",
+"Appcast",
+32.16,
+2.263,
+null,
+0
+],
+[
+"2025-08",
+"Yorkshire & Humber",
+"Appcast",
+75.14,
+2.395,
+null,
+0
+],
+[
+"2025-09",
+"Yorkshire & Humber",
+"Appcast",
+136.81,
+6.461,
+null,
+0
+],
+[
+"2025-10",
+"Yorkshire & Humber",
+"Appcast",
+681,
+17,
+null,
+0
+],
+[
+"2025-11",
+"Yorkshire & Humber",
+"Appcast",
+139,
+8,
+null,
+0
+],
+[
+"2025-12",
+"Yorkshire & Humber",
+"Appcast",
+75,
+4,
+null,
+0
+],
+[
+"2026-01",
+"Yorkshire & Humber",
+"Appcast",
+0,
+0,
+493,
+1
+],
+[
+"2026-02",
+"Yorkshire & Humber",
+"Appcast",
+185,
+8,
+749,
+1
+],
+[
+"2026-04",
+"Yorkshire & Humber",
+"Appcast",
+45,
+1,
+359,
+1
+],
+[
+"2026-05",
+"Yorkshire & Humber",
+"Appcast",
+264,
+8,
+572,
+2
+],
+[
+"2026-06",
+"Yorkshire & Humber",
+"Appcast",
+350,
+7,
+301,
+2
+],
+[
+"2026-07",
+"Yorkshire & Humber",
+"Appcast",
+155,
+8,
+1234,
+2
+],
+[
+"2026-08",
+"Yorkshire & Humber",
+"Appcast",
+30,
+3,
+597,
+0
+],
+[
+"2025-10",
+"Scotland",
+"Indeed",
+576.22,
+0,
+null,
+0
+],
+[
+"2025-11",
+"Scotland",
+"Indeed",
+239.09,
+0,
+null,
+0
+],
+[
+"2025-12",
+"Scotland",
+"Indeed",
+679.5,
+0,
+null,
+0
+],
+[
+"2026-01",
+"Scotland",
+"Indeed",
+674.11,
+6,
+225,
+1
+],
+[
+"2026-02",
+"Scotland",
+"Indeed",
+0,
+0,
+41,
+1
+],
+[
+"2026-03",
+"Scotland",
+"Indeed",
+560.73,
+30,
+852,
+1
+],
+[
+"2026-04",
+"Scotland",
+"Indeed",
+927.66,
+9,
+942,
+1
+],
+[
+"2026-05",
+"Scotland",
+"Indeed",
+627,
+11,
+543,
+2
+],
+[
+"2026-06",
+"Scotland",
+"Indeed",
+413.58,
+8,
+403,
+2
+],
+[
+"2026-07",
+"Scotland",
+"Indeed",
+3222.99,
+57,
+7571,
+2
+],
+[
+"2025-07",
+"Scotland",
+"Meta",
+103.87,
+2.351,
+null,
+0
+],
+[
+"2025-08",
+"Scotland",
+"Meta",
+64.35,
+3.967,
+null,
+0
+],
+[
+"2025-09",
+"Scotland",
+"Meta",
+83.37,
+4.349,
+null,
+0
+],
+[
+"2025-10",
+"Scotland",
+"Meta",
+104.99,
+4.496,
+null,
+0
+],
+[
+"2025-11",
+"Scotland",
+"Meta",
+356.32,
+3.468,
+null,
+0
+],
+[
+"2025-12",
+"Scotland",
+"Meta",
+813.78,
+20.057,
+null,
+0
+],
+[
+"2026-01",
+"Scotland",
+"Meta",
+395.22,
+12,
+390,
+1
+],
+[
+"2026-02",
+"Scotland",
+"Meta",
+18.31,
+0,
+19,
+1
+],
+[
+"2026-03",
+"Scotland",
+"Meta",
+0,
+0,
+0,
+1
+],
+[
+"2026-04",
+"Scotland",
+"Meta",
+245.51,
+5,
+413,
+1
+],
+[
+"2026-05",
+"Scotland",
+"Meta",
+2314.05,
+21,
+2052,
+2
+],
+[
+"2026-06",
+"Scotland",
+"Meta",
+288.76,
+3,
+207,
+2
+],
+[
+"2026-07",
+"Scotland",
+"Meta",
+2258.11,
+21,
+1648,
+2
+],
+[
+"2026-08",
+"Scotland",
+"Meta",
+177.56,
+3,
+316,
+0
+],
+[
+"2025-07",
+"Scotland",
+"Google",
+54.43,
+4.991,
+null,
+0
+],
+[
+"2025-08",
+"Scotland",
+"Google",
+31.94,
+5.067,
+null,
+0
+],
+[
+"2025-09",
+"Scotland",
+"Google",
+76.73,
+5.432,
+null,
+0
+],
+[
+"2025-10",
+"Scotland",
+"Google",
+105.04,
+3.105,
+null,
+0
+],
+[
+"2025-11",
+"Scotland",
+"Google",
+230.35,
+1.84,
+null,
+0
+],
+[
+"2025-12",
+"Scotland",
+"Google",
+245.17,
+1.026,
+null,
+0
+],
+[
+"2026-01",
+"Scotland",
+"Google",
+159.98,
+5,
+113,
+1
+],
+[
+"2026-04",
+"Scotland",
+"Google",
+236.84,
+1,
+89,
+1
+],
+[
+"2026-05",
+"Scotland",
+"Google",
+83.85,
+0,
+62,
+2
+],
+[
+"2026-06",
+"Scotland",
+"Google",
+7.95,
+0,
+1,
+2
+],
+[
+"2026-07",
+"Scotland",
+"Google",
+1093.62,
+13.5,
+555,
+2
+],
+[
+"2025-07",
+"Scotland",
+"Appcast",
+1.58,
+0.131,
+null,
+0
+],
+[
+"2025-08",
+"Scotland",
+"Appcast",
+371.06,
+12.197,
+null,
+0
+],
+[
+"2025-09",
+"Scotland",
+"Appcast",
+4.9,
+0.23,
+null,
+0
+],
+[
+"2025-10",
+"Scotland",
+"Appcast",
+68,
+2,
+null,
+0
+],
+[
+"2025-11",
+"Scotland",
+"Appcast",
+40,
+4,
+null,
+0
+],
+[
+"2025-12",
+"Scotland",
+"Appcast",
+35,
+3,
+null,
+0
+],
+[
+"2026-01",
+"Scotland",
+"Appcast",
+0,
+0,
+345,
+1
+],
+[
+"2026-04",
+"Scotland",
+"Appcast",
+245,
+7,
+94,
+1
+],
+[
+"2026-06",
+"Scotland",
+"Appcast",
+45,
+3,
+85,
+2
+],
+[
+"2026-07",
+"Scotland",
+"Appcast",
+60,
+6,
+346,
+2
+],
+[
+"2025-10",
+"Wales",
+"Indeed",
+466.01,
+0,
+null,
+0
+],
+[
+"2025-11",
+"Wales",
+"Indeed",
+542.82,
+0,
+null,
+0
+],
+[
+"2025-12",
+"Wales",
+"Indeed",
+610.5,
+0,
+null,
+0
+],
+[
+"2026-01",
+"Wales",
+"Indeed",
+400,
+24,
+772,
+1
+],
+[
+"2026-02",
+"Wales",
+"Indeed",
+18.16,
+0,
+46,
+1
+],
+[
+"2026-03",
+"Wales",
+"Indeed",
+1221.51,
+48,
+2252,
+1
+],
+[
+"2026-04",
+"Wales",
+"Indeed",
+666.6,
+20,
+878,
+1
+],
+[
+"2026-05",
+"Wales",
+"Indeed",
+1238.48,
+13,
+896,
+2
+],
+[
+"2025-07",
+"Wales",
+"Meta",
+112.49,
+2.546,
+null,
+0
+],
+[
+"2025-08",
+"Wales",
+"Meta",
+69.68,
+4.296,
+null,
+0
+],
+[
+"2025-09",
+"Wales",
+"Meta",
+90.29,
+4.71,
+null,
+0
+],
+[
+"2025-10",
+"Wales",
+"Meta",
+113.7,
+4.869,
+null,
+0
+],
+[
+"2025-11",
+"Wales",
+"Meta",
+385.88,
+3.755,
+null,
+0
+],
+[
+"2025-12",
+"Wales",
+"Meta",
+707.16,
+15.228,
+null,
+0
+],
+[
+"2026-01",
+"Wales",
+"Meta",
+392.97,
+14,
+321,
+1
+],
+[
+"2026-02",
+"Wales",
+"Meta",
+17.83,
+1,
+13,
+1
+],
+[
+"2026-03",
+"Wales",
+"Meta",
+549.1,
+15,
+407,
+1
+],
+[
+"2026-04",
+"Wales",
+"Meta",
+420.97,
+7,
+354,
+1
+],
+[
+"2026-05",
+"Wales",
+"Meta",
+893.86,
+7,
+586,
+2
+],
+[
+"2025-07",
+"Wales",
+"Google",
+32.42,
+2.973,
+null,
+0
+],
+[
+"2025-08",
+"Wales",
+"Google",
+19.03,
+3.018,
+null,
+0
+],
+[
+"2025-09",
+"Wales",
+"Google",
+45.7,
+3.235,
+null,
+0
+],
+[
+"2025-10",
+"Wales",
+"Google",
+62.56,
+1.849,
+null,
+0
+],
+[
+"2025-11",
+"Wales",
+"Google",
+137.19,
+1.096,
+null,
+0
+],
+[
+"2025-12",
+"Wales",
+"Google",
+201.22,
+4.015,
+null,
+0
+],
+[
+"2026-01",
+"Wales",
+"Google",
+124.34,
+2.5,
+107,
+1
+],
+[
+"2026-04",
+"Wales",
+"Google",
+378.24,
+2,
+148,
+1
+],
+[
+"2025-07",
+"Wales",
+"Appcast",
+1.08,
+0.09,
+null,
+0
+],
+[
+"2025-08",
+"Wales",
+"Appcast",
+43.46,
+1.135,
+null,
+0
+],
+[
+"2025-09",
+"Wales",
+"Appcast",
+62.35,
+4.157,
+null,
+0
+],
+[
+"2025-10",
+"Wales",
+"Appcast",
+46,
+2,
+null,
+0
+],
+[
+"2025-11",
+"Wales",
+"Appcast",
+60,
+2,
+null,
+0
+],
+[
+"2025-12",
+"Wales",
+"Appcast",
+145,
+7,
+null,
+0
+],
+[
+"2026-01",
+"Wales",
+"Appcast",
+85,
+8,
+424,
+1
+],
+[
+"2026-02",
+"Wales",
+"Appcast",
+15,
+1,
+23,
+1
+],
+[
+"2026-04",
+"Wales",
+"Appcast",
+65,
+4,
+128,
+1
+],
+[
+"2025-12",
+"Northern Ireland",
+"Indeed",
+76.22,
+0,
+null,
+0
+],
+[
+"2026-01",
+"Northern Ireland",
+"Indeed",
+188.41,
+12,
+227,
+1
+],
+[
+"2026-05",
+"Northern Ireland",
+"Indeed",
+187.37,
+2,
+168,
+2
+],
+[
+"2026-06",
+"Northern Ireland",
+"Indeed",
+394.72,
+5,
+261,
+2
+],
+[
+"2026-07",
+"Northern Ireland",
+"Indeed",
+424.63,
+16,
+609,
+2
+],
+[
+"2026-07",
+"Northern Ireland",
+"Meta",
+316.96,
+6,
+344,
+2
+],
+[
+"2026-07",
+"Northern Ireland",
+"Google",
+130.64,
+0,
+84,
+2
+],
+[
+"2025-07",
+"Northern Ireland",
+"Appcast",
+0.03,
+0.002,
+null,
+0
+],
+[
+"2025-08",
+"Northern Ireland",
+"Appcast",
+14.09,
+2.004,
+null,
+0
+],
+[
+"2025-09",
+"Northern Ireland",
+"Appcast",
+0.09,
+0.004,
+null,
+0
+],
+[
+"2026-01",
+"Northern Ireland",
+"Appcast",
+0,
+0,
+0,
+1
+],
+[
+"2026-06",
+"Northern Ireland",
+"Appcast",
+5,
+1,
+24,
+2
+],
+[
+"2026-07",
+"Northern Ireland",
+"Appcast",
+0,
+0,
+42,
+2
+]
+],
+"cells": {
+"London|indeed": {
+"openRoles": 10,
+"cpa": 86.4292695487685,
+"spend": 4891.67454618018,
+"apps": 56.5974301497482,
+"biggestMonth": 15624.81,
+"hireRate": 0.00897,
+"hires": 0.507678948443241
+},
+"London|meta": {
+"openRoles": 10,
+"cpa": 151.005347620131,
+"spend": 1257.56835277347,
+"apps": 8.32797230424584,
+"biggestMonth": 11106.36,
+"hireRate": 0.01091,
+"hires": 0.0908581778393221
+},
+"London|google": {
+"openRoles": 10,
+"cpa": 163.287192528652,
+"spend": 3796.28153389639,
+"apps": 23.2491077536915,
+"biggestMonth": 6564.78,
+"hireRate": 0.01257,
+"hires": 0.292241284463902
+},
+"London|appcast": {
+"openRoles": 10,
+"cpa": 22.1723208142998,
+"spend": 881.675567149932,
+"apps": 39.7646946629648,
+"biggestMonth": 1677,
+"hireRate": 0,
+"hires": 0
+},
+"South East|indeed": {
+"openRoles": 11,
+"cpa": 101.644247481861,
+"spend": 5180.1868014461,
+"apps": 50.9638954469169,
+"biggestMonth": 10173.45,
+"hireRate": 0.01261,
+"hires": 0.642654721585623
+},
+"South East|meta": {
+"openRoles": 11,
+"cpa": 140.370820490758,
+"spend": 3064.45561072794,
+"apps": 21.8311441082565,
+"biggestMonth": 6071.95,
+"hireRate": 0.03424,
+"hires": 0.747498374266702
+},
+"South East|google": {
+"openRoles": 11,
+"cpa": 133.452517700854,
+"spend": 2797.58324630081,
+"apps": 20.9631357616785,
+"biggestMonth": 4079.62,
+"hireRate": 0.02545,
+"hires": 0.533511805134718
+},
+"South East|appcast": {
+"openRoles": 11,
+"cpa": 25.3386772507007,
+"spend": 867.694341525144,
+"apps": 34.2438688862952,
+"biggestMonth": 1435,
+"hireRate": 0.01572,
+"hires": 0.53831361889256
+},
+"East of England|indeed": {
+"openRoles": 1,
+"cpa": 67.2317199396224,
+"spend": 2875.53502158522,
+"apps": 42.7705110648307,
+"biggestMonth": 2520.43,
+"hireRate": 0.0149,
+"hires": 0.637280614865978
+},
+"East of England|meta": {
+"openRoles": 1,
+"cpa": 109.121482213836,
+"spend": 632.292570756088,
+"apps": 5.79439133274453,
+"biggestMonth": 3237.19,
+"hireRate": 0.01138,
+"hires": 0.0659401733666327
+},
+"East of England|google": {
+"openRoles": 1,
+"cpa": 155.646433486789,
+"spend": 873.75853562077,
+"apps": 5.61373952519725,
+"biggestMonth": 1173.11,
+"hireRate": 0.01786,
+"hires": 0.100261387920023
+},
+"East of England|appcast": {
+"openRoles": 1,
+"cpa": 24.0162473721581,
+"spend": 718.413872037921,
+"apps": 29.9136605692517,
+"biggestMonth": 886,
+"hireRate": 0.00572,
+"hires": 0.17110613845612
+},
+"South West|indeed": {
+"openRoles": 12,
+"cpa": 117.648404942632,
+"spend": 7575.15590763761,
+"apps": 64.3880884856144,
+"biggestMonth": 6868.42,
+"hireRate": 0.02852,
+"hires": 1.83634828360972
+},
+"South West|meta": {
+"openRoles": 12,
+"cpa": 129.052406110861,
+"spend": 3650.70484587197,
+"apps": 28.2885453738528,
+"biggestMonth": 5495.75,
+"hireRate": 0,
+"hires": 0
+},
+"South West|google": {
+"openRoles": 12,
+"cpa": 205.350956852285,
+"spend": 1267.31269713132,
+"apps": 6.17144773298004,
+"biggestMonth": 3825.03,
+"hireRate": 0.01957,
+"hires": 0.120775232134419
+},
+"South West|appcast": {
+"openRoles": 12,
+"cpa": 22.9795215372763,
+"spend": 499.466549359079,
+"apps": 21.7352893335428,
+"biggestMonth": 380,
+"hireRate": 0.02195,
+"hires": 0.477089600871265
+},
+"East Midlands|indeed": {
+"openRoles": 7,
+"cpa": 97.2970289821175,
+"spend": 2345.93808024409,
+"apps": 24.1110967599562,
+"biggestMonth": 3122,
+"hireRate": 0.01339,
+"hires": 0.322847585615813
+},
+"East Midlands|meta": {
+"openRoles": 7,
+"cpa": 107.67117302946,
+"spend": 1570.78866649119,
+"apps": 14.5887578104253,
+"biggestMonth": 2212.96,
+"hireRate": 0,
+"hires": 0
+},
+"East Midlands|google": {
+"openRoles": 7,
+"cpa": 141.142118324866,
+"spend": 3506.78513808163,
+"apps": 24.8457737470687,
+"biggestMonth": 1698.54,
+"hireRate": 0.03673,
+"hires": 0.912585269729833
+},
+"East Midlands|appcast": {
+"openRoles": 7,
+"cpa": 19.9855903768778,
+"spend": 155.52811518309,
+"apps": 7.78201255255524,
+"biggestMonth": 305,
+"hireRate": 0,
+"hires": 0
+},
+"West Midlands|indeed": {
+"openRoles": 4,
+"cpa": 56.0020589349834,
+"spend": 4360.41065018035,
+"apps": 77.8616131818055,
+"biggestMonth": 2492.69,
+"hireRate": 0.01269,
+"hires": 0.988063871277112
+},
+"West Midlands|meta": {
+"openRoles": 4,
+"cpa": 45.2028049035226,
+"spend": 2118.0909043586,
+"apps": 46.8575104770442,
+"biggestMonth": 1936.07,
+"hireRate": 0.02488,
+"hires": 1.16581486066886
+},
+"West Midlands|google": {
+"openRoles": 4,
+"cpa": 68.5768921053327,
+"spend": 4634.89101122206,
+"apps": 67.5867755001636,
+"biggestMonth": 1190.15,
+"hireRate": 0.02405,
+"hires": 1.62546195077894
+},
+"West Midlands|appcast": {
+"openRoles": 4,
+"cpa": 27.1667658163126,
+"spend": 386.60743423899,
+"apps": 14.230896561373,
+"biggestMonth": 804,
+"hireRate": 0,
+"hires": 0
+},
+"North West|indeed": {
+"openRoles": 5,
+"cpa": 42.0690409006826,
+"spend": 2766.9112583038,
+"apps": 65.7707235312537,
+"biggestMonth": 2902.98,
+"hireRate": 0.01359,
+"hires": 0.893824132789738
+},
+"North West|meta": {
+"openRoles": 5,
+"cpa": 109.945526805766,
+"spend": 785.614300301457,
+"apps": 7.1454867071523,
+"biggestMonth": 5884.56,
+"hireRate": 0.01829,
+"hires": 0.130690951873816
+},
+"North West|google": {
+"openRoles": 5,
+"cpa": 122.295263165299,
+"spend": 1250.31613464784,
+"apps": 10.2237494918987,
+"biggestMonth": 1942.77,
+"hireRate": 0.02604,
+"hires": 0.266226436769042
+},
+"North West|appcast": {
+"openRoles": 5,
+"cpa": 23.5297111526719,
+"spend": 610.758306746897,
+"apps": 25.9568977614731,
+"biggestMonth": 1000.46,
+"hireRate": 0.01244,
+"hires": 0.322903808152725
+},
+"North East|indeed": {
+"openRoles": 1,
+"cpa": 28.351034000952,
+"spend": 1310.59320119014,
+"apps": 46.2273510428624,
+"biggestMonth": 1769,
+"hireRate": null,
+"hires": 0
+},
+"North East|meta": {
+"openRoles": 1,
+"cpa": 100.085675265673,
+"spend": 458.865635197185,
+"apps": 4.58472837375724,
+"biggestMonth": 1361.45,
+"hireRate": null,
+"hires": 0
+},
+"North East|google": {
+"openRoles": 1,
+"cpa": 255.080259986966,
+"spend": 417.241654126174,
+"apps": 1.63572694393323,
+"biggestMonth": 819.99,
+"hireRate": null,
+"hires": 0
+},
+"North East|appcast": {
+"openRoles": 1,
+"cpa": 24.9702201122141,
+"spend": 113.299509486521,
+"apps": 4.53738529245486,
+"biggestMonth": 35.23,
+"hireRate": null,
+"hires": 0
+},
+"Yorkshire & Humber|indeed": {
+"openRoles": 5,
+"cpa": 70.9293336275403,
+"spend": 2996.83902163288,
+"apps": 42.2510528206805,
+"biggestMonth": 5208,
+"hireRate": 0.01777,
+"hires": 0.750801208623493
+},
+"Yorkshire & Humber|meta": {
+"openRoles": 5,
+"cpa": 72.8002487044019,
+"spend": 1330.05937163183,
+"apps": 18.2699838984397,
+"biggestMonth": 932.32,
+"hireRate": 0.01985,
+"hires": 0.362659180384029
+},
+"Yorkshire & Humber|google": {
+"openRoles": 5,
+"cpa": 147.919008407909,
+"spend": 557.917932626634,
+"apps": 3.77177983162306,
+"biggestMonth": 1581.95,
+"hireRate": 0.01666,
+"hires": 0.0628378519948402
+},
+"Yorkshire & Humber|appcast": {
+"openRoles": 5,
+"cpa": 28.9165990504963,
+"spend": 528.78367410866,
+"apps": 18.2865098757035,
+"biggestMonth": 681,
+"hireRate": 0,
+"hires": 0
+},
+"Scotland|indeed": {
+"openRoles": 1,
+"cpa": 57.8668506097927,
+"spend": 716.214946813156,
+"apps": 12.3769470649566,
+"biggestMonth": 3222.99,
+"hireRate": 0.04976,
+"hires": 0.615876885952241
+},
+"Scotland|meta": {
+"openRoles": 1,
+"cpa": 100.526485990305,
+"spend": 131.559741890268,
+"apps": 1.30870725853241,
+"biggestMonth": 2314.05,
+"hireRate": 0.03732,
+"hires": 0.0488409548884294
+},
+"Scotland|google": {
+"openRoles": 1,
+"cpa": 115.775239443485,
+"spend": 77.4562192739399,
+"apps": 0.669022319852338,
+"biggestMonth": 1093.62,
+"hireRate": 0.01393,
+"hires": 0.00931948091554307
+},
+"Scotland|appcast": {
+"openRoles": 1,
+"cpa": 21.8928473339349,
+"spend": 238.769092022636,
+"apps": 10.9062603132729,
+"biggestMonth": 371.06,
+"hireRate": 0.02916,
+"hires": 0.318026550735037
+}
+},
+"summary": {
+"Monthly budget": 79200,
+"Indeed Premium hold-back": 0,
+"Combined Activity hold-back": 5000,
+"Deployable budget": 74200,
+"Above the biggest month already run": 8959.8440635429,
+"Application target": 1041,
+"Predicted applications": 1012.40367161005,
+"Predicted applications, low": 587,
+"Predicted applications, high": 1438,
+"Predicted hires": 15.5583393429997,
+"Predicted hires, low": 9.02383681893984,
+"Predicted hires, high": 22.0928418670596,
+"Cost per application": 73.2909234534856,
+"Cost per hire": 4769.14652420057,
+"Range used": 0.42,
+"Budget to hit the application target": 81900
+}
+}

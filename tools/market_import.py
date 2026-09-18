@@ -10,12 +10,11 @@ averages. No campaign names, no cell-level figures, nothing that identifies a
 candidate:
 
   Google and Meta CPC and CPM   whether it got dearer or cheaper to reach
-                                people, as an index: each month against that
-                                platform's average over the whole period, so
-                                100 is an average month. The repository is
-                                public, so RAC's own prices are not written
-                                into it. Meta's link clicks are used, which
-                                are what compare with Google's clicks.
+                                people: cost per click and per thousand
+                                impressions in pounds, each month, with each
+                                platform's average over the whole period.
+                                Meta's link clicks are used, which are what
+                                compare with Google's clicks.
   Google Trends                 how many people were searching for these jobs
 
 The Indeed Hiring Lab series is deliberately not here. Its access terms have
@@ -119,10 +118,9 @@ def build(ads_path, trends_path):
     totals, skipped = read_ads(ads_path)
     terms, trends = read_trends(trends_path)
     months = sorted({m for m, _ in totals} | set(trends))
-    # What ships is the shape of the market, not RAC's own prices: each month
-    # as a percentage of that platform's average over the whole period. The
-    # repository is public, so no cost figure of RAC's is written into it.
-    # 100 means the average month; 120 means a fifth dearer than usual.
+    # Actual cost per click and per thousand impressions in pounds (user, 18
+    # September 2026), with each platform's average over the whole period so a
+    # month can be read against it.
     raw = {}
     for (mo, plat), t in totals.items():
         raw[(mo, plat)] = {
@@ -143,8 +141,8 @@ def build(ads_path, trends_path):
             if not v:
                 continue
             row[plat] = {
-                'cpc_index': round(v['cpc'] / mean[(plat, 'cpc')] * 100, 1) if v['cpc'] and mean[(plat, 'cpc')] else None,
-                'cpm_index': round(v['cpm'] / mean[(plat, 'cpm')] * 100, 1) if v['cpm'] and mean[(plat, 'cpm')] else None,
+                'cpc': round(v['cpc'], 2) if v['cpc'] else None,
+                'cpm': round(v['cpm'], 2) if v['cpm'] else None,
                 'campaigns': v['campaigns'],
             }
         if mo in trends:
@@ -152,11 +150,11 @@ def build(ads_path, trends_path):
         rows.append(row)
     return {
         'note': "A guide beside the remaining-error adjustment, not part of the model. Cost per click and per "
-                "thousand impressions are given as an index: each month as a percentage of that platform's average "
-                "over the whole period, so 100 is an average month. The repository is public, so no cost figure of "
-                "RAC's is written into it. Google Trends search interest is as Google publishes it. Written by "
-                "tools/market_import.py. The Indeed Hiring Lab series is deliberately not here: its access terms have "
-                "not been checked.",
+                "thousand impressions are in pounds, each month, with each platform's average over the whole period. "
+                "Google Trends search interest is as Google publishes it. Written by tools/market_import.py. The "
+                "Indeed Hiring Lab series is deliberately not here: its access terms have not been checked.",
+        'averages': {plat: {what: (round(mean[(plat, what)], 2) if mean[(plat, what)] else None) for what in ('cpc', 'cpm')}
+                     for plat in ('google', 'meta')},
         'sources': {
             'ads': {'file': os.path.basename(ads_path), 'file_date': datetime.datetime.fromtimestamp(os.path.getmtime(ads_path)).date().isoformat()},
             'trends': {'file': os.path.basename(trends_path), 'file_date': datetime.datetime.fromtimestamp(os.path.getmtime(trends_path)).date().isoformat(), 'terms': terms},

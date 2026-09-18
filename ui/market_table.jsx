@@ -8,9 +8,9 @@
 // (addendum 2.5). It answers the question the adjustment raises: when the model
 // missed, was the market moving?
 //
-// Cost is an index: each month as a percentage of that platform's average over
-// the whole period, so 100 is an average month. The repository is public, so
-// RAC's own prices are not written into it (data/market.json).
+// Cost is in pounds: cost per click and per thousand impressions each month,
+// with a tick on each bar at that platform's average over the whole period
+// (data/market.json).
 (function () {
   const { useState, useEffect } = React;
   const RACUI = (window.RACUI = window.RACUI || {});
@@ -18,13 +18,14 @@
   const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   const label = (mo) => `${MONTHS[Number(mo.slice(5, 7)) - 1].slice(0, 3)} ${mo.slice(2, 4)}`;
 
-  // A short bar, so a column of numbers reads as a shape.
-  function Bar({ value, mid = 100, max = 200, colour }) {
+  // A short bar, so a column of numbers reads as a shape. The tick marks the
+  // average (or the middle of the scale for search interest).
+  function Bar({ value, mid = 100, max = 200, colour, pounds = false }) {
     if (value === null || value === undefined) return <span className="help-text">-</span>;
     const w = Math.max(2, Math.min(100, (value / max) * 100));
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, width: '100%' }}>
-        <span className="mono" style={{ width: 42, textAlign: 'right' }}>{value.toFixed(0)}</span>
+        <span className="mono" style={{ width: 52, textAlign: 'right' }}>{pounds ? '£' + value.toFixed(2) : value.toFixed(0)}</span>
         <span style={{ flex: 1, height: 7, background: '#EEF1F6', borderRadius: 4, position: 'relative' }}>
           <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: w + '%', background: colour, borderRadius: 4 }} />
           <span style={{ position: 'absolute', left: (mid / max) * 100 + '%', top: -2, bottom: -2, width: 1, background: '#9AA5B5' }} />
@@ -47,12 +48,22 @@
     if (data.error) return <div className="help-text">The market data file could not be read, so this guide is empty. It changes nothing about the plan.</div>;
     const rows = data.months.slice(-months);
     const terms = (data.sources.trends.terms || []);
+    const avg = data.averages || {};
+    // Each cost column is drawn on its own scale: twice that platform's average.
+    const cost = (plat, what, colour) => r => {
+      const mean = (avg[plat] || {})[what];
+      return <Bar value={r[plat] && r[plat][what]} mid={mean} max={mean * 2} colour={colour} pounds />;
+    };
+    const cols = [cost('google', 'cpc', '#2563EB'), cost('google', 'cpm', '#60A5FA'), cost('meta', 'cpc', '#F28C28'), cost('meta', 'cpm', '#F6BE83')];
+    const money = v => (v ? '£' + v.toFixed(2) : '-');
     return (
       <div data-panel="market">
         <div className="help-text" style={{ marginBottom: 10 }}>
-          A guide, not part of the plan. Cost is an index: each month against that platform&rsquo;s own average over
-          {' '}{data.months.length} months, so 100 is an average month and 120 is a fifth dearer than usual. Search interest is
-          Google Trends, where 100 is the busiest month it holds. Nothing here goes into the PDF or the workings.
+          A guide, not part of the plan. Cost per click and per thousand impressions in pounds; the tick on each bar is
+          that platform&rsquo;s average over {data.months.length} months (Google {money((avg.google || {}).cpc)} a click,
+          {' '}{money((avg.google || {}).cpm)} a thousand; Meta {money((avg.meta || {}).cpc)} a click, {money((avg.meta || {}).cpm)} a
+          thousand). Search interest is Google Trends, where 100 is the busiest month it holds. Nothing here goes into the
+          PDF or the workings.
         </div>
         <table className="alloc-table" style={{ maxWidth: 920 }}>
           <thead><tr>
@@ -67,10 +78,7 @@
             {rows.map(r => (
               <tr key={r.month}>
                 <td className="mono">{label(r.month)}</td>
-                <td><Bar value={r.google && r.google.cpc_index} colour="#2563EB" /></td>
-                <td><Bar value={r.google && r.google.cpm_index} colour="#60A5FA" /></td>
-                <td><Bar value={r.meta && r.meta.cpc_index} colour="#F28C28" /></td>
-                <td><Bar value={r.meta && r.meta.cpm_index} colour="#F6BE83" /></td>
+                {cols.map((c, i) => <td key={i}>{c(r)}</td>)}
                 {terms.map(t => (
                   <td key={t}><Bar value={r.searches ? r.searches[t] : null} mid={50} max={100} colour="#16864E" /></td>
                 ))}

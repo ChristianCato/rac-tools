@@ -1,5 +1,6 @@
 // RAC planner: automatic checks on everything RAC sees (the PDF, the workings
-// export and the Method text). The exports run them before saving and refuse
+// export, the Method text and glossary, the OneRAC PDF, the version stamp and
+// the in-app changelog). The exports run them before saving and refuse
 // to save a file that fails; tests/checks/80_exports.mjs runs them too.
 //
 //   RAC.outputChecks.text(str)        problems in a piece of text
@@ -13,6 +14,9 @@
   const BANNED = [
     { re: /—/, why: 'em-dash' },
     { re: /hiring\s*lab/i, why: 'Hiring Lab named' },
+    // Nothing RAC sees may name where the app is kept or hosted, or say that
+    // any of its data or code is public (user, 18 September 2026).
+    { re: /\b(repositor(y|ies)|repo|github|git|vercel|supabase|public(ly)?)\b/i, why: 'names the repository, hosting or database, or says something is public' },
     { re: /\bapp(lication)?s? target\b/i, why: 'location application target' },
     { re: /\bNaN\b|\bundefined\b|\bInfinity\b/, why: 'broken figure' },
   ];

@@ -1,9 +1,27 @@
 # Releasing
 
-What to do to put a change live, in order. Everything here is done by a person;
-nothing releases itself.
+What to do to put the `c3-build` release live, in order, and who does each
+step. Everything here is done by a person; nothing releases itself.
 
-## Before merging
+- **Biraag** runs the checks and checks the plan on the test link (steps 1 and 2).
+- **The app author** does everything else (steps 3 to 11).
+
+Nothing merges until Biraag says his check on the test link has passed.
+
+## The archive, in short
+
+Plans made before this release keep working exactly as they do today, in a
+read-only copy of today's app: the **archive**. It lives on the same address as
+the app, at `https://rac-tools.vercel.app/archive/`. There is no second Vercel
+project, no second link to share and no second sign-in set-up. The file is
+`archive/index.html` and it goes live with the merge like everything else.
+
+The archive reads its own copy of the saved plans and data, stored in the
+database under `archive:workspace`, `archive:benchmarks` and
+`archive:hire_rates`. The new release takes that copy by itself the first time
+it opens on the live address (step 7), before it writes anything of its own.
+
+## Checks (Biraag, before the merge)
 
 1. **Run the checks** from the repo folder:
 
@@ -24,49 +42,76 @@ nothing releases itself.
    through every screen and export the release changed and takes about an hour.
    The test link cannot save: it shows "Not saved" and a banner saying so.
 
-3. **Keep the exports you are going to compare against.** From the live app,
-   export the PDF and the workings for each saved plan that matters (at least
-   the September SMR and Patrol plans). These are the copies the archive is
-   checked against in step 6.
+## Settings to confirm (app author, once, before the merge)
 
-## Merging
+3. **Supabase sign-in redirect URLs.** In Supabase, Authentication, URL
+   Configuration, the list of redirect URLs must include
+   `https://rac-tools.vercel.app/**` (with the `/**`). The archive's sign-in
+   link returns to `https://rac-tools.vercel.app/archive/`, and only the `/**`
+   form allows that. If the list holds the address without `/**`, add the
+   `/**` form. Nothing else is needed for the archive: someone already signed in
+   to the app in the same browser is already signed in to the archive.
 
-4. **Back up the shared state** before anything else: sign in to the live app
-   and use "Back up" in the header, which downloads the whole workspace as a
-   file. Keep it somewhere safe until the release has settled.
+4. **Vercel system environment variables.** In the Vercel project, Settings,
+   Environment Variables, tick "Automatically expose System Environment
+   Variables" for Production (and Preview). Without it, the version stamp on
+   every PDF and workings export reads "Code unknown" instead of the code
+   version. After the merge, `https://rac-tools.vercel.app/api/windsor-spend?version=1`
+   should show a `commit` that is not null.
 
-5. **Merge to main.** Vercel builds it and the live address follows.
+## Release (app author, after Biraag's check has passed)
 
-## The archive
+5. **Keep the exports the archive will be compared against.** Before merging,
+   from the live app, export the PDF and the workings for each saved plan that
+   matters (at least the September SMR and Patrol plans). Keep them with the
+   date. These are the copies the archive is checked against in step 8.
 
-The archive app (`archive/index.html`) shows the plans made before this
-release, worked out by the previous engine on the data as it stood. It is
-served from the same address at `/archive/`, so it needs no separate sign-in
-set-up.
+6. **Back up the shared state.** Sign in to the live app and use "Back up" in
+   the header, which downloads the whole workspace as a file. Keep it somewhere
+   safe until the release has settled.
 
-6. **The copy is taken automatically.** The first time the new release loads on
-   the live address, it copies `workspace`, `benchmarks` and `hire_rates` to
-   `archive:workspace`, `archive:benchmarks` and `archive:hire_rates`, before it
-   writes anything of its own. If those keys already exist it leaves them alone.
-   So: **sign in to the live app once, straight after the merge, before anyone
-   starts editing.** Then check the archive:
+7. **Merge `c3-build` into `main`** (open a pull request on GitHub from
+   `c3-build` to `main` and merge it). Vercel builds it and the live address
+   follows in a minute or two. **Straight after, sign in to the live app once,
+   before anyone starts editing.** That first load takes the archive copy.
+   To confirm it happened, open the `rac_state` table in Supabase and check that
+   rows `archive:workspace`, `archive:benchmarks` and `archive:hire_rates` are
+   there, with today's date in `updated_at`.
 
+   If they are not there, take the copy by hand in the Supabase SQL editor. It
+   never writes over an archive row that already exists:
+
+       insert into rac_state (k, v, updated_at)
+       select 'archive:' || k, v, now() from rac_state
+       where k in ('workspace', 'benchmarks', 'hire_rates')
+       on conflict (k) do nothing;
+
+   Do this before anyone changes a plan in the new release, because the copy is
+   meant to be the plans as they were on release day.
+
+8. **Check the archive.**
    - Open `https://rac-tools.vercel.app/archive/`. It should show the amber
      banner "Archive: pre-release plans, read-only".
-   - Open each saved plan from step 3 and export its PDF and workings.
-   - Compare them with the copies from step 3. The text and the figures should
+   - Open each saved plan from step 5 and export its PDF and workings.
+   - Compare them with the copies from step 5. The text and the figures should
      match. If they do not, say so before anyone relies on the archive; do not
      change the archive to make them match.
 
-   If the copy did not happen (for example because the release was opened first
-   on a test link), someone with database access can copy the three rows by
-   hand: read `workspace`, `benchmarks` and `hire_rates` and write them to the
-   three `archive:` keys. Never overwrite an `archive:` key that already exists.
+9. **Check the new release** on the live address: the "Test version" banner is
+   gone, the header says "Saved", and the version stamp at the foot of the
+   Method tab shows a code rather than "unknown".
 
-7. **Tell the team** that plans made before the release are in the archive, and
-   that plans made from now on are in the live app. Reopening a pre-release plan
-   in the live app will show different figures, because the calculations
-   changed; that is what the archive is for.
+10. **Tell the team** that plans made before the release are in the archive at
+    `https://rac-tools.vercel.app/archive/`, and that plans made from now on are
+    in the live app. Reopening a pre-release plan in the live app will show
+    different figures, because the calculations changed; that is what the
+    archive is for.
+
+11. **If something goes wrong after the merge**, revert the merge on `main`
+    (GitHub, the merged pull request, "Revert"). The previous version only reads
+    `workspace`, `benchmarks`, `hire_rates` and the presence rows, so the
+    `archive:`, `issued:` and change-record rows can stay where they are. The
+    back-up from step 6 restores the workspace if it was damaged.
 
 ## Issued plans
 
@@ -76,8 +121,9 @@ record, written once, and everything about it (the screens, the PDF, the
 workings) comes from that record afterwards. An issued plan cannot be renamed,
 deleted or written over from the app, and editing it starts a new plan instead.
 
-A rule in the database to stop anyone with direct access changing an issued
-plan or an archive copy is still to be added: it is on the app author's list.
+Still on the app author's list, not needed for this release: a rule in the
+database so that nobody with direct access can change an issued plan
+(`issued:` rows) or the archive copy (`archive:` rows).
 
 ## Rebuilding the archive app
 

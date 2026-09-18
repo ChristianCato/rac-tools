@@ -22,7 +22,9 @@ cells = {}
 for r in wb['Workings'].iter_rows(min_row=5, values_only=True):
     if r[1] not in pmap: continue
     vals = {'openRoles': r[2], 'cpa': r[8], 'spend': r[9], 'apps': r[10], 'biggestMonth': r[11], 'hireRate': r[13], 'hires': r[14]}
-    missing = [k for k, v in vals.items() if not isinstance(v, (int, float))]
+    # A blank hire rate is a location with no rate at all (Patrol North East);
+    # the plan predicts no hires there. Every other figure must have a value.
+    missing = [k for k, v in vals.items() if not isinstance(v, (int, float)) and not (k == 'hireRate' and v is None)]
     if missing: sys.exit(f'{r[0]} {r[1]}: no value in {missing}. Recalculate the workbook first.')
     cells[f'{r[0]}|{pmap[r[1]]}'] = vals
 summary = {r[0]: r[1] for r in wb['Summary'].iter_rows(min_row=5, values_only=True) if r and r[0]}

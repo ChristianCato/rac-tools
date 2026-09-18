@@ -31,9 +31,10 @@
   const ATTRIBUTION = 'Quality and hire rates by platform came from RAC’s applicant tracking data, which credited each application to the last source a candidate used before applying. ' +
     'Earlier interactions, particularly with Meta and Google, likely had more influence than this shows, so their contribution to quality applications and hires may have been undervalued. ' +
     'For this reason, Meta and Google rates were moved towards the role average. We will assess this separately.';
-  // Agreed wording for the quality measure (user, 17 September 2026).
+  // Agreed wording for the quality measure (user, 17 September 2026; the clause on
+  // repeat applications that had already passed screening added 18 September 2026).
   const QUALITY_DEFINITION = 'A quality application is one that progressed past screening, or was closed at screening for a reason other than the candidate’s suitability, ' +
-    'such as location, salary, the role being filled, withdrawal, or being banked for future roles. Repeat applications from the same candidate are not counted.';
+    'such as location, salary, the role being filled, withdrawal, or being banked for future roles. Repeat applications from the same candidate are not counted unless they had already passed screening.';
   const RANGE_LINE = 'The range shows how far our model has missed in testing, and it is wider wherever there is less evidence behind the figure.';
   const ROW_RANGE_LINE = 'Row ranges are wider than the total and do not add up to it, because single locations swing more than the plan as a whole.';
 

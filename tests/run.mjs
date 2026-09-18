@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readSource, loadEngine, readGzJson } from './lib/engine.mjs';
-import { withRoleMonthly, cellsFromRaw, septSmrSettings, compareCells } from './lib/fixtures.mjs';
+import { withRoleMonthly, cellsFromRaw, septSmrSettings, septPatrolSettings, compareCells } from './lib/fixtures.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
@@ -16,6 +16,7 @@ const LEGACY = fs.readFileSync(path.join(here, 'legacy/engine_46aaae2.js'), 'utf
 const BASE = readGzJson(path.join(here, 'fixtures/rac_data_46aaae2.json.gz'));
 const F2A = JSON.parse(fs.readFileSync(path.join(here, 'fixtures/smr_sept_plan_2a.json'), 'utf8'));
 const FLIVE = JSON.parse(fs.readFileSync(path.join(here, 'fixtures/smr_sept_live_2026-09-16.json'), 'utf8'));
+const FPAT = JSON.parse(fs.readFileSync(path.join(here, 'fixtures/patrol_sept_live_2026-09.json'), 'utf8'));
 
 const results = [];
 // A check passes by returning a note, fails by throwing, and is skipped by
@@ -144,11 +145,44 @@ check('Only rac-tools.vercel.app can write to the database', () => {
   return 'sbSet is the only database write, and it returns before writing anywhere but the live address';
 });
 
-// ---- Patrol ---------------------------------------------------------------
-check('September Patrol plan rebuild', () => {
-  const f = path.join(here, 'fixtures/patrol_sept_plan.json');
-  if (!fs.existsSync(f)) return 'SKIPPED: waiting for a Patrol workings export';
-  throw new Error('Patrol fixture present but no check written yet');
+// ---- Saved September Patrol plan as the live app held it in September ------
+// The workings were exported from the live app with August in the data. The
+// same replay as the SMR check above: open on the repo data file, then fold in
+// the shared database months. Hire rates are the data file's own (Patrol's
+// were SMR's x 0.933), so no saved rates are applied.
+check('Frozen engine rebuilds the saved September Patrol plan (live export, September)', () => {
+  const E = loadEngine(LEGACY, structuredClone(BASE));
+  const vac = {};
+  for (const k of Object.keys(FPAT.cells)) vac[k.split('|')[0]] = FPAT.cells[k].openRoles;
+  const P = septPatrolSettings(vac);
+  E.buildFundingPlan('Patrol', P);
+  const months = [...new Set(FPAT.raw.map(r => r[0]))].sort();
+  const cells = cellsFromRaw(FPAT.raw, 'Patrol');
+  for (const p of E.PLATFORMS) for (const k of Object.keys(BASE[p])) {
+    if (k.endsWith('__Patrol')) continue;
+    for (const mo of months) { const v = BASE[p][k].monthly?.[mo]; if (v) ((cells[p] ||= {})[k] ||= {})[mo] = v; }
+  }
+  E.applyMonths(months, cells, null);
+  E.setHireOverride(null);
+  const plan = E.buildFundingPlan('Patrol', P);
+  const S = FPAT.summary;
+  assert(E.benchWeight('2026-08') === 0, 'expected August to carry weight 0, as in the live export');
+  const w = FPAT.raw.filter(r => r[0] === '2026-08').map(r => r[6]);
+  assert(w.length && w.every(x => x === 0), 'the export itself should show August at weight 0');
+  near(plan.predictedApps, S['Predicted applications'], 1e-6, 'Predicted applications');
+  near(plan.predictedHires, S['Predicted hires'], 1e-6, 'Predicted hires');
+  near(plan.aggBandPct, S['Range used'] * 100, 0, 'Range %');
+  near(plan.budgetForTarget, S['Budget to hit the application target'], 0, 'Budget for 16 hires');
+  near(plan.beyondProven, 0, 0.5, 'Spend above the ceiling (the export says it comes to £0)');
+  const c = compareCells(plan, FPAT.cells, E.PLATFORMS);
+  assert(c.n === 40, `expected 40 location and platform rows, compared ${c.n}`);
+  near(c.maxSpend, 0, 0.01, `Largest spend gap (${c.worstSpend})`);
+  near(c.maxCpa, 0, 0.0001, `Largest cost per application gap (${c.worstCpa})`);
+  let maxHires = 0;
+  for (const l of plan.locations) for (const p of E.PLATFORMS) maxHires = Math.max(maxHires, Math.abs(l.platHires[p] - FPAT.cells[l.region + '|' + p].hires));
+  near(maxHires, 0, 1e-6, 'Largest predicted hires gap on a row');
+  return `apps ${plan.predictedApps.toFixed(2)}, hires ${plan.predictedHires.toFixed(3)}, range ${plan.aggBandPct}%, ` +
+    `£${plan.budgetForTarget} for 16 hires; all ${c.n} rows within £${c.maxSpend.toFixed(2)} spend and £${c.maxCpa.toFixed(4)} per application; August weighted 0`;
 });
 
 // ---- Planner checks, one file per area in tests/checks ---------------------

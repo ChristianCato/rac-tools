@@ -469,7 +469,7 @@
     const s = makeSheet('Assumptions', { freeze: 1, columns: [
       { w: 30 }, { w: 52 }, { w: 14 }, { w: 14 }, { w: 14 }, { w: 12 }, { w: 22 }, { w: 12 }, { w: 90 },
     ] });
-    s.title('Every value this plan used', 'Values live in assumptions.csv in the repository, not in code. A plan can set the fields marked as a plan value; the rest change only by editing the file.');
+    s.title('Every value this plan used', 'Values live in assumptions.csv, not in the calculations. A plan can set the fields marked as a plan value; the rest change only by editing the file.');
     s.head(['Key', 'What it is', 'Value used', 'This plan', 'Testing gave', 'Unit', 'Source', 'Date', 'Notes']);
     RAC.text.assumptionRows(plan.A, doc.role, plan).forEach(row => {
       s.body([row.key, row.name,

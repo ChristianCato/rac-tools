@@ -51,7 +51,7 @@
       const fromUpload = uploaded.has(mo);
       info[mo] = fromUpload
         ? { source: 'Data tab upload', takenOn: bench.at || null, currentThrough: bench.lastDate || null }
-        : { source: 'Repo data file', takenOn: repoFile.generated_at, currentThrough: null };
+        : { source: 'App data file', takenOn: repoFile.generated_at, currentThrough: null };
     });
     // A fingerprint of every monthly figure and its origin, so a plan built on
     // other data can never be mistaken for this one.

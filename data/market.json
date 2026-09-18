@@ -1,5 +1,15 @@
 {
- "note": "A guide beside the remaining-error adjustment, not part of the model. Cost per click and per thousand impressions are given as an index: each month as a percentage of that platform's average over the whole period, so 100 is an average month. The repository is public, so no cost figure of RAC's is written into it. Google Trends search interest is as Google publishes it. Written by tools/market_import.py. The Indeed Hiring Lab series is deliberately not here: its access terms have not been checked.",
+ "note": "A guide beside the remaining-error adjustment, not part of the model. Cost per click and per thousand impressions are in pounds, each month, with each platform's average over the whole period. Google Trends search interest is as Google publishes it. Written by tools/market_import.py. The Indeed Hiring Lab series is deliberately not here: its access terms have not been checked.",
+ "averages": {
+  "google": {
+   "cpc": 1.49,
+   "cpm": 54.45
+  },
+  "meta": {
+   "cpc": 1.33,
+   "cpm": 5.28
+  }
+ },
  "sources": {
   "ads": {
    "file": "Google & Meta Ads CPM & CPC Data.xlsx",
@@ -343,13 +353,13 @@
   {
    "month": "2025-07",
    "google": {
-    "cpc_index": 109.7,
-    "cpm_index": 254.6,
+    "cpc": 1.63,
+    "cpm": 138.64,
     "campaigns": 43
    },
    "meta": {
-    "cpc_index": 61.8,
-    "cpm_index": 97.1,
+    "cpc": 0.82,
+    "cpm": 5.13,
     "campaigns": 4
    },
    "searches": {
@@ -360,13 +370,13 @@
   {
    "month": "2025-08",
    "google": {
-    "cpc_index": 50.2,
-    "cpm_index": 135.1,
+    "cpc": 0.75,
+    "cpm": 73.56,
     "campaigns": 38
    },
    "meta": {
-    "cpc_index": 54.1,
-    "cpm_index": 95.8,
+    "cpc": 0.72,
+    "cpm": 5.06,
     "campaigns": 4
    },
    "searches": {
@@ -377,13 +387,13 @@
   {
    "month": "2025-09",
    "google": {
-    "cpc_index": 58.9,
-    "cpm_index": 138.0,
+    "cpc": 0.88,
+    "cpm": 75.14,
     "campaigns": 26
    },
    "meta": {
-    "cpc_index": 60.3,
-    "cpm_index": 90.2,
+    "cpc": 0.8,
+    "cpm": 4.76,
     "campaigns": 3
    },
    "searches": {
@@ -394,13 +404,13 @@
   {
    "month": "2025-10",
    "google": {
-    "cpc_index": 87.8,
-    "cpm_index": 157.4,
+    "cpc": 1.31,
+    "cpm": 85.71,
     "campaigns": 8
    },
    "meta": {
-    "cpc_index": 69.2,
-    "cpm_index": 93.8,
+    "cpc": 0.92,
+    "cpm": 4.95,
     "campaigns": 4
    },
    "searches": {
@@ -411,13 +421,13 @@
   {
    "month": "2025-11",
    "google": {
-    "cpc_index": 119.4,
-    "cpm_index": 91.5,
+    "cpc": 1.78,
+    "cpm": 49.81,
     "campaigns": 6
    },
    "meta": {
-    "cpc_index": 94.0,
-    "cpm_index": 110.6,
+    "cpc": 1.25,
+    "cpm": 5.84,
     "campaigns": 5
    },
    "searches": {
@@ -428,13 +438,13 @@
   {
    "month": "2025-12",
    "google": {
-    "cpc_index": 106.0,
-    "cpm_index": 94.0,
+    "cpc": 1.58,
+    "cpm": 51.19,
     "campaigns": 22
    },
    "meta": {
-    "cpc_index": 105.4,
-    "cpm_index": 94.6,
+    "cpc": 1.4,
+    "cpm": 5.0,
     "campaigns": 24
    },
    "searches": {
@@ -445,13 +455,13 @@
   {
    "month": "2026-01",
    "google": {
-    "cpc_index": 80.8,
-    "cpm_index": 34.9,
+    "cpc": 1.2,
+    "cpm": 19.03,
     "campaigns": 28
    },
    "meta": {
-    "cpc_index": 110.4,
-    "cpm_index": 82.7,
+    "cpc": 1.47,
+    "cpm": 4.37,
     "campaigns": 22
    },
    "searches": {
@@ -462,13 +472,13 @@
   {
    "month": "2026-02",
    "google": {
-    "cpc_index": 103.1,
-    "cpm_index": 28.9,
+    "cpc": 1.54,
+    "cpm": 15.75,
     "campaigns": 26
    },
    "meta": {
-    "cpc_index": 119.4,
-    "cpm_index": 87.0,
+    "cpc": 1.59,
+    "cpm": 4.59,
     "campaigns": 43
    },
    "searches": {
@@ -479,13 +489,13 @@
   {
    "month": "2026-03",
    "google": {
-    "cpc_index": 61.4,
-    "cpm_index": 10.8,
+    "cpc": 0.91,
+    "cpm": 5.88,
     "campaigns": 11
    },
    "meta": {
-    "cpc_index": 151.3,
-    "cpm_index": 103.8,
+    "cpc": 2.01,
+    "cpm": 5.48,
     "campaigns": 57
    },
    "searches": {
@@ -496,13 +506,13 @@
   {
    "month": "2026-04",
    "google": {
-    "cpc_index": 143.1,
-    "cpm_index": 79.6,
+    "cpc": 2.13,
+    "cpm": 43.36,
     "campaigns": 22
    },
    "meta": {
-    "cpc_index": 104.2,
-    "cpm_index": 91.3,
+    "cpc": 1.39,
+    "cpm": 4.82,
     "campaigns": 51
    },
    "searches": {
@@ -513,13 +523,13 @@
   {
    "month": "2026-05",
    "google": {
-    "cpc_index": 117.3,
-    "cpm_index": 32.5,
+    "cpc": 1.75,
+    "cpm": 17.72,
     "campaigns": 22
    },
    "meta": {
-    "cpc_index": 144.0,
-    "cpm_index": 100.0,
+    "cpc": 1.92,
+    "cpm": 5.28,
     "campaigns": 25
    },
    "searches": {
@@ -530,13 +540,13 @@
   {
    "month": "2026-06",
    "google": {
-    "cpc_index": 142.0,
-    "cpm_index": 85.0,
+    "cpc": 2.12,
+    "cpm": 46.29,
     "campaigns": 23
    },
    "meta": {
-    "cpc_index": 121.6,
-    "cpm_index": 106.6,
+    "cpc": 1.62,
+    "cpm": 5.63,
     "campaigns": 23
    },
    "searches": {
@@ -547,13 +557,13 @@
   {
    "month": "2026-07",
    "google": {
-    "cpc_index": 104.5,
-    "cpm_index": 117.2,
+    "cpc": 1.56,
+    "cpm": 63.83,
     "campaigns": 27
    },
    "meta": {
-    "cpc_index": 101.8,
-    "cpm_index": 126.6,
+    "cpc": 1.35,
+    "cpm": 6.69,
     "campaigns": 41
    },
    "searches": {
@@ -564,13 +574,13 @@
   {
    "month": "2026-08",
    "google": {
-    "cpc_index": 115.8,
-    "cpm_index": 140.2,
+    "cpc": 1.72,
+    "cpm": 76.34,
     "campaigns": 24
    },
    "meta": {
-    "cpc_index": 102.4,
-    "cpm_index": 119.9,
+    "cpc": 1.36,
+    "cpm": 6.33,
     "campaigns": 24
    },
    "searches": {

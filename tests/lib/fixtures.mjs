@@ -46,6 +46,24 @@ export function septSmrSettings(NO_SPEND) {
   };
 }
 
+// September 2026 Patrol settings, as the live app held them when the Patrol
+// workings were exported in September. The export does not list its settings;
+// these were worked out from it and are confirmed by the match to the penny.
+// Location minimums: East of England, West Midlands, North East and Scotland
+// (the other six locations got exactly the same amount per open role).
+// Platform maximums: Indeed £35,000, Meta £15,000, Appcast £5,000. Hire target
+// 16: the export's application target of 1,041 is 16 hires worked back.
+export function septPatrolSettings(vacancies) {
+  return {
+    budget: 79200, appTarget: 0, hireTarget: 16,
+    liveRegions: Object.keys(vacancies), vacancies,
+    coveragePct: 0, premiumCampaigns: 0, acReserve: 5000,
+    platMin: {}, platMax: { indeed: 35000, meta: 15000, appcast: 5000 }, coverage: {}, comboMin: {},
+    regionMin: { 'East of England': 5100, 'West Midlands': 11500, 'North East': 2300, Scotland: 1164 }, regionMax: {},
+    daysInMonth: 30, capMultiple: 2, bench: { mode: 'last3up', mult: 2 },
+  };
+}
+
 export function compareCells(plan, expected, PLATFORMS, { skipCpa = [] } = {}) {
   const out = { n: 0, maxSpend: 0, worstSpend: '', maxCpa: 0, worstCpa: '' };
   for (const l of plan.locations) for (const p of PLATFORMS) {

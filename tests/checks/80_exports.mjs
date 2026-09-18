@@ -3,6 +3,7 @@
 import { loadPlanner, loadAssumptions, readRoot } from '../lib/planner.mjs';
 import { calibrationData } from '../lib/calibration_data.mjs';
 import { septSmrSettings } from '../lib/fixtures.mjs';
+import { FakePDF } from '../lib/fake_pdf.mjs';
 
 export default function (check, { assert }) {
   const RAC = loadPlanner();
@@ -70,7 +71,13 @@ export default function (check, { assert }) {
     const cases = [
       ['An em—dash', 'em-dash'], ['Source: Indeed Hiring Lab, 4.2%', 'Hiring Lab'], ['London app target 330', 'location application target'],
       ['Cost per application £NaN', 'broken figure'],
+      ['Values live in the repository', 'names the repository'], ['Kept on GitHub', 'names the repository'], ['the git history', 'names the repository'],
+      ['Hosted on Vercel', 'names the repository'], ['saved to Supabase', 'names the repository'], ['the data file is public', 'names the repository'],
+      ['publicly downloadable', 'names the repository'], ['Repo data file', 'names the repository'],
     ];
+    // Ordinary words that must not trip it.
+    ['Published plans', 'the reporting period', 'digital', 'Report data file'].forEach(t =>
+      assert(!RAC.outputChecks.text(t).length, `false alarm on "${t}": ${RAC.outputChecks.text(t).join('; ')}`));
     cases.forEach(([t, why]) => assert(RAC.outputChecks.text(t).some(p => p.startsWith(why)), `not caught: ${why}`));
     assert(RAC.outputChecks.pdfRows([{ label: 'London Indeed', spend: 0, cph: '£11,535' }]).length === 1, '£0 row with cost per hire not caught');
     assert(RAC.outputChecks.pdfRows([{ label: 'London Indeed', spend: 0, cph: '-' }, { label: 'SE Meta', spend: 10, cph: '£900' }]).length === 0, 'false alarm on rows');
@@ -78,5 +85,62 @@ export default function (check, { assert }) {
     assert(RAC.outputChecks.title('September 2026 SMR plan: 1,469 applications', plan).length === 1, 'title without the hire target not caught');
     assert(RAC.outputChecks.title('September 2026 SMR plan for 30 hires', plan).length === 0, 'correct title flagged');
     return `${cases.length} text faults, a £0 row with a cost per hire, and a title without the target were all caught`;
+  });
+
+  // Nothing RAC sees may mention the repository, GitHub, Vercel, Supabase, or
+  // that any data or code is public (user, 18 September 2026). Built for real
+  // and read as drawn, the same way as the Hiring Lab check.
+  check('Nothing RAC sees names the repository, GitHub, Vercel or Supabase, or says anything is public', () => {
+    const RE = /\b(repositor(y|ies)|repo|github|git|vercel|supabase|public(ly)?)\b/i;
+    const code = { commit: '0123456789abcdef', branch: 'c3-build', environment: 'preview' };
+    const bad = [];
+    const scan = (where, texts) => texts.forEach(t => {
+      const m = String(t).match(RE);
+      if (m) bad.push(`${where}: "${String(t).slice(Math.max(0, m.index - 40), m.index + 40)}"`);
+    });
+    const opts = { monthLabel: 'October 2026', planName: 'RAC Media Budgets - October 2026 v1', backtest: bt, code };
+    const docs = [];
+    for (const role of RAC.ROLES) {
+      const plan = build(role);
+      docs.push({ role, roleName: role, plan, commentary: { legacy: [], plan: [] } });
+      scan(`${role} method and glossary`, [...RAC.text.method(plan.A, role, plan, bt).flatMap(s => [s.heading, ...s.paras]),
+        ...RAC.text.glossary(plan.A, role, plan).flatMap(g => [g.term, g.text])]);
+    }
+    const VAC = { SMR: { London: 18, 'West Midlands': 8 }, Patrol: { London: 12, 'West Midlands': 5 } };
+    const one = RAC.onerac.build({ ...OCT, regions: ['London', 'West Midlands'], vacancies: VAC, budget: 20000, hireTarget: 6, premiumCampaigns: 0,
+      acReserve: 0, platMin: {}, platMax: {}, coverage: {}, comboMin: {}, regionMin: {}, regionMax: {}, limits: {}, secondScenario: 0.15 },
+      { ds: D.SMR.ds, A, eploy });
+    docs.push({ role: 'OneRAC', roleName: 'OneRAC (SMR and Patrol)', plan: one, commentary: { legacy: [], plan: [] } });
+    scan('OneRAC method', RAC.text.method(one.A, 'OneRAC', one, null).flatMap(s => [s.heading, ...s.paras]));
+    let pdfs = 0, sheets = 0;
+    for (const doc of docs) {
+      const pdf = RAC.pdf.build(FakePDF, [doc], opts);
+      scan(`${doc.role} PDF`, pdf.texts); pdfs++;
+      assert(!pdf.problems.length, `${doc.role} PDF: ${pdf.problems.join('; ')}`);
+      const w = RAC.workings.build([doc], opts);
+      scan(`${doc.role} workings`, w.texts); sheets++;
+      assert(!w.problems.length, `${doc.role} workings: ${w.problems.join('; ')}`);
+      // The version stamp: a short code and nothing else of where it came from.
+      const line = RAC.stamp.line(doc.plan, code);
+      scan(`${doc.role} version stamp`, [line]);
+      assert(!/https?:|www\.|\.app\b|\.com\b|c3-build|preview|0123456789abcdef/.test(line), 'the version stamp carries a link, the branch or the full code: ' + line);
+      assert(line.startsWith('Code 0123456 · '), line);
+    }
+    // The in-app changelog, every entry, as the Changelog screen shows it.
+    const html = readRoot('index.html');
+    const i = html.indexOf('const CHANGELOG = ['), j = html.indexOf('\n];', i);
+    const CL = new Function('return ' + html.slice(i + 'const CHANGELOG = '.length, j + 2))();
+    const items = CL.flatMap(e => [e.date, ...(e.items || [])]);
+    scan('in-app changelog', items);
+    // The Changelog screen and the Method tab themselves: no link to where the code is kept.
+    const clStart = html.indexOf('What has been changed in the plans'), clEnd = html.indexOf('data-panel="plan-changes"', clStart);
+    assert(clStart > 0 && clEnd > clStart, 'Changelog screen text not found');
+    scan('Changelog screen', [html.slice(clStart, clEnd)]);
+    const methodTab = readRoot('ui/method_tab.jsx');
+    scan('Method tab', [methodTab]);
+    assert(!/github\.com|vercel\.app|supabase\.co/i.test(html.slice(clStart, clEnd) + methodTab), 'a link to where the app is kept');
+    assert(!bad.length, bad.length + ' found: ' + bad.slice(0, 6).join(' | '));
+    return `${pdfs} PDFs and ${sheets} workings (SMR, Patrol, OneRAC), Method and glossary text, the version stamp, ` +
+      `${items.length} changelog lines, the Changelog screen and the Method tab: none names the repository, GitHub, Vercel or Supabase, or says anything is public`;
   });
 }
