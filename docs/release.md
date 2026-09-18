@@ -133,8 +133,23 @@ archive is frozen.
      amber banner "Archive: pre-release plans, read-only".
    - Open each saved plan from step 5 and export its PDF and workings.
    - Compare them with the copies from step 5. The text and the figures should
-     match. If they do not, say so before anyone relies on the archive; do not
-     change the archive to make them match.
+     match, with one known exception below. If they do not, say so before
+     anyone relies on the archive; do not change the archive to make them
+     match.
+   - **A small difference is expected and is not a failure.** The previous
+     calculations (the live app today, and so the archive) can give slightly
+     different figures depending on the order in which the data arrives when a
+     plan opens. In testing, the same SMR plan opened in the archive showed
+     1,400 applications on 17 of 20 loads and 1,402 on the other 3 (about
+     0.1%), with 28.0 hires both times. On the loads that showed 1,402, the
+     workings differed in 17 cells: the plan total and some location and
+     platform spends, a few of them by a few hundred pounds. Patrol did not
+     vary. So treat a difference of a few applications in the totals, and
+     the rows that go with it, as this known fault. Reopening the plan may
+     bring the other figure. Report it as a failure if the totals differ by
+     more than about 0.5%, if hires differ, if Patrol differs, or if any
+     wording differs. This fault is on the phase 2 list, not fixed in this
+     release.
 
 9. **Check the version stamp.**
    - Open `https://rac-tools-kappa.vercel.app/api/windsor-spend?version=1`. It
