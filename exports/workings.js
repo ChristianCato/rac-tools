@@ -99,10 +99,7 @@
   // The window the testing used, in words (the test results hold it as
   // { mode, mult }).
   function windowName(w) {
-    if (!w) return 'not recorded';
-    if (typeof w === 'string') return w;
-    const names = { all: 'every month held', ytd: 'year to date', last3: 'the last three months', last3up: `year to date, last three months x${w.mult || 3}`, custom: 'a chosen period' };
-    return names[w.mode] || 'not recorded';
+    return typeof w === 'string' ? w : RAC.text.fmt.windowName(w);
   }
 
   // Window figures per location and platform, and each platform's figure for
@@ -463,6 +460,12 @@
       s.add('title', ['Minimums the spending caps did not allow']);
       plan.minimumShortfalls.forEach(x => s.note(x.text));
     }
+    // The months each part of the model used, and whether each follows the
+    // data window or a fixed rule (the same list as the Method text).
+    s.blank();
+    s.add('title', ['Months used']);
+    s.head(['Part of the model', '', 'Months and weights', '', '', '']);
+    RAC.text.monthsUsed(plan.A, doc.role, plan, opts.backtest).forEach(r => s.body([r.part, '', `${r.months}. This follows ${r.basis}.`]));
     if (plan.settlingUsed.length) {
       s.blank();
       s.add('title', ['Months still settling']);

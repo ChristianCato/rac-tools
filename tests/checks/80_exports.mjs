@@ -77,9 +77,10 @@ export default function (check, { assert }) {
       ["SMR data from rac_data.js (the live app's data)", 'refers to the app'], ['Set on Setup', 'refers to the app'],
       ['written by tools/calibrate.mjs', 'refers to the app'], ['Values live in assumptions.csv', 'refers to the app'],
       ['the Method tab in the app', 'refers to the app'], ['Window: [object Object].', 'refers to the app'],
+      ['used by the screens', 'refers to the app'], ['press the button', 'refers to the app'], ['the planning tool', 'refers to the app'],
     ];
     // Ordinary words that must not trip it.
-    ['Published plans', 'the reporting period', 'digital', 'Report data file', 'set for this plan', 'Corrected RAC Eploy Data Oct 2025 - Aug 2026 v2.xlsx', 'applications', 'a plan can set it'].forEach(t =>
+    ['Published plans', 'the reporting period', 'digital', 'Report data file', 'set for this plan', 'Corrected RAC Eploy Data Oct 2025 - Aug 2026 v2.xlsx', 'applications', 'a plan can set it', 'screening', 'the applicant tracking data', 'Appcast'].forEach(t =>
       assert(!RAC.outputChecks.text(t).length, `false alarm on "${t}": ${RAC.outputChecks.text(t).join('; ')}`));
     cases.forEach(([t, why]) => assert(RAC.outputChecks.text(t).some(p => p.startsWith(why)), `not caught: ${why}`));
     assert(RAC.outputChecks.pdfRows([{ label: 'London Indeed', spend: 0, cph: '£11,535' }]).length === 1, '£0 row with cost per hire not caught');

@@ -91,7 +91,8 @@ export default function (check, { assert, near }) {
   check('The check list covers every screen and export the release changed', () => {
     const doc = readRoot('docs/check_list.md');
     ['Plan tab', 'PDF', 'Workings', 'Assumptions tab', 'OneRAC tab', 'cost limits', 'market guide',
-      'Changelog screen', 'Mark as issued', '/archive/', 'docs/trace_guide.md', 'Not saved']
+      'Changelog screen', 'Mark as issued', '/archive/', 'docs/trace_guide.md', 'Not saved',
+      'Months used', 'Last 3 months count', 'OneRAC PDF', 'Nothing that tells RAC the tool exists', '[object']
       .forEach(t => assert(doc.includes(t), 'docs/check_list.md does not cover ' + t));
     assert(!internalText(doc).length, 'the check list fails the output checks: ' + internalText(doc).join('; '));
     return 'every screen and export the release changed is in docs/check_list.md, in the order to check them';

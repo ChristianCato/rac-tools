@@ -18,7 +18,9 @@ export default function (check, { assert, near }) {
     const out = [];
     for (const role of RAC.ROLES) {
       const r = RAC.rates.build(eploy, A, role);
-      const sm = ['2025-10', '2025-11', '2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05'];
+      // Quality and hires both settled to June 2026 on the Eploy file dated
+      // 17 September (maturity 3 months, user decision 18 September 2026).
+      const sm = ['2025-10', '2025-11', '2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06'];
       assert(JSON.stringify(r.screenMonths) === JSON.stringify(sm), `${role} quality months ${r.screenMonths}`);
       assert(JSON.stringify(r.hireMonths) === JSON.stringify(sm), `${role} hire months ${r.hireMonths}`);
       const all = count(role, sm, () => true);
@@ -106,9 +108,9 @@ export default function (check, { assert, near }) {
   });
 
   check('Blend-strength tests use test months with 5 months of history, learning only from earlier months', () => {
-    const months = RAC.rates.maturedMonths(eploy, 4);
+    const months = RAC.rates.maturedMonths(eploy, RAC.assumptions.get(A, 'screening_maturity_months'));
     const sp = RAC.testing.testMonths(months, RAC.assumptions.get(A, 'test_min_history_months'));
-    assert(JSON.stringify(sp.map(s => s.test[0])) === JSON.stringify(['2026-03', '2026-04', '2026-05']), 'test months ' + sp.map(s => s.test[0]));
+    assert(JSON.stringify(sp.map(s => s.test[0])) === JSON.stringify(['2026-03', '2026-04', '2026-05', '2026-06']), 'test months ' + sp.map(s => s.test[0]));
     sp.forEach(s => {
       assert(s.train.length >= 5, `${s.test[0]} has only ${s.train.length} months of history`);
       assert(s.train.every(mo => mo < s.test[0]), `train ${s.train} not before ${s.test}`);
@@ -131,7 +133,7 @@ export default function (check, { assert, near }) {
     for (const role of RAC.ROLES) {
       const t = RAC.testing.blendStrengths(eploy, A, role);
       for (const k of Object.keys(t)) {
-        assert(t[k].loo.length === 3, `${role} ${k}: ${t[k].loo.length} leave-one-out values`);
+        assert(t[k].loo.length === 4, `${role} ${k}: ${t[k].loo.length} leave-one-out values`);
         if (t[k].value !== RAC.testing.AVERAGE) assert(t[k].gain >= RAC.assumptions.get(A, 'own_figure_min_gain'), `${role} ${k} used without a clear gain`);
         out.push(`${role} ${k} ${t[k].value}${t[k].unstable ? ' (unstable)' : ''}`);
       }

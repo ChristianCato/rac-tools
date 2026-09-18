@@ -824,6 +824,8 @@
       window: base.ctx.window,
       windowMonths: base.ctx.windowMonths,
       weights: base.ctx.weights,
+      // Months the spending caps looked at (C3): settled months from ceiling_first_month.
+      capMonths: base.ctx.settled.filter(mo => mo >= RAC.assumptions.get(A, 'ceiling_first_month')),
       factors: base.factors,
       otherHiresShare: base.factors.share,
       otherHiresMonthly: base.baseline.monthly,

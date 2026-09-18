@@ -70,25 +70,25 @@ Reading the South East Indeed row left to right:
 | Thin-data adjustment | 0.979 | £97.64 / £99.71: this row has plenty of evidence, so it barely moved |
 | Usual monthly spend | £5,793.19 | from Blend inputs |
 | Cost rises with spend (rate) | 0.65 | the agreed rate, shared across platforms |
-| Media spend | £5,991.11 | planned spend £6,095.95 / 1.0175, the Indeed fee taken off |
-| Spend-level adjustment | 1.012 | (£5,991.11 / £5,793.19) ^ (1 − 0.65) |
+| Media spend | £5,440.97 | planned spend £5,536.19 / 1.0175, the Indeed fee taken off |
+| Spend-level adjustment | 0.978 | (£5,440.97 / £5,793.19) ^ (1 − 0.65) |
 | Remaining-error adjustment | 1.096 | what testing on past months still missed for SMR |
-| **Planned cost per application (media)** | **£108.28** | £97.64 x 1.012 x 1.096 |
-| Planned cost per application (total) | £110.18 | £108.28 x 1.0175, with the fee |
-| **Applications** | **55.3** | £5,991.11 / £108.28 |
+| **Planned cost per application (media)** | **£104.69** | £97.64 x 0.978 x 1.096 |
+| Planned cost per application (total) | £106.53 | £104.69 x 1.0175, with the fee |
+| **Applications** | **52.0** | £5,440.97 / £104.69 |
 
 ## 4. From applications to hires. Sheets: **Rate build-up**, then **Workings**
 
 | | Figure | How |
 |---|---|---|
-| Indeed's own quality rate | 17.4% | 365 quality applications of 2,092, October 2025 to May 2026 |
-| Role average, every source | 21.7% | all sources together, same months |
-| **Quality rate used** | **17.8%** | (365 + 200 x 21.7%) / (2,092 + 200): blended with the role average by 200 applications |
+| Indeed's own quality rate | 16.4% | 418 quality applications of 2,543, October 2025 to June 2026 |
+| Role average, every source | 20.9% | 1,598 of 7,660, all sources together, same months |
+| **Quality rate used** | **16.8%** | (418 + 200 x 20.9%) / (2,543 + 200): blended with the role average by 200 applications |
 | Location quality adjustment | 1.00 | location differences are not applied this release |
-| **Hire rate after quality** | **10.9%** | the role average: 30 hires from 270 quality applications in the South East is its own figure, but regional differences did not carry forward in testing |
-| Matching factor | 0.938 | so past predictions match the hires Eploy credited to the four platforms |
-| Quality applications | 9.86 | 55.3 x 17.8% |
-| **Hires** | **1.00** | 55.3 x 17.8% x 10.9% x 0.938 |
+| **Hire rate after quality** | **11.7%** | the role average (187 hires from 1,598 quality applications): 41 hires from 311 quality applications in the South East is its own figure, but regional differences did not carry forward in testing |
+| Matching factor | 0.954 | so past predictions match the hires Eploy credited to the four platforms |
+| Quality applications | 8.71 | 52.0 x 16.8% |
+| **Hires** | **0.97** | 52.0 x 16.8% x 11.7% x 0.954 |
 
 ## 5. What limited the spend. Sheet: **Successful months**
 
@@ -97,7 +97,7 @@ tested: was its cost per application at or below what the model expected at that
 spend, was it within any cost per application limit, and was the location's
 quality rate not unusually weak that month. June 2026 was the largest month that
 passed, at £7,192.78, so the cap is £7,192.78 x 2 (the spending cap multiple)
-plus the Indeed fee: **£14,637.31**. This row was funded at £6,095.95, well
+plus the Indeed fee: **£14,637.31**. This row was funded at £5,536.19, well
 inside it.
 
 ## 6. The range. Sheet: **Back-test**
@@ -106,7 +106,7 @@ The plan's own range comes from how far it missed on past months, each
 predicted from the months before it: for SMR, −19.3% to +20.5%. A row's range
 starts there and widens where fewer applications sit behind its cost per
 application, and where planned spend sits further from past spend. South East
-Indeed, with 406.7 applications behind it, came out at **39 to 76
+Indeed, with 406.7 applications behind it, came out at **37 to 72
 applications**, and **0 to 2 hires** once the uncertainty in the rates and the
 chance variation in a small number of hires are added.
 

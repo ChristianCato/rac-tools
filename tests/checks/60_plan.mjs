@@ -94,7 +94,7 @@ export default function (check, { assert, near }) {
 
   check('Spending caps match a direct calculation from the data and Eploy', () => {
     const plan = RAC.plan.build('SMR', SEPT, env);
-    const settledSM = ['2025-10', '2025-11', '2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05'];
+    const settledSM = ['2025-10', '2025-11', '2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06'];
     let checked = 0, successful = 0, qualityOut = 0;
     for (const l of plan.locations) for (const p of P) {
       const c = l.cells[p];

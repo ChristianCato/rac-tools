@@ -27,6 +27,41 @@
     list: (xs) => (xs.length <= 1 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]),
   };
 
+  // Months in words. Consecutive months become a run: "January to July 2026",
+  // "October 2025 to June 2026"; gaps are listed as separate runs.
+  const nextMonth = (mo) => { const y = Number(mo.slice(0, 4)), m = Number(mo.slice(5, 7)); return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`; };
+  function runs(ms) {
+    const out = [];
+    [...ms].sort().forEach(mo => {
+      const last = out[out.length - 1];
+      if (last && nextMonth(last[last.length - 1]) === mo) last.push(mo); else out.push([mo]);
+    });
+    return out;
+  }
+  function runText(r) {
+    const a = r[0], b = r[r.length - 1];
+    if (a === b) return fmt.month(a);
+    return a.slice(0, 4) === b.slice(0, 4) ? `${MONTHS[Number(a.slice(5, 7)) - 1]} to ${fmt.month(b)}` : `${fmt.month(a)} to ${fmt.month(b)}`;
+  }
+  fmt.span = (ms) => (ms && ms.length ? fmt.list(runs(ms).map(runText)) : 'no months');
+  const TIMES = { 1: 'once', 2: 'twice', 3: 'three times' };
+  // Months with their weights: "January to April 2026 counted once and May to
+  // July 2026 counted twice". Months with weight 0 are left out.
+  fmt.weighted = (weights) => {
+    const byW = {};
+    Object.keys(weights || {}).sort().forEach(mo => { const w = weights[mo]; if (w > 0) (byW[w] = byW[w] || []).push(mo); });
+    const ws = Object.keys(byW).map(Number).sort((a, b) => a - b);
+    if (!ws.length) return 'no months';
+    if (ws.length === 1 && ws[0] === 1) return `${fmt.span(byW[1])}, each counted once`;
+    return fmt.list(ws.map(w => `${fmt.span(byW[w])} counted ${TIMES[w] || w + ' times'}`));
+  };
+  fmt.windowName = (w) => {
+    if (!w) return 'not recorded';
+    if (typeof w === 'string') w = { mode: w };
+    const names = { all: 'every month held', ytd: 'year to date', last3: 'the last three months', last3up: `year to date, with the last three months counted x${w.mult || 3}`, custom: 'a chosen period' };
+    return names[w.mode] || 'not recorded';
+  };
+
   // Agreed wording (addendum 2.2).
   const ATTRIBUTION = 'Quality and hire rates by platform came from RAC’s applicant tracking data, which credited each application to the last source a candidate used before applying. ' +
     'Earlier interactions, particularly with Meta and Google, likely had more influence than this shows, so their contribution to quality applications and hires may have been undervalued. ' +
@@ -83,14 +118,68 @@
     };
   }
 
+  // The months each part of the model used, and whether they follow the
+  // plan's data window or a fixed rule. One list for the Method text, the PDF
+  // summary and the workings Summary sheet.
+  //   [{ key, part, months, basis, short }]
+  function monthsUsed(A, role, plan, backtest) {
+    if (!plan) return [];
+    const f = fmt;
+    const g = (k) => RAC.assumptions.get(A, k, role);
+    const rates = plan.rates || {};
+    const quality = rates.screenMonths || [];
+    const hires = rates.hireMonths || [];
+    const settled = Object.keys(plan.months || {}).filter(mo => plan.months[mo] && (plan.months[mo].settled || (plan.settlingUsed || []).some(x => x.month === mo))).sort();
+    const capFirst = g('ceiling_first_month');
+    const caps = plan.capMonths || settled.filter(mo => mo >= capFirst);
+    const other = ((plan.otherSources && plan.otherSources.months) || []).map(m => m.month);
+    const matching = hires.filter(mo => plan.months && plan.months[mo] && plan.months[mo].settled);
+    const windowName = f.windowName(plan.window);
+    const rows = [
+      { key: 'cost', part: 'Cost per application and usual monthly spend', months: f.weighted(plan.weights),
+        basis: `the data window set for this plan (${windowName}); a row with no spend of its own used the platform’s typical month over the same months, each counted once`,
+        short: `cost per application ${f.weighted(plan.weights)}` },
+      { key: 'caps', part: 'Spending caps (successful months)', months: `${f.span(caps)}, each counted once`,
+        basis: `a fixed rule, whatever the data window: settled months from ${f.month(capFirst)} with at least ${f.gbp(g('ceiling_min_spend'))} of spend and ${g('ceiling_min_apps')} applications. Whether a month was successful was judged against the cost per application the data window gives, and a row with no successful month used its usual monthly spend from the window`,
+        short: `spending caps ${f.span(caps)}` },
+      { key: 'quality', part: 'Quality rates', months: `applications made ${f.span(quality)}, each month counted once`,
+        basis: `a fixed rule, whatever the data window: applications from ${f.month(g('eploy_first_month'))}, once ${g('screening_maturity_months')} further months had started`,
+        short: `quality rates ${f.span(quality)}` },
+      { key: 'hires', part: 'Hire rate after quality, and the match to platform hires', months: `applications made ${f.span(hires)}, each month counted once${matching.length && matching.join() !== hires.join() ? ` (the match used ${f.span(matching)}, where the platform data had settled)` : ''}`,
+        basis: `a fixed rule, whatever the data window: hires counted once ${g('hire_maturity_months')} further months had started, and only for months whose quality outcomes counted`,
+        short: `hire rates ${f.span(hires)}` },
+      { key: 'other', part: 'Expected hires from other sources', months: `${f.span(other)}, each counted once (${other.length} months)`,
+        basis: `a fixed rule, whatever the data window: the monthly average over the same months as the hire rates${plan.settings && plan.settings.some(s => s.key === 'otherHiresMonthly' && s.changed) ? '; this plan set its own figure instead' : ''}`,
+        short: `other-source hires ${f.span(other)}` },
+    ];
+    const bt = backtest && backtest.roles && backtest.roles[role];
+    if (bt) {
+      const costMonths = (bt.costMissesNoAdjustment || []).map(m => (typeof m === 'string' ? m : m.month));
+      const appMonths = (bt.applications || []).map(m => m.month);
+      const btWindow = f.windowName(backtest.window);
+      rows.push({ key: 'testing', part: 'Testing: remaining-error adjustment and the rate at which cost rises with spend',
+        months: `${f.span(costMonths)} (${costMonths.length} test months), each predicted from the months before it`,
+        basis: `a fixed rule, whatever this plan’s data window: each test month needed ${g('test_min_history_months')} earlier months, and the months before it were weighted ${btWindow}${btWindow !== windowName ? '. This plan’s data window differs, so these figures were not tested on it' : ''}`,
+        short: `testing ${f.span(costMonths)}` });
+      rows.push({ key: 'ranges', part: 'Testing: ranges and row widening', months: `${f.span(appMonths)} (${appMonths.length} test months), each predicted from the months before it`,
+        basis: `a fixed rule: test months from ${f.month(g('backtest_first_month'))}, weighted as above`,
+        short: `ranges ${f.span(appMonths)}` });
+    }
+    if (RAC.testing && quality.length) {
+      const blend = RAC.testing.testMonths(quality, g('test_min_history_months')).map(s => s.test[0]);
+      if (blend.length) rows.push({ key: 'blends', part: 'Testing: quality and hire rate settings', months: `${f.span(blend)} (${blend.length} test months)`,
+        basis: 'a fixed rule: each test month predicted from the applicant tracking months before it; the settings in use are agreed values, with the tested figures recorded beside them',
+        short: `rate testing ${f.span(blend)}` });
+    }
+    return rows;
+  }
+
   function method(A, role, plan, backtest) {
     const v = values(A, role, plan);
     const f = fmt;
     const tested = (x) => (x === null || x === undefined ? '' : ` (testing gave ${x >= OFF ? 'the role average' : x})`);
     const btRole = backtest && backtest.roles && backtest.roles[role];
     const testMonths = btRole ? btRole.applications.map(o => o.month) : [];
-    const window = plan && plan.windowMonths && plan.windowMonths.length
-      ? `This plan used ${f.month(plan.windowMonths[0])} to ${f.month(plan.windowMonths[plan.windowMonths.length - 1])}.` : '';
     const sections = [];
     const add = (heading, ...paras) => sections.push({ heading, paras: paras.filter(Boolean) });
 
@@ -98,12 +187,15 @@
       `The plan starts from the monthly budget${v.feesOn === false ? '' : ', which includes platform fees'}. Indeed Premium (campaigns x days in the month x ${f.gbp(v.premiumRate)} a day, plus the Indeed fee where fees apply) and the Combined Activity reserve come off the top${v.includesDisplay ? ', and the Google Display remarketing campaign is part of Combined Activity, so its spend sits in that reserve rather than in the planned Google spend' : ''}. What remains is the deployable budget.`,
       `The deployable budget is split between live locations by their share of open roles${plan && plan.efficiency && plan.efficiency.weight > 0 ? `, moved ${f.pct(plan.efficiency.weight)} of the way towards where a hire is predicted to cost least (the efficiency setting)` : ''}, within any location minimums and maximums, the spending caps and any cost limits. Money a location cannot take moves to locations with room, again by open roles. Anything no location can take is shown as budget the plan could not place efficiently.`,
       'Within each location, money goes to whichever platform delivers the next hire most cheaply, until the platforms cost the same per extra hire or reach their spending caps. Minimums and floors set for the plan are then applied, but never above a spending cap; where a cap stops a minimum being met, the plan says by how much.',
-      'Predicted applications, quality applications and hires come from one forecast, used by the screens, this document and the workings export alike.');
+      'Predicted applications, quality applications and hires come from one forecast, used for every figure in this document and in the workings alike.');
 
     add('Data used',
-      `Monthly spend and applications by location and platform came from the ad platforms (Indeed from RAC’s applicant tracking data). Past spend was media spend, without platform fees. A month counted once it was complete and at least ${v.settleDays} days had passed between its last day and the date the data was taken, so applications recorded late were in. A plan can choose to include complete months still settling; each one used is flagged as not yet settled, so its figures may change. ${window}`,
+      `Monthly spend and applications by location and platform came from the ad platforms (Indeed from RAC’s applicant tracking data). Past spend was media spend, without platform fees. A month counted once it was complete and at least ${v.settleDays} days had passed between its last day and the date the data was taken, so applications recorded late were in. A plan can choose to include complete months still settling; each one used is flagged as not yet settled, so its figures may change.${plan ? ' The months each part of the model used are set out under Months used.' : ''}`,
       `Quality and hire rates came from RAC’s applicant tracking data (Eploy), from applications made in ${f.month(v.eployFirst)} onwards. Quality outcomes counted once ${v.screenMaturity} further months had started, and hires once ${v.hireMaturity} further months had started, so recent applications with unfinished outcomes did not pull the rates down.`,
       ATTRIBUTION);
+
+    const used = monthsUsed(A, role, plan, backtest);
+    if (used.length) add('Months used', ...used.map(r => `${r.part}: ${r.months}. This follows ${r.basis}.`));
 
     add('Cost per application',
       `The usual cost per application for a location and platform was its spend over applications in the months used, with recent months weighted as set for the plan. Where a location had few applications, its figure was pulled towards the platform’s figure for the role, and the platform’s figure towards the role benchmark (${f.gbp(v.benchmark, 2)}): a figure with ${v.cpaPrior} applications behind it carried half the weight.`,
@@ -217,5 +309,5 @@
     };
   }
 
-  RAC.text = { fmt, values, method, glossary, assumptionRows, costAdjustment, ATTRIBUTION, QUALITY_DEFINITION, RANGE_LINE, ROW_RANGE_LINE };
+  RAC.text = { fmt, values, monthsUsed, method, glossary, assumptionRows, costAdjustment, ATTRIBUTION, QUALITY_DEFINITION, RANGE_LINE, ROW_RANGE_LINE };
 })(window.RAC = window.RAC || {});
