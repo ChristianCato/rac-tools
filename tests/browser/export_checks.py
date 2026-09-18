@@ -186,6 +186,17 @@ with sync_playwright() as pw:
             if bad:
                 fails.append(f'{len(bad)} formulas disagree with the planner: ' + ' | '.join(bad[:5]))
 
+    # The assumptions box grew this release (cost limits, the efficiency
+    # setting, the OneRAC second scenario). Check it still fits its page.
+    summary = pages[1] if len(pages) > 1 else ''
+    for want in ['Assumptions and risks', 'Cost limits:']:
+        if want not in ' '.join(summary.split()):
+            fails.append(f'the summary page does not show {want!r}')
+    over = [i for i, p in enumerate(pages) if p.count('Assumptions and risks') > 1]
+    if over:
+        fails.append(f'the assumptions box is repeated on pages {over}')
+    notes.append('summary page holds the assumptions and risks box, cost limits included')
+
     if dialogs:
         fails.append(f'alerts shown: {dialogs[:2]}')
     if errors:
