@@ -9826,6 +9826,8 @@ function App() {
   const pendingRef = useRef(false);
   // The archive copy is taken once per session, on the first pull.
   const archiveCopied = useRef(false);
+  // What changed in the plan, waiting to be written down (see setPlannerStateRaw).
+  const changesToLog = useRef(null);
 
   const pull = React.useCallback(async () => {
     if (pendingRef.current) return;   // our own change has not gone up yet
@@ -9955,16 +9957,26 @@ function App() {
     return setPlannerStateRaw(updater);
   };
 
-  const setPlannerStateRaw = (updater) => setPlanner(w => {
-    const before = w;
-    const composed = composePlannerState(month, { ...container, working: w });
-    const next = typeof updater === 'function' ? updater(composed) : updater;
-    const out = { ...next };
-    delete out.vacancies; delete out.liveRegions; delete out.appTarget; delete out.planMonth;
-    // Write down what changed, so a figure can always be traced to a decision.
-    settingChanges(before, out, month).forEach(logChange);
-    return out;
-  });
+  const setPlannerStateRaw = (updater) => {
+    // The update itself stays a pure function of the state it is given, so two
+    // changes in the same moment cannot lose each other. What changed is put
+    // aside and written down afterwards: a record is a side effect, and React
+    // may work out an update more than once before it keeps it.
+    setPlanner(w => {
+      const before = w;
+      const composed = composePlannerState(month, { ...container, working: w });
+      const next = typeof updater === 'function' ? updater(composed) : updater;
+      const out = { ...next };
+      delete out.vacancies; delete out.liveRegions; delete out.appTarget; delete out.planMonth;
+      changesToLog.current = settingChanges(before, out, month);
+      return out;
+    });
+    queueMicrotask(() => {
+      const list = changesToLog.current;
+      changesToLog.current = null;
+      (list || []).forEach(logChange);
+    });
+  };
 
   const loadedVersion = (container.versions || []).find(v => v.id === container.loaded) || null;
   // An issued plan is shown from its snapshot: the same figures RAC was sent,
