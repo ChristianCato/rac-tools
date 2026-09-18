@@ -79,6 +79,8 @@
     ceiling_min_apps:         { unit: 'count', min: 0, max: 10000 },
     quality_test_drop:        { unit: 'share', min: 0, max: 1 },
     quality_test_min_expected:{ unit: 'count', min: 0, max: 10000 },
+    cap_row_usual_limit:      { unit: 'multiple', min: 0, max: 10 },
+    cap_location_month_limit: { unit: 'multiple', min: 0, max: 10 },
     onerac_self_competition:  { unit: 'share', min: 0, max: 0.9 },
     efficiency_weight:        { unit: 'share', min: 0, max: 1 },
     onerac_fund_from_roles:   { unit: 'flag', min: 0, max: 1, integer: true },

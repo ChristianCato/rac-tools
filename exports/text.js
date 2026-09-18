@@ -44,6 +44,18 @@
     return a.slice(0, 4) === b.slice(0, 4) ? `${MONTHS[Number(a.slice(5, 7)) - 1]} to ${fmt.month(b)}` : `${fmt.month(a)} to ${fmt.month(b)}`;
   }
   fmt.span = (ms) => (ms && ms.length ? fmt.list(runs(ms).map(runText)) : 'no months');
+  const num = (x) => String(+(+x).toFixed(2));
+  // The two limits on the spending caps (user decision, 18 September 2026),
+  // in words, from their values in the assumptions file (0 turns one off).
+  function capLimitsText(rowLimit, locLimit) {
+    const row = rowLimit > 0
+      ? `The month a cap rested on was held to ${num(rowLimit)} x the location and platform’s usual monthly spend over the same months (the average of the months it spent in), so a single unusual month could not set a cap.`
+      : 'The month a cap rested on was not held to a multiple of usual monthly spend.';
+    const loc = locLimit > 0
+      ? `Each location also had its own cap: ${locLimit === 1 ? 'the most it spent in one of those months' : `${num(locLimit)} x the most it spent in one of those months`}, all platforms together, x the spending cap multiple. Caps for each platform were set separately, so without this a location could have been allowed more in a month than it had ever run.`
+      : 'Locations had no cap of their own beyond the sum of their platforms’ caps.';
+    return row + ' ' + loc;
+  }
   const TIMES = { 1: 'once', 2: 'twice', 3: 'three times' };
   // Months with their weights: "January to April 2026 counted once and May to
   // July 2026 counted twice". Months with weight 0 are left out.
@@ -111,6 +123,7 @@
       pLow: g('range_low_percentile'), pHigh: g('range_high_percentile'), hitRateMonths: g('range_hit_rate_min_months'),
       capFirst: g('ceiling_first_month'), capMinSpend: g('ceiling_min_spend'), capMinApps: g('ceiling_min_apps'),
       qualityDrop: g('quality_test_drop'), qualityMin: g('quality_test_min_expected'),
+      capRowLimit: g('cap_row_usual_limit'), capLocLimit: g('cap_location_month_limit'),
       capMultiple: plan ? plan.capMultiple : g('cap_multiple_default'), capDefault: g('cap_multiple_default'),
       feeIndeed: g('fee_rate_indeed'), feeMeta: g('fee_rate_meta'), feeGoogle: g('fee_rate_google'), feesFrom: g('fees_first_month'),
       feesOn: fees ? fees.on : null,
@@ -141,7 +154,7 @@
         basis: `the data window set for this plan (${windowName}); a row with no spend of its own used the platform’s typical month over the same months, each counted once`,
         short: `cost per application ${f.weighted(plan.weights)}` },
       { key: 'caps', part: 'Spending caps (successful months)', months: `${f.span(caps)}, each counted once; the cost benchmark ${capBench.join() === caps.join() ? 'used the same months' : `${f.span(capBench)}, each counted once`}`,
-        basis: `a fixed rule, whatever the data window: settled months from ${f.month(capFirst)} with at least ${f.gbp(g('ceiling_min_spend'))} of spend and ${g('ceiling_min_apps')} applications, each judged against the location and platform’s own usual cost per application over those months, adjusted for that month’s spend, and against that month’s quality rate across all locations. Months before ${f.month(capFirst)} were left out because that data was put together differently and did not compare like for like. A row with no successful month used its usual monthly spend over the same months`,
+        basis: `a fixed rule, whatever the data window: settled months from ${f.month(capFirst)} with at least ${f.gbp(g('ceiling_min_spend'))} of spend and ${g('ceiling_min_apps')} applications, each judged against the location and platform’s own usual cost per application over those months, adjusted for that month’s spend, and against that month’s quality rate across all locations. Months before ${f.month(capFirst)} were left out because that data was put together differently and did not compare like for like. A row with no successful month used its usual monthly spend over the same months. ${capLimitsText(g('cap_row_usual_limit'), g('cap_location_month_limit'))}`,
         short: `spending caps ${f.span(caps)} (cost benchmark ${f.span(capBench)})` },
       { key: 'quality', part: 'Quality rates', months: `applications made ${f.span(quality)}, each month counted once`,
         basis: `a fixed rule, whatever the data window: applications from ${f.month(g('eploy_first_month'))}, once ${g('screening_maturity_months')} further months had started`,
@@ -215,7 +228,9 @@
       `Each location and platform has a spending cap: its largest successful month since ${f.month(v.capFirst)} x the spending cap multiple (${f.pct(v.capMultiple)} in this ${plan ? 'plan' : 'release by default'}). A month counted towards the cap when it had at least ${f.gbp(v.capMinSpend)} of spend and ${v.capMinApps} applications, its cost per application was at or below a fixed benchmark (and at or below any cost per application limit), and the location’s quality rate that month was no more than ${f.pct(v.qualityDrop)} below what was expected for it that month (checked where at least ${v.qualityMin} quality applications would normally have been expected, in months whose quality outcomes had settled).`,
       `The benchmark was the location and platform’s own usual cost per application over the same settled months since ${f.month(v.capFirst)}, each counted once, adjusted for that month’s spend at the same rate the plan uses. Earlier months were left out because that data was put together differently and did not compare like for like. The benchmark does not depend on the plan’s data window or the remaining-error adjustment, so the caps are the same whichever window a plan uses.`,
       'The quality rate expected for a location in a month was its usual rate, scaled by how that month’s quality rate across all locations compared with the usual rate across all locations. So a month when quality was lower everywhere did not count against a location; a location falling well below the others that month did.',
-      'Where a location and platform had no successful month, its usual monthly spend over those months (or the platform’s typical month) was used instead, and the row is flagged. The plan never spends above a cap, including to meet a minimum. Caps were set on past media spend, so where fees apply the cap on planned spend includes the fee.');
+      'Where a location and platform had no successful month, its usual monthly spend over those months (or the platform’s typical month) was used instead, and the row is flagged.',
+      `${capLimitsText(v.capRowLimit, v.capLocLimit)} Both keep a cap to what a location and platform had shown it could take in a month. There is no limit on the plan as a whole beyond these.`,
+      'The plan never spends above a cap, including to meet a minimum. Money a cap stops moves to locations with room, and anything left is shown as budget the plan could not place. Caps were set on past media spend, so where fees apply the cap on planned spend includes the fee.');
 
     add('Cost limits',
       'A plan can set a maximum cost per hire for a location and a maximum cost per application for a location and platform. The plan stops adding spend where a limit would be passed, moves the money to locations within their limits, and shows what could not be placed. Cost per hire limits apply to locations only, because the data did not support cost per hire by platform.');
@@ -264,7 +279,8 @@
       { term: 'Quality rate', text: 'The share of applications that counted as quality applications in RAC’s applicant tracking data.' },
       { term: 'Hire rate after quality', text: 'Hires over quality applications.' },
       { term: 'Expected hires from other sources', text: 'Hires RAC recorded outside Indeed, Meta, Google and Appcast, as a monthly figure. Counted towards the hire target; not driven by the budget.' },
-      { term: 'Spending cap', text: 'The most the plan will spend on a location and platform: its largest successful month x the spending cap multiple (plus the fee where fees apply).' },
+      { term: 'Spending cap', text: `The most the plan will spend on a location and platform: its largest successful month${v.capRowLimit > 0 ? `, held to ${num(v.capRowLimit)} x its usual monthly spend,` : ''} x the spending cap multiple (plus the fee where fees apply).` },
+      ...(v.capLocLimit > 0 ? [{ term: 'Location spending cap', text: `The most the plan will spend on a location, all platforms together: ${v.capLocLimit === 1 ? 'the most it spent in one month' : `${num(v.capLocLimit)} x the most it spent in one month`} across all platforms, in the months the caps considered, x the spending cap multiple (plus fees where they apply).` }] : []),
       { term: 'Successful month', text: 'A past month whose cost per application was at or below the location and platform’s own usual cost across the months the caps considered (adjusted for that month’s spend), and whose quality rate was not unusually weak against the other locations that month.' },
       { term: 'Budget not placed', text: 'Money no location could take within its maximum, spending caps and cost limits.' },
       { term: 'Range', text: `${RANGE_LINE} ${ROW_RANGE_LINE}` },
@@ -312,5 +328,5 @@
     };
   }
 
-  RAC.text = { fmt, values, monthsUsed, method, glossary, assumptionRows, costAdjustment, ATTRIBUTION, QUALITY_DEFINITION, RANGE_LINE, ROW_RANGE_LINE };
+  RAC.text = { fmt, values, monthsUsed, capLimitsText, method, glossary, assumptionRows, costAdjustment, ATTRIBUTION, QUALITY_DEFINITION, RANGE_LINE, ROW_RANGE_LINE };
 })(window.RAC = window.RAC || {});

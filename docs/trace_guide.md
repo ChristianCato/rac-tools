@@ -70,12 +70,12 @@ Reading the South East Indeed row left to right:
 | Thin-data adjustment | 0.979 | £97.64 / £99.71: this row has plenty of evidence, so it barely moved |
 | Usual monthly spend | £5,793.19 | from Blend inputs |
 | Cost rises with spend (rate) | 0.65 | the agreed rate, shared across platforms |
-| Media spend | £5,450.05 | planned spend £5,545.42 / 1.0175, the Indeed fee taken off |
-| Spend-level adjustment | 0.979 | (£5,450.05 / £5,793.19) ^ (1 − 0.65): planned spend sits below usual, so cost comes down a little |
+| Media spend | £5,492.82 | planned spend £5,588.95 / 1.0175, the Indeed fee taken off |
+| Spend-level adjustment | 0.982 | (£5,492.82 / £5,793.19) ^ (1 − 0.65): planned spend sits below usual, so cost comes down a little |
 | Remaining-error adjustment | 1.096 | what testing on past months still missed for SMR |
-| **Planned cost per application (media)** | **£104.76** | £97.64 x 0.979 x 1.096 |
-| Planned cost per application (total) | £106.59 | £104.76 x 1.0175, with the fee |
-| **Applications** | **52.0** | £5,450.05 / £104.76 |
+| **Planned cost per application (media)** | **£105.04** | £97.64 x 0.982 x 1.096 |
+| Planned cost per application (total) | £106.88 | £105.04 x 1.0175, with the fee |
+| **Applications** | **52.3** | £5,492.82 / £105.04 |
 
 ## 4. From applications to hires. Sheets: **Rate build-up**, then **Workings**
 
@@ -87,8 +87,8 @@ Reading the South East Indeed row left to right:
 | Location quality adjustment | 1.00 | location differences are not applied this release |
 | **Hire rate after quality** | **11.7%** | the role average (187 hires from 1,598 quality applications): 41 hires from 311 quality applications in the South East is its own figure, but regional differences did not carry forward in testing |
 | Matching factor | 0.954 | so past predictions match the hires Eploy credited to the four platforms |
-| Quality applications | 8.72 | 52.0 x 16.8% |
-| **Hires** | **0.97** | 52.0 x 16.8% x 11.7% x 0.954 |
+| Quality applications | 8.76 | 52.3 x 16.8% |
+| **Hires** | **0.98** | 52.3 x 16.8% x 11.7% x 0.954 |
 
 ## 5. What limited the spend. Sheet: **Successful months**
 
@@ -109,9 +109,17 @@ tested, the same way whatever data window the plan uses:
   In June it was 19.1% against 17.4% expected, so it passed; in January it was
   15.0% against 21.7%, so January was set aside.
 
-June 2026 was the largest month that passed, at £7,192.78, so the cap is
-£7,192.78 x 2 (the spending cap multiple) plus the Indeed fee: **£14,637.31**.
-This row was funded at £5,545.42, inside it.
+June 2026 was the largest month that passed, at £7,192.78. A cap may rest on
+no more than 2 x the row's usual monthly spend (2 x £5,359.88 = £10,719.76), so
+June stands, and the cap is £7,192.78 x 2 (the spending cap multiple) plus the
+Indeed fee: **£14,637.31**. This row was funded at £5,588.95, inside it.
+
+The South East also has a location cap. Its biggest month across all platforms
+was July 2026: £12,961.11 (Indeed £7,122.23, Meta £3,454.68, Google £2,264.20,
+Appcast £120.00). x 2, with each platform's fee added, that is £26,400.25. The
+South East was planned at £15,000.00, its location maximum for this plan, so
+neither cap held it. The table under the rows on the same sheet shows this for
+every location.
 
 ## 6. The range. Sheet: **Back-test**
 

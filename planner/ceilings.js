@@ -23,7 +23,15 @@
 //      normally have been quality.
 //   C4 Cap = largest successful month x the spending cap multiple. With
 //      no successful month, the cell's usual monthly spend over those months
-//      (or the platform's typical month) x the multiple, flagged.
+//      (or the platform's typical month) x the multiple, flagged. The month
+//      a cap rests on is held to cap_row_usual_limit x the row's usual
+//      monthly spend, so a single unusual month cannot set a cap (user
+//      decision, 18 September 2026).
+//   Location cap: cap_location_month_limit x the most the location spent in
+//      one of those months across all platforms, x the multiple. Row caps
+//      are set separately and summed, so without it a location could be
+//      allowed more than it has ever run in a month (user decision, 18
+//      September 2026). No limit is set on the plan as a whole.
 //   C5 The plan never spends above the cap (applied in allocate.js).
 (function (RAC) {
   'use strict';
@@ -62,6 +70,7 @@
     const minApps = RAC.assumptions.get(A, 'ceiling_min_apps');
     const drop = RAC.assumptions.get(A, 'quality_test_drop');
     const minExpected = RAC.assumptions.get(A, 'quality_test_min_expected');
+    const rowLimit = RAC.assumptions.get(A, 'cap_row_usual_limit');
     const multiple = opts.capMultiple;
     const cpaLimit = opts.cpaLimit > 0 ? opts.cpaLimit : null;
     const m = RAC.data.monthly(ctx.ds, pc.plat, pc.region, ctx.role);
@@ -96,15 +105,44 @@
       if (successful) largestSuccessful = Math.max(largestSuccessful, x.spend);
       months.push({ month: mo, spend: x.spend, apps: x.apps, cpa, expected, passCost, passLimit, quality: q, successful });
     });
-    let base, basis, flagged = false;
-    if (largestSuccessful > 0) { base = largestSuccessful; basis = 'largest successful month'; }
+    let base, basis, flagged = false, rowLimited = false;
+    const rowMax = rowLimit > 0 && bench.spendBasis === 'own' && bench.spendUsual > 0 ? rowLimit * bench.spendUsual : Infinity;
+    if (largestSuccessful > rowMax + 1e-9) {
+      base = rowMax; rowLimited = true;
+      basis = `largest successful month held to ${rowLimit} x usual monthly spend`;
+    } else if (largestSuccessful > 0) { base = largestSuccessful; basis = 'largest successful month'; }
     else {
       base = bench.spendUsual;
       basis = bench.spendBasis === 'own' ? 'no successful month: usual monthly spend' : 'no successful month: platform typical month';
       flagged = true;
     }
-    return { ceiling: base * multiple, base, basis, flagged, multiple, largestSuccessful, largestMonth, cpaLimit, months,
+    return { ceiling: base * multiple, base, basis, flagged, rowLimited, rowLimit: Number.isFinite(rowMax) ? rowMax : null, multiple, largestSuccessful, largestMonth, cpaLimit, months,
       benchmark: { cpa: bench.cpaUsual, spend: bench.spendUsual, spendBasis: bench.spendBasis, b: bench.b } };
+  }
+
+  // The location spending cap: the most the location spent in one of the
+  // months the caps consider, every platform together, x
+  // cap_location_month_limit x the multiple. Past spend was media only; the
+  // cap on planned spend adds each platform's fee to what it spent that month.
+  //   fees: { plat: fee rate } for this plan
+  function location(ctx, region, months, fees, multiple) {
+    const limit = RAC.assumptions.get(ctx.A, 'cap_location_month_limit');
+    let best = null;
+    months.forEach(mo => {
+      const byPlat = {};
+      let media = 0, total = 0;
+      RAC.PLATFORMS.forEach(plat => {
+        const x = RAC.data.monthly(ctx.ds, plat, region, ctx.role)[mo];
+        const s = x ? x.spend : 0;
+        byPlat[plat] = s; media += s; total += s * (1 + (fees[plat] || 0));
+      });
+      if (!best || media > best.media) best = { month: mo, media, total, byPlat };
+    });
+    if (!(limit > 0) || !best || !(best.media > 0)) {
+      return { on: false, limit, multiple, month: best ? best.month : null, media: best ? best.media : 0, byPlat: best ? best.byPlat : {}, cap: Infinity };
+    }
+    return { on: true, limit, multiple, month: best.month, media: best.media, byPlat: best.byPlat,
+      capMedia: best.media * limit * multiple, cap: best.total * limit * multiple };
   }
 
   // Spend (including any fee) at which planned cost per application, on the
@@ -118,5 +156,5 @@
     return g * pc.spendUsual * Math.pow(limit / atUsual, 1 / (1 - pc.b));
   }
 
-  RAC.ceilings = { qualityByLocation, cell, spendAtCpaLimit };
+  RAC.ceilings = { qualityByLocation, cell, location, spendAtCpaLimit };
 })(window.RAC = window.RAC || {});

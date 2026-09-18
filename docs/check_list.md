@@ -54,6 +54,17 @@ BUILD_PROGRESS.md for the numbers):
   at). This does not depend on the data window, so the caps are the same
   whichever window is chosen. Budget the plan cannot place is a real result,
   not something to tune away.
+- Two further limits keep caps to what a location could take in one month:
+  - A location cannot be planned above the most it spent in one month, all
+    platforms together, x the spending cap multiple (settled 2026 months).
+    Row caps are set separately and added up, so without this a location
+    could be allowed more than it has ever run.
+  - A row's cap cannot rest on a month above twice its usual monthly spend
+    (the average of the 2026 months it spent in), so one unusual month cannot
+    set a cap.
+  Both values are in assumptions.csv (cap_location_month_limit 1,
+  cap_row_usual_limit 2, source agreed); 0 turns either off. There is no limit
+  on the plan as a whole.
 
 ## 3. The PDF (15 minutes)
 
@@ -80,6 +91,16 @@ BUILD_PROGRESS.md for the numbers):
      adjusted for that month's spend, with the reason earlier months were left
      out) and the quality test (against what was expected for that
      location that month, given quality across all locations).
+   - The same section, and the spending caps line in "Months used", should
+     state both limits: a cap rests on no more than 2 x usual monthly spend,
+     and each location has its own cap of the most it spent in one month, all
+     platforms together, x the multiple. It should say there is no limit on
+     the plan as a whole.
+   - The glossary should have "Spending cap" (mentioning the 2 x usual limit)
+     and "Location spending cap".
+   - On the locations page, a location held by its own cap shows "at location
+     spending cap (largest month x multiple)" in the notes. On a platform page,
+     a row held by the usual-spend limit shows "2x usual" in its cap basis.
    - The definition of a quality application should end "Repeat applications
      from the same candidate are not counted unless they had already passed
      screening."
@@ -111,7 +132,13 @@ BUILD_PROGRESS.md for the numbers):
    "Benchmark at that spend", and the quality test reads, for example, "19.1%
    against 17.4% expected (usual 22.3% x 0.78 for the month): passed". Pick one
    row and check the month was counted only if its cost was at or below the
-   benchmark and the quality test passed.
+   benchmark and the quality test passed. A row whose cap is held by the
+   usual-spend limit says "largest successful month held to 2 x usual monthly
+   spend" on its cap line.
+   Below the rows, "Location spending caps" lists each location's biggest
+   month by platform, the location cap, the platform caps added up and which
+   of the two held. Check one location's month against the Data sources
+   sheet.
 8. On the Assumptions sheet, the heading note should read "Every value comes
    from one agreed list of assumptions, held apart from the calculations", and
    the notes should name no files. The data source reads "RAC's monthly SMR
@@ -184,7 +211,8 @@ that fails it, so a find here means something slipped past that check.
 
 1. **Assumptions tab.** Every value, what this plan used, what testing gave,
    where it came from and when it was set. Check nothing says "set for this
-   plan" that you did not set. This tab is for the team, so it still names the
+   plan" that you did not set. The two new cap limits appear with source
+   agreed. This tab is for the team, so it still names the
    assumptions file and links to its history.
 2. **Setup, cost limits.** Set a low cost per application on one location and
    platform and watch the plan move; then clear it.

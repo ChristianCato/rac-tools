@@ -556,7 +556,7 @@
       { w: 13 }, { w: 13 }, { w: 30 }, { w: 13 }, { w: 15, f: GBP2 },
     ] });
     s.title('Which past months counted towards the spending caps',
-      `Months from ${f.month(RAC.assumptions.get(plan.A, 'ceiling_first_month'))} with at least ${f.gbp(RAC.assumptions.get(plan.A, 'ceiling_min_spend'))} of spend and ${RAC.assumptions.get(plan.A, 'ceiling_min_apps')} applications. A month counted when its cost per application was at or below the benchmark (the location and platform’s own usual cost per application over the same months, ${f.span(plan.capBenchmarkMonths || [])}, adjusted for that month’s spend; earlier months were put together differently and did not compare like for like), at or below any cost per application limit, and the location’s quality rate was no more than ${f.pct(RAC.assumptions.get(plan.A, 'quality_test_drop'))} below what was expected for it that month: its usual rate x that month’s rate across all locations over their usual rate.`);
+      `Months from ${f.month(RAC.assumptions.get(plan.A, 'ceiling_first_month'))} with at least ${f.gbp(RAC.assumptions.get(plan.A, 'ceiling_min_spend'))} of spend and ${RAC.assumptions.get(plan.A, 'ceiling_min_apps')} applications. A month counted when its cost per application was at or below the benchmark (the location and platform’s own usual cost per application over the same months, ${f.span(plan.capBenchmarkMonths || [])}, adjusted for that month’s spend; earlier months were put together differently and did not compare like for like), at or below any cost per application limit, and the location’s quality rate was no more than ${f.pct(RAC.assumptions.get(plan.A, 'quality_test_drop'))} below what was expected for it that month: its usual rate x that month’s rate across all locations over their usual rate. ${RAC.text.capLimitsText(RAC.assumptions.get(plan.A, 'cap_row_usual_limit'), RAC.assumptions.get(plan.A, 'cap_location_month_limit'))}`);
     s.head(['Location', 'Platform', 'Month', 'Spend', 'Applications', 'Cost per application', 'Benchmark at that spend',
       'At or below', 'Within the limit', 'Quality test', 'Counted', 'Cap this month sets']);
     plan.locations.forEach(loc => P().forEach(plat => {
@@ -571,10 +571,23 @@
           : `not applied (${m.quality.reason})`;
         s.body([loc.region, L()[plat], m.month, m.spend, m.apps, m.cpa, m.expected,
           m.passCost ? 'yes' : 'no', m.passLimit ? 'yes' : 'no', qt, m.successful ? 'yes' : 'no',
-          m.successful ? m.spend * plan.capMultiple * (1 + c.feeRate) : '']);
+          m.successful ? Math.min(m.spend, c.ceilingRowLimit !== null ? c.ceilingRowLimit : Infinity) * plan.capMultiple * (1 + c.feeRate) : '']);
       });
       s.total([`${loc.region} ${L()[plat]} cap`, '', '', '', '', '', '', '', '', capBasis(plan, c, f), '', c.cap]);
     }));
+    // Location spending caps: the most each location spent in one month, all
+    // platforms together, x the multiple.
+    s.blank();
+    s.add('title', ['Location spending caps']);
+    s.head(['Location', 'Month', 'Indeed', 'Meta', 'Google', 'Appcast', 'Most in one month', 'Location cap', 'Platform caps added up', 'Which held', '', '']);
+    plan.locations.forEach(loc => {
+      const lc = loc.locationCap || { on: false };
+      const rowSum = P().reduce((a, q) => a + (Number.isFinite(loc.cells[q].cap) ? loc.cells[q].cap : 0), 0);
+      if (!lc.on) { s.body([loc.region, lc.month || '', '', '', '', '', lc.media || 0, 'none', rowSum, 'platform caps']); return; }
+      s.body([loc.region, lc.month, lc.byPlat.indeed, lc.byPlat.meta, lc.byPlat.google, lc.byPlat.appcast, lc.media, lc.cap, rowSum,
+        lc.cap < rowSum - 0.005 ? 'location cap' : 'platform caps'], [null, null, GBP2, GBP2, GBP2, GBP2, GBP2, GBP2, GBP2, null]);
+    });
+    s.note(`The location cap is ${RAC.assumptions.get(plan.A, 'cap_location_month_limit')} x the most in one month x the spending cap multiple (${plan.capMultiple}), with each platform’s fee added where fees apply. Past spend is media spend.`);
     return s;
   }
 

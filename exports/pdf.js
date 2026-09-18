@@ -333,7 +333,7 @@
         const body = p.locations.map(l => {
           const c = l.cells[q];
           const funded = c.spend > 0.005;
-          const capBasis = `${c.ceilingFlagged ? 'usual month' : 'largest'} ${F.gbp(c.ceilingBase)} x${p.capMultiple}`;
+          const capBasis = `${c.ceilingFlagged ? 'usual month' : c.ceilingRowLimited ? `${+(+RAC.assumptions.get(p.A, 'cap_row_usual_limit')).toFixed(2)}x usual` : 'largest'} ${F.gbp(c.ceilingBase)} x${p.capMultiple}`;
           const cph = funded && c.hires > 0 ? F.gbp(c.spend / c.hires) : '-';
           return {
             label: `${l.region} ${L()[q]}`, spend: c.spend, cph,

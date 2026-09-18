@@ -182,6 +182,15 @@
         cells[region][plat] = { pc, ceiling, cpaLimit, cpaCap, cap: Math.max(0, Math.min(capTotal, cpaCap)) };
       });
     });
+    // Location spending caps: the most each location spent in one of the
+    // months the caps consider, every platform together (user decision, 18
+    // September 2026). The previous version had none.
+    const capMonthList = ctx.settled.filter(mo => mo >= get('ceiling_first_month'));
+    const locationCaps = {};
+    ds.regions.forEach(region => {
+      locationCaps[region] = cmp.previousCeilings ? { on: false, cap: Infinity }
+        : RAC.ceilings.location(ctx, region, capMonthList, fees, capMultiple);
+    });
     const ranges = {
       apps: { low: get('range_apps_low'), high: get('range_apps_high'), sigma: get('range_apps_sigma') },
       widen: get('row_widen_apps'),
@@ -191,7 +200,7 @@
     };
     const feeInfo = { on: feesOn, planMonth: inputs.planMonth || null, firstMonth: get('fees_first_month'), rates: fees, fileRates: feeRates,
       source: { indeed: entry('fee_rate_indeed').source, meta: entry('fee_rate_meta').source, google: entry('fee_rate_google').source } };
-    const base = { role, A, ds, ctx, hireRates, d1, factors, baseline, capMultiple, settings, cells, ranges, softCaps: !!cmp.previousCeilings,
+    const base = { role, A, ds, ctx, hireRates, d1, factors, baseline, capMultiple, settings, cells, locationCaps, ranges, softCaps: !!cmp.previousCeilings,
       premiumRate: RAC.assumptions.get(A, 'indeed_premium_rate'), feeInfo };
     base.draws = hireDraws(base, env, !!cmp.previousHireRates);
     return base;
@@ -367,8 +376,11 @@
       l.cphLimit = cphLimits[l.region] > 0 ? cphLimits[l.region] : null;
       l.cphCap = RAC.allocate.spendAtCphLimit(l.cells, l.capacity, l.cphLimit);
       const maxCap = regionMax[l.region] === NO_SPEND ? 0 : (regionMax[l.region] > 0 ? regionMax[l.region] : Infinity);
+      l.locationCap = base.locationCaps[l.region];
+      const locCap = base.softCaps || !l.locationCap.on ? Infinity : l.locationCap.cap;
       const options = [
         [maxCap, regionMax[l.region] === NO_SPEND ? 'location set to no spend' : 'location maximum'],
+        [locCap, 'location spending cap (largest month x multiple)'],
         [base.softCaps ? Infinity : l.capacity, l.capacity < ceilingSum - 0.005 ? 'spending caps and cost per application limits' : 'spending caps (largest successful month x multiple)'],
         [l.cphCap, 'cost per hire limit'],
       ];
@@ -382,11 +394,11 @@
       }
       // A minimum never takes a location above its spending caps or cost
       // limits (user decision, 17 September 2026). The shortfall is reported.
-      const room = base.softCaps ? Infinity : Math.min(l.capacity, l.cphCap);
+      const room = base.softCaps ? Infinity : Math.min(l.capacity, l.cphCap, locCap);
       if (l.floor > room + 0.005) {
         l.floor = room;
         steps.push({ step: 'between locations', region: l.region, amount: 0,
-          reason: `location minimum £${Math.round(l.floorAsked)} is above what its spending caps${l.cphCap < l.capacity ? ' and cost per hire limit' : ''} allow (£${Math.round(room)}); the caps held` });
+          reason: `location minimum £${Math.round(l.floorAsked)} is above what its spending caps${l.cphCap < Math.min(l.capacity, locCap) ? ' and cost per hire limit' : ''} allow (£${Math.round(room)}); the caps held` });
       }
       l.base = (locs.length ? coverageReserve / locs.length : 0) + demandPool * share[l.region];
       l.spend = l.base;
@@ -539,7 +551,7 @@
     const locations = locs.map(l => {
       const cs = P().map(plat => l.cellResults[plat]);
       const out = rollUp(base, cs, { region: l.region, vacancies: l.vacancies });
-      return { ...out, cells: l.cellResults, cap: l.cap, capReason: l.capReason, cphLimit: l.cphLimit,
+      return { ...out, cells: l.cellResults, cap: l.cap, capReason: l.capReason, cphLimit: l.cphLimit, locationCap: l.locationCap,
         capacity: l.capacity, base: l.base, floor: l.floor, floorShortfall: l.floorShortfall || 0, fixed: l.fixed };
     });
     if (withRanges) locations.forEach(loc => { loc.range = rowRanges(base, loc.cellsList); });
@@ -635,7 +647,7 @@
       hiresCredited: pc.recon > 0 ? f.hires * (base.factors.share * base.factors.credit) / pc.recon : 0,
       // Spending cap: past media spend x multiple (ceiling), and the same
       // with the fee added (ceilingTotal, what planned spend is held to).
-      ceiling: c.ceiling.ceiling, ceilingTotal: c.ceiling.ceiling * (1 + pc.fee), ceilingBase: c.ceiling.base, ceilingBasis: c.ceiling.basis, ceilingFlagged: c.ceiling.flagged,
+      ceiling: c.ceiling.ceiling, ceilingTotal: c.ceiling.ceiling * (1 + pc.fee), ceilingBase: c.ceiling.base, ceilingBasis: c.ceiling.basis, ceilingFlagged: c.ceiling.flagged, ceilingRowLimited: !!c.ceiling.rowLimited, ceilingRowLimit: c.ceiling.rowLimit === undefined ? null : c.ceiling.rowLimit,
       largestSuccessful: c.ceiling.largestSuccessful, largestMonth: c.ceiling.largestMonth, ceilingMonths: c.ceiling.months, capBenchmark: c.ceiling.benchmark,
       cpaLimit: c.cpaLimit, cpaLimitSpend: Number.isFinite(c.cpaCap) ? c.cpaCap : null, cap: c.cap,
       aboveLimitByInstruction: aboveByInstruction,

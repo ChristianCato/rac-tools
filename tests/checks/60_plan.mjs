@@ -52,6 +52,7 @@ export default function (check, { assert, near }) {
       }
       near(plan.holdbacks.total + plan.placed + plan.unplaced.total, inputs.budget, 0.01, 'budget conserved');
       for (const l of plan.locations) {
+        assert(l.spend <= l.locationCap.cap + 0.01, `${l.region} £${l.spend.toFixed(2)} above its location spending cap £${l.locationCap.cap.toFixed(2)}`);
         const max = inputs.regionMax[l.region];
         const min = (inputs.regionMin || {})[l.region] || 0;
         if (min > (max === RAC.plan.NO_SPEND ? 0 : max > 0 ? max : Infinity)) {
@@ -84,7 +85,7 @@ export default function (check, { assert, near }) {
     // A minimum the caps allow is met in full.
     const LOW = { ...SEPT, budget: 50000 };
     const nwBase = RAC.plan.build('SMR', LOW, env).locations.find(l => l.region === 'North West');
-    const nwMin = Math.floor(P.reduce((a, p) => a + nwBase.cells[p].cap, 0) * 0.95);
+    const nwMin = Math.floor(Math.min(P.reduce((a, p) => a + nwBase.cells[p].cap, 0), nwBase.locationCap.cap) * 0.95);
     assert(nwMin > nwBase.spend + 100, 'test minimum should be above North West\'s share');
     const ok = RAC.plan.build('SMR', { ...LOW, regionMin: { 'North West': nwMin } }, env);
     const nw = ok.locations.find(l => l.region === 'North West');
@@ -119,6 +120,7 @@ export default function (check, { assert, near }) {
     const sumQ = (pred) => eploy.cells.filter(r => r[0] === 'SMR' && r[1] !== 'Unknown' && pred(r)).reduce((a, r) => [a[0] + r[4], a[1] + r[5]], [0, 0]);
     const baseAll = sumQ(r => settledSM.includes(r[3]));
     let checked = 0, successful = 0, qualityOut = 0, bench = 0;
+    const rowLimited = [];
     for (const l of plan.locations) for (const p of P) {
       const c = l.cells[p];
       const m = RAC.data.monthly(env.ds, p, l.region, 'SMR');
@@ -148,10 +150,51 @@ export default function (check, { assert, near }) {
         if (cpa <= expected + 1e-9 && !qualityPass) qualityOut++;
         checked++;
       }
-      const want = (best > 0 ? best : c.capBenchmark.spend) * plan.capMultiple;
+      // A cap rests on no more than 2 x the row's usual monthly spend (user
+      // decision, 18 September 2026).
+      const rowMax = t0.avg > 0 ? 2 * t0.avg : Infinity;
+      if (best > rowMax) rowLimited.push(`${l.region} ${p}`);
+      const want = (best > 0 ? Math.min(best, rowMax) : c.capBenchmark.spend) * plan.capMultiple;
       near(c.ceiling, want, 1e-6, `${l.region} ${p} limit`);
     }
-    return `${checked} location-months checked against a benchmark over ${N} settled months (${bench} rows), ${successful} successful, ${qualityOut} set aside by the quality test; every limit matched`;
+    // The location spending cap: the most the location spent in one of the
+    // months considered, every platform together, x the multiple (no fees in
+    // September).
+    const locLimited = [];
+    for (const l of plan.locations) {
+      const most = Math.max(...plan.capMonths.map(mo => P.reduce((a, p) => { const x = RAC.data.monthly(env.ds, p, l.region, 'SMR')[mo]; return a + (x ? x.spend : 0); }, 0)));
+      near(l.locationCap.cap, most * plan.capMultiple, 1e-6, `${l.region} location spending cap`);
+      assert(l.spend <= most * plan.capMultiple + 0.01, `${l.region} above its location spending cap`);
+      if (most * plan.capMultiple < P.reduce((a, p) => a + l.cells[p].cap, 0) - 0.005) locLimited.push(l.region);
+    }
+    return `${checked} location-months checked against a benchmark over ${N} settled months (${bench} rows), ${successful} successful, ${qualityOut} set aside by the quality test; every limit matched; held to 2x usual spend: ${rowLimited.join(', ') || 'none'}; location cap below the sum of its row caps: ${locLimited.join(', ') || 'none'}`;
+  });
+
+  check('The two cap limits come from the assumptions file, turn off at 0, and are stated for RAC', () => {
+    // User decision, 18 September 2026: a location cap (most in one month, all
+    // platforms, x the multiple) and a row limit (2 x usual monthly spend).
+    const on = RAC.plan.build('SMR', SEPT, env);
+    const off = RAC.plan.build('SMR', SEPT, { ...env, A: RAC.assumptions.withValues(A, { cap_row_usual_limit: 0, cap_location_month_limit: 0 }) });
+    const rows = (p) => p.locations.flatMap(l => P.map(q => l.cells[q]));
+    assert(on.locations.every(l => l.locationCap.on) && off.locations.every(l => !l.locationCap.on), 'location caps on and off');
+    assert(rows(on).some(c => c.ceilingRowLimited) && !rows(off).some(c => c.ceilingRowLimited), 'row limit on and off');
+    const capsOn = rows(on).reduce((a, c) => a + c.cap, 0), capsOff = rows(off).reduce((a, c) => a + c.cap, 0);
+    assert(capsOn < capsOff, 'the row limit should lower some caps');
+    assert(on.unplaced.total >= off.unplaced.total - 0.01, 'limits should not place more');
+    const texts = (p, AA) => {
+      const m = RAC.text.method(AA, 'SMR', p, null).flatMap(x => x.paras).join(' ');
+      const g = RAC.text.glossary(AA, 'SMR', p).map(x => x.term + ': ' + x.text).join(' ');
+      const mu = RAC.text.monthsUsed(AA, 'SMR', p, null).find(x => x.key === 'caps').basis;
+      return { m, g, mu };
+    };
+    const t = texts(on, A);
+    for (const [k, v] of Object.entries(t)) assert(/held to 2 x the location and platform’s usual monthly spend|held to 2 x its usual monthly spend/.test(v), `${k}: row limit not stated`);
+    assert(/its own cap: the most it spent in one of those months, all platforms together, x the spending cap multiple/.test(t.m) && /its own cap/.test(t.mu), 'location cap not stated');
+    assert(/Location spending cap: /.test(t.g) && /no limit on the plan as a whole/.test(t.m), 'glossary or plan-level wording');
+    const t0 = texts(off, RAC.assumptions.withValues(A, { cap_row_usual_limit: 0, cap_location_month_limit: 0 }));
+    assert(!/Location spending cap: /.test(t0.g) && /no cap of their own/.test(t0.m), 'wording with the limits off');
+    const bound = on.locations.filter(l => l.capReason.startsWith('location spending cap')).map(l => l.region);
+    return `limits on: caps £${Math.round(capsOn).toLocaleString('en-GB')}, not placed £${Math.round(on.unplaced.total).toLocaleString('en-GB')}; off: £${Math.round(capsOff).toLocaleString('en-GB')}, £${Math.round(off.unplaced.total).toLocaleString('en-GB')}; location cap held ${bound.join(', ') || 'no location'}; method, Months used and glossary state both, and change when they are off`;
   });
 
   check('Cost per hire and cost per application limits hold, and the money moves', () => {
