@@ -2312,6 +2312,7 @@ function planParams(role, s) {
     otherHiresMonthly: (s.otherHiresMonthly && s.otherHiresMonthly[role] != null) ? s.otherHiresMonthly[role] : null,
     remainingError: (s.remainingError && s.remainingError[role] != null) ? s.remainingError[role] : null,
     includeSettling: !!s.includeSettling,
+    efficiency: s.efficiency != null ? s.efficiency : assumptionOr('efficiency_weight', 0),
     bench: (s.bench && s.bench[role]) || null,
     planMonth: s.planMonth || null,
     // Cost limits (D6): the most a hire may cost in a location, and the most an
@@ -2367,6 +2368,7 @@ function oneRacParams(s) {
     daysInMonth: (DATA.days_in_month && DATA.days_in_month[s.planMonth]) || 30,
     capMultiple: s.capMultiple || 1.0,
     includeSettling: !!s.includeSettling,
+    efficiency: s.efficiency != null ? s.efficiency : assumptionOr('efficiency_weight', 0),
     bench: (s.bench && s.bench.SMR) || null,
     planMonth: s.planMonth || null,
     secondScenario: one.setup.secondScenario || 0,
@@ -5715,6 +5717,7 @@ function exportPlanPDF(state, roleFilter, opts) {
 // ====================================================================
 const CHANGELOG = [
   { date: '18 Sep', items: [
+    'New Efficiency setting on Setup, 0% by default. At 0 the money is split between locations by their open roles, as it always has been. Above 0 the split moves that far towards where a hire is predicted to cost least, still inside every location maximum, spending cap and cost limit. It is a way to ask what efficiency alone would do; RAC hires against open roles, so it is left at 0 unless you want that comparison. Where it is above 0, the PDF says so and lists how each location’s share moved.',
     'The OneRAC set-up can now show a second scenario: what the same budget would be expected to deliver at a different self-competition figure, beside the plan. It is a comparison, not the plan, and the PDF says so where it prints it. Leave it empty for none.',
     'Cost limits can now be set. Setup has a table for the most a hire may cost in each location and the most an application may cost there on each platform. The plan stops adding spend where a limit would be passed, moves that money to locations still within theirs, and shows anything it could not place. Cost per hire is by location only, because the data does not support a cost per hire by platform. Each box shows what that location or platform is costing in the plan now, so a limit can be set against something real. Limits are saved with the plan and printed in the PDF assumptions and the workings. The calculations already allowed for them; there was no way to set them.',
     'Setup now shows what the market was doing each month, beside the remaining-error adjustment: how the cost of a click and of a thousand impressions moved on Google and Meta, and how many people were searching for these jobs. It is a guide, not part of the plan, and none of it goes into the PDF or the workings. Cost is shown as an index against each platform’s own average, so 100 is an average month.',

@@ -363,4 +363,32 @@ export default function (check, { assert, near }) {
     assert(Math.abs(after - before) > 1, 'plan did not move when June Indeed applications doubled');
     return `applications ${before.toFixed(1)} to ${after.toFixed(1)} when June Indeed applications doubled`;
   });
+
+  check('Efficiency: at 0 the split is by open roles; above 0 it moves towards where hires cost least', () => {
+    const at = (w) => RAC.plan.build('SMR', { ...SEPT, efficiency: w }, env);
+    const plain = at(0), half = at(0.5), full = at(1);
+    // At 0 nothing changes, and the record says so.
+    assert(plain.efficiency.weight === 0 && plain.efficiency.byLocation.length === 0, 'the split moved at 0');
+    // Every share still adds up, and the budget is still conserved.
+    [half, full].forEach(q => {
+      const sum = q.efficiency.byLocation.reduce((a, x) => a + x.share, 0);
+      near(sum, 1, 1e-9, 'the shares at ' + q.efficiency.weight);
+      assert(q.totals.spend <= q.deployable + 0.01, 'budget conservation at ' + q.efficiency.weight);
+    });
+    // The cheapest location gains and the dearest loses.
+    const rows = full.efficiency.byLocation.filter(x => x.cphAtOpenRoles).slice().sort((a, b) => a.cphAtOpenRoles - b.cphAtOpenRoles);
+    assert(rows.length > 1, 'need more than one location with a cost per hire');
+    const cheapest = rows[0], dearest = rows[rows.length - 1];
+    assert(cheapest.byEfficiency > cheapest.openRoles, `${cheapest.region} is cheapest but did not gain`);
+    assert(dearest.byEfficiency < dearest.openRoles, `${dearest.region} is dearest but did not lose`);
+    // Halfway is halfway.
+    const h = half.efficiency.byLocation.find(x => x.region === cheapest.region);
+    near(h.share, (h.openRoles + h.byEfficiency) / 2, 1e-9, 'halfway share');
+    // It buys hires, or the setting would be pointless, and it stays inside the caps.
+    assert(full.totals.hires >= plain.totals.hires - 1e-9, `hires fell from ${plain.totals.hires} to ${full.totals.hires}`);
+    full.locations.forEach(l => assert(l.spend <= l.cap + 0.01, `${l.region} above its cap at 100%`));
+    return `0%: ${plain.totals.hires.toFixed(2)} paid-media hires on the open-roles split; 100%: ${full.totals.hires.toFixed(2)}, ` +
+      `${cheapest.region} (cheapest, £${cheapest.cphAtOpenRoles.toFixed(0)} a hire) ${Math.round(cheapest.openRoles * 100)}% to ${Math.round(cheapest.byEfficiency * 100)}%, ` +
+      `${dearest.region} (dearest, £${dearest.cphAtOpenRoles.toFixed(0)}) ${Math.round(dearest.openRoles * 100)}% to ${Math.round(dearest.byEfficiency * 100)}%`;
+  });
 }

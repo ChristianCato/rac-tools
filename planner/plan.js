@@ -322,6 +322,37 @@
     const coverageReserve = deployable * coverageRate;
     const demandPool = deployable - coverageReserve;
 
+    // Step 3a: each location's share of the money. By open roles, blended with
+    // how cheaply each location turns money into hires where the efficiency
+    // setting is above 0. At 0 nothing changes: the split is by open roles.
+    const efficiency = p.efficiency > 0 ? Math.min(1, p.efficiency) : 0;
+    const share = {};
+    locs.forEach(l => { share[l.region] = totalVac > 0 ? l.vacancies / totalVac : (locs.length ? 1 / locs.length : 0); });
+    const efficiencyRows = [];
+    if (efficiency > 0 && locs.length > 1 && demandPool > 0) {
+      let sum = 0;
+      const inv = {};
+      locs.forEach(l => {
+        // What a hire would cost here at its share by open roles.
+        const at = demandPool * share[l.region];
+        const sp = RAC.allocate.splitLocation(l.cells, at, {});
+        const hires = U.sum(l.cells.map(c => RAC.forecast.at(c.pc, sp.spend[c.plat] || 0).hires));
+        const cph = hires > 0 ? at / hires : Infinity;
+        inv[l.region] = Number.isFinite(cph) && cph > 0 ? 1 / cph : 0;
+        sum += inv[l.region];
+        efficiencyRows.push({ region: l.region, openRoles: share[l.region], cphAtOpenRoles: Number.isFinite(cph) ? cph : null });
+      });
+      if (sum > 0) {
+        efficiencyRows.forEach(r => {
+          r.byEfficiency = inv[r.region] / sum;
+          r.share = (1 - efficiency) * r.openRoles + efficiency * r.byEfficiency;
+          share[r.region] = r.share;
+        });
+        steps.push({ step: 'between locations', amount: 0,
+          reason: `efficiency setting ${Math.round(efficiency * 100)}%: the split moved that far from open roles towards where hires cost least` });
+      }
+    }
+
     locs.forEach(l => {
       const ceilingSum = U.sum(l.on.map(plat => base.cells[l.region][plat].ceiling.ceiling));
       l.capacity = U.sum(l.cells.map(c => c.cap));
@@ -349,7 +380,7 @@
         steps.push({ step: 'between locations', region: l.region, amount: 0,
           reason: `location minimum £${Math.round(l.floorAsked)} is above what its spending caps${l.cphCap < l.capacity ? ' and cost per hire limit' : ''} allow (£${Math.round(room)}); the caps held` });
       }
-      l.base = (locs.length ? coverageReserve / locs.length : 0) + (totalVac > 0 ? demandPool * l.vacancies / totalVac : 0);
+      l.base = (locs.length ? coverageReserve / locs.length : 0) + demandPool * share[l.region];
       l.spend = l.base;
     });
     const settled = RAC.allocate.settle(locs);
@@ -561,6 +592,7 @@
       aboveLargestSuccessful: { total: aboveLargestSuccessful, share: placed > 0 ? aboveLargestSuccessful / placed : 0 },
       aboveLargestMonth: { total: aboveLargestMonth, share: placed > 0 ? aboveLargestMonth / placed : 0 },
       platMin, platMax, regionMin, regionMax,
+      efficiency: { weight: efficiency, byLocation: efficiencyRows },
       steps,
     };
   }

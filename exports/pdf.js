@@ -238,6 +238,9 @@
         ...(p.oneRac && p.oneRac.second
           ? [`Second scenario: at a self-competition improvement of ${F.pct(p.oneRac.second.selfCompetition)}, the same budget would be expected to deliver ${F.num(p.oneRac.second.hires)} hires against ${F.num(p.totals.allHires)}, at ${F.gbp(p.oneRac.second.cpa, 2)} an application. It is a comparison, not the plan.`]
           : []),
+        ...(p.efficiency && p.efficiency.weight > 0
+          ? [`Efficiency: the split between locations was moved ${F.pct(p.efficiency.weight)} of the way from open roles towards where a hire is predicted to cost least (${p.efficiency.byLocation.map(x => `${x.region} ${F.pct(x.openRoles)} to ${F.pct(x.share)}`).join(', ')}). Every location maximum, spending cap and cost limit still applies.`]
+          : []),
         ...limitLines(p, F),
         ...p.minimumShortfalls.map(x => x.text + '.'),
       ];

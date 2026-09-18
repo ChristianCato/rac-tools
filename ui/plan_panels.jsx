@@ -103,6 +103,21 @@
             parse={t => { const n = num(t); return n === null ? null : Math.min(2, Math.max(0.5, n)); }}
             onCommit={v => perRole('remainingError', v)} />
         </Row>
+        <Row label="Efficiency"
+          note={<>
+            0% by default: the money is split between locations by their open roles, as it always has been. Above 0 the
+            split moves that far towards where a hire is predicted to cost least, still inside every location maximum,
+            spending cap and cost limit. It is a way to ask what efficiency alone would do; RAC hires against open
+            roles, so it is left at 0 unless you want that comparison. Applies to both roles.
+            {v2.efficiency && v2.efficiency.weight > 0 && v2.efficiency.byLocation.length > 0 && (
+              <> Now: {v2.efficiency.byLocation.map(x => `${x.region} ${Math.round(x.openRoles * 100)}% to ${Math.round(x.share * 100)}%`).join(', ')}.</>
+            )}
+          </>}>
+          <NumberField field="efficiency" value={state.efficiency != null ? state.efficiency : 0}
+            format={v => Math.round(v * 100) + '%'}
+            parse={t => { const n = num(t); return n === null ? 0 : Math.min(100, Math.max(0, n)) / 100; }}
+            onCommit={v => update({ efficiency: v })} />
+        </Row>
         <Row label="Include months still settling"
           note={<>
             Off by default. A month counts once 31 days have passed after it ended. Turn this on to use complete months
