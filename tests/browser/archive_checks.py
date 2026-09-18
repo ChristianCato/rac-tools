@@ -9,6 +9,9 @@ app as it was before this release, for the plans made in it.
    figures did: it worked out its month list before the answer arrived, and
    months held only in the database carried no weight. The archive replays that
    deliberately, so a slow answer must give the same figures as a fast one.
+5. The header role buttons switch role (the one fix carried into the archive),
+   the Patrol figures equal those from the Plan tab's own role switch, and the
+   Workings and PDF buttons then export the Patrol plan.
 
 Run from the repo folder:  python tests/browser/archive_checks.py  [--libs DIR]
 Screenshots are written to tests/browser/out/."""
@@ -90,10 +93,54 @@ with sync_playwright() as pw:
     if guard2.writes:
         fails.append(f'the archive wrote on the slow run: {guard2.writes[:3]}')
     ctx.close()
+
+    # 5. The header role buttons (setExportRole to setRoleView, the only change
+    # to the old app's behaviour). Patrol through the Plan tab's own switch
+    # first, then through the header: the figures must be the same.
+    ctx, page, guard3, errors3 = new_page(browser, LIVE, db=copy.deepcopy(db), libs=LIBS)
+    page.goto(LIVE + 'archive/#planner/plan')
+    smr = figures(page)
+    page.locator('.main .role-switch button', has_text=re.compile('^Patrol$')).first.click()
+    patrol_tab = figures(page)
+    page.locator('.main .role-switch button', has_text=re.compile('^SMR$')).first.click()
+    figures(page)
+    page.locator('.app-header .role-switch button', has_text=re.compile('^Patrol$')).first.click()
+    page.wait_for_timeout(500)
+    active = page.locator('.app-header .role-switch button.active').inner_text().strip()
+    patrol_head = figures(page)
+    if active != 'Patrol':
+        fails.append(f'the header Patrol button did not switch role (header shows {active})')
+    if patrol_head != patrol_tab:
+        fails.append(f'Patrol through the header {patrol_head[:3]} differs from the Plan tab {patrol_tab[:3]}')
+    if patrol_tab == smr:
+        fails.append('Patrol and SMR figures are the same, so the switch was not tested')
+    saved = []
+    for label, name in (('Workings', 'archive_patrol_workings.xlsx'), ('PDF', 'archive_patrol.pdf')):
+        try:
+            with page.expect_download(timeout=60000) as dl:
+                page.locator('.app-header button', has_text=re.compile('^' + label + '$')).first.click()
+            d = dl.value
+            d.save_as(os.path.join(OUT, name))
+            saved.append(d.suggested_filename)
+        except Exception as e:
+            fails.append(f'the {label} button did not export: {str(e)[:120]}')
+    if saved and not all('Patrol' in n for n in saved):
+        fails.append(f'the exports are not the Patrol plan: {saved}')
+    page.locator('.app-header .role-switch button', has_text=re.compile('^SMR$')).first.click()
+    back = figures(page)
+    if back != smr:
+        fails.append(f'SMR figures changed after switching back: {smr[:3]} against {back[:3]}')
+    if errors3:
+        fails.append(f'page errors with the header buttons: {errors3[:3]}')
+    if guard3.writes:
+        fails.append(f'the archive wrote while switching and exporting: {guard3.writes[:3]}')
+    notes.append(f'header Patrol button: role switched, Patrol figures {", ".join(patrol_head[:3])} equal the Plan tab’s, '
+                 f'exported {", ".join(saved)}; SMR {", ".join(smr[:3])}, back to SMR {", ".join(back[:3])}')
+    ctx.close()
     browser.close()
 
 for n in notes:
     print('  ' + n)
 print('FAIL: ' + '; '.join(fails) if fails else
-      'PASS: the archive opens read-only on its own copy, writes nothing, and gives the same figures however slow the database is')
+      'PASS: the archive opens read-only on its own copy, writes nothing, gives the same figures however slow the database is, and the header role buttons switch and export Patrol')
 sys.exit(1 if fails else 0)

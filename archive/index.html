@@ -9576,7 +9576,7 @@ function App() {
             <div className="role-switch" style={{ marginRight: 10 }}>
               {ROLES.map(r => (
                 <button key={r} className={r === roleView ? 'active' : ''}
-                  onClick={() => setExportRole(r)}>{r}</button>
+                  onClick={() => setRoleView(r)}>{r}</button>
               ))}
             </div>
             <button className="btn btn-sm" style={{ marginRight: 8 }}

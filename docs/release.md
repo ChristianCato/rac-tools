@@ -39,6 +39,13 @@ database under `archive:workspace`, `archive:benchmarks` and
 `archive:hire_rates`. The new release takes that copy by itself the first time
 it opens on a live address (step 7), before it writes anything of its own.
 
+The archive is the app as it was at commit 46aaae2, with one fix to how it
+behaves: the header SMR and Patrol buttons now switch role (they called
+`setExportRole`, which did not exist, so they did nothing). It is the same fix
+as the author's commit aa01c14 on main. It lets Patrol plans be opened and
+exported from the header; no calculation changed. Everything else in the
+archive is frozen.
+
 ## Checks (Biraag, before the merge)
 
 1. **Run the checks** from the repo folder:
@@ -201,5 +208,10 @@ database so that nobody with direct access can change an issued plan
     python tools/build_archive.py
 
 It reads `tests/legacy/index_46aaae2.html`, the app exactly as it was at commit
-46aaae2, and makes the short list of changes its own comment sets out. A check
-confirms the committed file is what the script builds.
+46aaae2, and makes the short list of changes its own comment sets out: the
+archive title, heading and banner, the 46aaae2 data file, no writes, reads from
+the archive copy, no presence, the month list worked out before the database
+answers, and (since 18 September) the header role buttons calling
+`setRoleView`. A check confirms the committed file is what the script builds,
+and `tests/browser/archive_checks.py` clicks the header Patrol button and
+exports the Patrol workings and PDF.

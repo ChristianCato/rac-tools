@@ -24,6 +24,12 @@ list anyone can read:
      time (build note 2). The months-cache fix is deliberately NOT applied here
      (build note 1): it would change the figures.
   6. Presence is not read, because nobody is "in" the archive.
+  7. The header role buttons call setRoleView instead of setExportRole (user
+     decision, 18 September 2026). At 46aaae2 they called setExportRole, which
+     was never declared, so they threw and did nothing, and the header Workings
+     and PDF buttons could only export the role already showing. This is the
+     same one-word fix the app author made on main (aa01c14). It changes which
+     role is showing, never how any figure is worked out.
 
 Nothing else is touched: the engine, the exports and every screen are the code
 that produced those plans.
@@ -95,6 +101,11 @@ dataMonths();
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<Root />);""",
+    ),
+    (
+        'the header role buttons switch role',
+        '                  onClick={() => setExportRole(r)}>{r}</button>',
+        '                  onClick={() => setRoleView(r)}>{r}</button>',
     ),
     (
         'the heading says it is the archive',
