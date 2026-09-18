@@ -80,6 +80,15 @@ export default function (check, { assert }) {
       'no cost figure of RAC’s and no Hiring Lab figure in the repository';
   });
 
+  check('The check list covers every screen and export the release changed', () => {
+    const doc = readRoot('docs/check_list.md');
+    ['Plan tab', 'PDF', 'Workings', 'Assumptions tab', 'OneRAC tab', 'cost limits', 'market guide',
+      'Changelog screen', 'Mark as issued', '/archive/', 'docs/trace_guide.md', 'Not saved']
+      .forEach(t => assert(doc.includes(t), 'docs/check_list.md does not cover ' + t));
+    assert(!RAC.outputChecks.text(doc).length, 'the check list fails the output checks');
+    return 'every screen and export the release changed is in docs/check_list.md, in the order to check them';
+  });
+
   check('Release steps: the release document covers the archive copy and the checks to run', () => {
     const doc = readRoot('docs/release.md');
     ['node tests/run.mjs', 'tests/browser/save_guard.py', 'tests/browser/app_checks.py', 'tests/browser/export_checks.py',

@@ -20,10 +20,9 @@ nothing releases itself.
        RAC_EPLOY_WORKBOOK   the Eploy application report (candidate-level data)
        RAC_PACING_DIR       a folder holding the pacing exports to compare
 
-2. **Check one plan on the test link.** Open the branch's Vercel link, load a
-   saved plan, and compare the Plan tab, the PDF and the workings with what you
-   expect. The test link cannot save: it shows "Not saved" and a banner saying
-   so.
+2. **Check one plan on the test link**, using `docs/check_list.md`, which walks
+   through every screen and export the release changed and takes about an hour.
+   The test link cannot save: it shows "Not saved" and a banner saying so.
 
 3. **Keep the exports you are going to compare against.** From the live app,
    export the PDF and the workings for each saved plan that matters (at least
